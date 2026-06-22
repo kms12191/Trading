@@ -1,0 +1,25 @@
+# Backend python files
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.Python
+env/
+venv/
+.env
+.kis_token_cache.json
+
+# Frontend node files
+**/node_modules/
+**/dist/
+**/dist-ssr/
+*.local
+
+# OS & IDEs
+.DS_Store
+.vscode/
+.idea/
+*.suo
+*.ntvsca
+*.njsproj
+*.sln

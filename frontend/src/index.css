@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --color-obsidian-bg: #0F172A;
+  --color-slate-surface: #1E293B;
+  --color-institutional-blue: #0047bb;
+  --color-ai-cyan: #00e0ff;
+  
+  --font-inter: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* Base styles to apply design.md background and font defaults */
+html, body {
+  background-color: #0F172A;
+  color: #e2e2ec;
+  font-family: 'Inter', sans-serif;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+/* Custom Glassmorphism utility for AI elements */
+.ai-glass {
+  background: rgba(0, 224, 255, 0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 224, 255, 0.12);
+}
+
+/* Custom Scrollbar for terminal density feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0F172A;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
