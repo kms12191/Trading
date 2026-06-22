@@ -134,6 +134,7 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [userId, setUserId] = useState('')
+  const [userProfile, setUserProfile] = useState(null) // 유저 프로필 상세 정보 상태 추가
   
   // 1단계: 연락처/닉네임 추가정보 모달 플래그
   const [showAdditionalInfo, setShowAdditionalInfo] = useState(false)
@@ -153,7 +154,7 @@ export default function App() {
   const [surveyAnswers, setSurveyAnswers] = useState({}) // { q1: score, q2: score, ... }
   const [surveyLoading, setSurveyLoading] = useState(false)
 
-  // Supabase 인증 세션 및 프로필 유효성 실시간 동기화
+  // Supabase 인증 세션 및 프로필 유효성 실시간 동기화 (한글 주석 준수)
   useEffect(() => {
     const checkUserSession = async (session) => {
       if (session) {
@@ -164,9 +165,13 @@ export default function App() {
         try {
           const { data, error } = await supabase
             .from('profiles')
-            .select('nickname, phone, invest_type')
+            .select('nickname, phone, invest_type, invest_score') // invest_score 추가 조회
             .eq('id', session.user.id)
             .maybeSingle()
+
+          if (data) {
+            setUserProfile(data) // 프로필 상태 보존
+          }
 
           // 1. 닉네임과 전화번호가 없는 경우 ➡️ 추가 정보 등록 모달 강제 노출
           if (!data || !data.nickname || !data.phone) {
@@ -194,6 +199,7 @@ export default function App() {
         setIsLoggedIn(false)
         setUserEmail('')
         setUserId('')
+        setUserProfile(null)
         setShowAdditionalInfo(false)
         setShowSurvey(false)
       }
@@ -222,6 +228,7 @@ export default function App() {
       setIsLoggedIn(false)
       setUserEmail('')
       setUserId('')
+      setUserProfile(null)
       setShowAdditionalInfo(false)
       setShowSurvey(false)
       // 설문 데이터 초기화
@@ -498,6 +505,7 @@ export default function App() {
               isLoggedIn={isLoggedIn} 
               userEmail={userEmail} 
               handleLogout={handleLogout} 
+              userProfile={userProfile} 
             />
           } 
         />
