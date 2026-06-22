@@ -185,11 +185,11 @@ export default function Login() {
       </div>
 
       {/* 우측 패널: 배경 이미지 및 상태 카드 */}
-      <div className="hidden lg:block lg:w-7/12 relative bg-[#1d1f27]">
+      <div className="hidden lg:block lg:w-7/12 relative bg-[#1d1f27] overflow-hidden">
         {/* 블렌딩을 위한 오버레이 그라디언트 */}
         <div className="absolute inset-0 bg-gradient-to-r from-[#0c0e15] to-transparent z-10 w-32"></div>
         <div 
-          className="absolute inset-0 w-full h-full bg-cover bg-center opacity-40 mix-blend-screen" 
+          className="absolute inset-0 w-full h-full bg-cover bg-center opacity-40 mix-blend-screen animate-[spin_180s_linear_infinite] scale-[1.5]" 
           style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuApLxgfDjYyQecXJZuWNXU9Ga_b7gYY3LPueCaxOazI8GjN9-RO0LWVrVv7c7sp6cBStFrPAWkr9-CSXMBCaIeUFGuwrKINONZTSbMklhQNkkUqTXSVcQctVEG5h3WMCb5gEGhygwwyk54ai7IDnqpk6FWQ7Zub8IV6OpayDku7z1TcG4f-c6Fb2k28tAyhbifVOFUdg195Z1r9H5Hra-t3ZQcY33i0X-18iU3i-igI384E5nJdCSKyMVw6WkLYNHbGZxsBTIJ3mTE')" }}
         ></div>
         
