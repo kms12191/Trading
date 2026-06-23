@@ -8,16 +8,18 @@
 
 ## 1. 프로젝트 핵심 맥락 (Project Context)
 
-* **정의**: Toss증권 Open API를 메인 주식 브로커로 사용하여 국내·미국 주식의 시세, 계좌, 보유자산, 주문 제안, 주문 실행 승인 흐름을 단일 챗봇 및 대시보드로 통합 관리하는 AI 기반 트레이딩 보조 시스템입니다.
+* **정의**: Toss증권 Open API 및 코인원 API를 주요 거래소로 사용하여 국내·미국 주식과 가상자산의 시세, 계좌, 보유자산, 주문 제안, 주문 실행 승인 흐름을 단일 챗봇 및 대시보드로 통합 관리하는 AI 기반 트레이딩 보조 시스템입니다.
 * **브로커 우선순위**:
-  * **메인**: Toss증권 Open API (`TOSS`)
-  * **보류/레거시**: 한국투자증권 API (`KIS`)
-  * **후순위 확장**: 업비트 API (`UPBIT`, 가상자산 및 페이퍼 트레이딩 확장용)
+  * **주식 메인**: Toss증권 Open API (`TOSS`)
+  * **주식 보류/레거시**: 한국투자증권 API (`KIS`)
+  * **가상자산 메인**: 코인원 API (`COINONE`)
+  * **가상자산 추후 확장**: 바이낸스 API (`BINANCE`)
 * **사용자 통제 원칙 (Human-in-the-Loop)**: AI가 시장을 독자적으로 판단하여 즉흥적으로 실거래 주문을 실행하는 것은 원천적으로 차단합니다.
   * 일반 매매 주문: **챗봇의 제안 -> 사전 검증 및 시뮬레이션 보고 -> 사용자의 명시적 승인 -> 실행**
   * 자동 트레이딩(Phase 4): 사용자가 자연어로 설정한 **수치적 조건식(예: 익절 +5%, 손절 -3%)만** 백그라운드 워커가 기계적으로 감시 및 실행합니다.
 * **독립 격리 환경**: 실거래 자금이 움직이는 백엔드(Flask) 및 DB(Supabase)는 기존 웹 서비스 인프라와 완전히 분리하여 운영합니다.
 * **현재 구현 기준**: 현재 저장소는 Vite React 프론트엔드, Flask 백엔드, Supabase DB 구조입니다. 문서와 코드 변경 시 실제 구현 상태를 기준으로 업데이트하며, 아직 구현되지 않은 모듈은 목표 구조로만 명시합니다.
+
 
 ---
 
@@ -27,40 +29,42 @@
   [React Frontend] (Vite + Tailwind CSS)
          |
          +-- (1) Supabase SDK: 사용자 인증(Auth) & 승인 상태 실시간 구독(Realtime)
-         +-- (2) REST API: LLM 챗봇 질의, Toss 시세/계좌 조회, 수동 매매 승인, 자동 매매 규칙 등록
+         +-- (2) REST API: LLM 챗봇 질의, Toss/코인원 시세/계좌 조회, 수동 매매 승인, 자동 매매 규칙 등록
          |
          v
   [Flask Backend] (API Gateway & Worker)
          |
-         +-- [utils/crypto_helper.py]    : Toss client_id/client_secret 등 민감정보 AES-256 양방향 암호화
-         +-- [services/toss_client.py]   : Toss Open API 메인 클라이언트
-         +-- [services/kis_client.py]    : KIS 레거시/보류 클라이언트
+         +-- [utils/crypto_helper.py]    : API 크리덴셜 민감정보 AES-256 양방향 암호화
+         +-- [services/toss_client.py]   : Toss Open API 메인 주식 클라이언트
+         +-- [services/kis_client.py]    : KIS 레거시/보류 주식 클라이언트
+         +-- [services/coinone_client.py]: 코인원 메인 가상자산 클라이언트
+         +-- [services/binance_client.py]: 바이낸스 확장 가상자산 클라이언트
          +-- [services/agent.py]         : LangChain 활용 LLM Tool-calling 오케스트레이터
          +-- [services/trading_engine.py]: Background Thread Pool 기반 조건 감시 엔진
          |
          v
-  [Supabase DB] & [External APIs] (Toss Open API / Tavily News API / Upbit API / KIS API)
+  [Supabase DB] & [External APIs] (Toss / Coinone / Binance / Tavily News / KIS API)
 ```
 
 ### 2.1 에이전트 코딩 시 준수할 통신 규칙
 
 1. **상태 동기화**: 매매 제안의 생성은 Flask 백엔드가 수행하여 Supabase `trade_proposals` 테이블에 `PENDING`으로 인서트하고, React 프론트엔드는 Supabase Realtime 구독 기능을 통해 이 이벤트를 캐치하여 챗봇 창에 승인 카드를 즉시 렌더링해야 합니다.
-2. **Toss 인증 흐름**:
+2. **Toss 인증 및 계좌 흐름**:
    * Toss증권 Open API는 OAuth 2.0 Client Credentials Grant 방식을 사용합니다.
    * `/oauth2/token` 엔드포인트는 `Authorization` 헤더 없이 호출하며, 요청 본문은 `application/x-www-form-urlencoded` 형식입니다.
-   * `client_id`, `client_secret`을 이용해 발급받은 토큰은 이후 모든 Toss API 요청의 `Authorization: Bearer {access_token}` 헤더에 사용합니다.
-   * Toss 토큰 응답의 `expires_in`은 문서 기준 86400초이며, refresh token은 제공되지 않습니다.
-   * 동일 client에 대해 유효한 access token은 1개이므로 재발급 시 기존 토큰 무효화 가능성을 고려해 서버 단일 캐시 계층에서 관리합니다.
-3. **Toss 계좌 흐름**:
-   * 계좌 기반 API 호출 전 `GET /api/v1/accounts`를 먼저 호출해 `accountSeq`를 확보합니다.
-   * 보유자산, 주문, 주문 조회, 매수 가능 금액, 매도 가능 수량, 수수료 API는 `X-Tossinvest-Account: {accountSeq}` 헤더를 반드시 포함합니다.
-4. **API Key 보안**:
-   * Toss `client_id`, `client_secret`, access token, 계좌 식별 정보는 어떠한 경우에도 프론트엔드로 전달하지 않습니다.
-   * 사용자 또는 서버별 Toss 인증 정보는 평문 상태로 DB에 저장하지 않고 반드시 백엔드의 대칭키(AES-256) 암호화 기능을 거쳐 저장합니다.
-5. **에러 응답 처리**:
-   * Toss 일반 API 실패 응답은 `error.requestId`, `error.code`, `error.message`, `error.data` 구조를 기준으로 처리합니다.
-   * `/oauth2/token` 실패 응답은 OAuth2 표준 형식인 `error`, `error_description` 기준으로 별도 처리합니다.
-   * 주문 실패 시 `trade_proposals.status`를 `FAILED`로 변경하고 `failure_reason`에 Toss `requestId`, `code`, `message`를 포함합니다.
+   * 계좌 기반 API 호출 전 `GET /api/v1/accounts`를 먼저 호출해 `accountSeq`를 확보한 후, 이후 모든 보유자산 및 주문 관련 API에 `X-Tossinvest-Account: {accountSeq}` 헤더를 필수 전송합니다.
+3. **코인원(Coinone) 인증 및 통신 규칙**:
+   * 코인원 Private API v2.1은 `Access Token`과 `Secret Key`를 사용한 HMAC-SHA512 서명 방식을 사용합니다.
+   * 요청 본문 JSON 데이터를 Base64 인코딩하여 `X-COINONE-PAYLOAD` 헤더에 담고, 이를 Secret Key로 HMAC-SHA512 서명(Hex 소문자 변환)을 수행해 `X-COINONE-SIGNATURE` 헤더에 담아 전송합니다.
+   * nonce값은 매 요청마다 중복되지 않는 고유한 UUID string 형식을 포함시킵니다.
+4. **바이낸스(Binance) 인증 및 통신 규칙**:
+   * 바이낸스는 `API Key`와 `Secret Key`를 사용하며, 서명된 요청에는 HMAC-SHA256 알고리즘을 적용한 `signature` 쿼리 파라미터가 요구됩니다.
+   * 모든 요청 헤더에는 `X-MBX-APIKEY: {api_key}`를 필수로 전송합니다.
+5. **API Key 보안**:
+   * Toss, KIS, 코인원, 바이낸스의 모든 API 비밀 정보(Secret Key, AppSecret 등)는 프론트엔드로 절대 전달하지 않습니다.
+   * 사용자의 API 인증 정보는 DB에 평문으로 저장하지 않고, 반드시 백엔드 내부의 대칭키(AES-256 GCM) 암호화 기능을 거쳐 저장합니다.
+6. **에러 응답 처리**:
+   * 거래소 API 에러 시 `trade_proposals.status`를 `FAILED`로 변경하고 `failure_reason`에 에러 정보와 에러 코드를 기록하여 추적 가능하게 관리합니다.
 
 ---
 
@@ -69,8 +73,9 @@
 AI 에이전트는 데이터 변경이나 조회 쿼리를 작성할 때 다음 핵심 테이블 구조를 준수해야 합니다. 자세한 명세는 [database_specification.md](database_specification.md)를 참고하십시오. UI/UX 구현 시 [design.md](design.md)에 기술된 스타일 규격을 준수해야 합니다.
 
 * `profiles`: 사용자 기본 정보 (Supabase Auth와 auth.uid() 연동)
-* `user_api_keys`: Toss/KIS/Upbit 인증 정보를 암호화 저장합니다. Toss는 `client_id`, `client_secret`, `accountSeq` 중심으로 관리합니다.
+* `user_api_keys`: Toss/KIS/Coinone/Binance 인증 정보를 암호화 저장합니다. Toss는 `client_id`, `client_secret`, `accountSeq` 중심으로 관리합니다.
 * `paper_portfolios`: 페이퍼 트레이딩 및 시뮬레이션용 가상 잔고와 보유 종목을 저장합니다.
+
 * `trade_proposals`: 챗봇이 제안하고 사용자의 승인을 기다리는 주문 내역입니다.
 * `auto_trading_rules`: 사용자가 정의한 실시간 조건 감시 규칙 및 활성화 여부를 저장합니다.
 * `chat_history`: 사용자와 AI 트레이딩 챗봇 간의 대화 이력을 저장합니다.
@@ -127,10 +132,10 @@ AI 에이전트는 데이터 변경이나 조회 쿼리를 작성할 때 다음 
 ## 5. AI 에이전트를 위한 코드 구현 가이드라인
 
 1. **거래소 추상화 클래스 준수**: 새로운 브로커나 자산이 추가될 경우 `ExchangeClient` 추상 클래스를 상속받아 `get_price`, `get_balance`, `place_order`, `get_order_status`를 오버라이딩하여 구현하십시오. Toss 금액 주문(`orderAmount`)처럼 기존 인터페이스로 표현이 부족한 경우, 호출부와 선언부를 함께 수정하고 전수 검사하십시오.
-2. **Toss 메인 클라이언트 우선 구현**:
+2. **Toss 및 코인원/바이낸스 클라이언트 우선 구현**:
    * 신규 주식 기능은 `toss_client.py`를 우선 구현 대상으로 삼습니다.
    * `kis_client.py`는 기존 구현이 있으나 레거시/보류 클라이언트로 취급합니다.
-   * `upbit_client.py`는 가상자산 확장 시점에 구현합니다.
+   * `coinone_client.py`를 가상자산 메인 클라이언트로 신설하고, `binance_client.py`를 가상자산 확장 클라이언트로 구현합니다.
 3. **LangChain 에이전트의 툴(Tool) 정의**:
    * 챗봇이 시세를 묻거나 뉴스 흐름 분석을 요청받을 때, `get_price`, `get_holdings`, `search_news`, `get_stock_warnings`, `get_market_calendar` 도구를 호출할 수 있도록 명확한 Type Hint와 docstring을 명시하여 LangChain 에이전트에 바인딩하십시오.
 4. **오류 대응 및 로깅**: Toss API의 응답 지연이나 에러 발생 시, `trade_proposals` 테이블의 `status`를 `FAILED`로 변경하고 `failure_reason` 컬럼에 반드시 원인을 상세히 기록하도록 코딩하십시오.
@@ -138,3 +143,35 @@ AI 에이전트는 데이터 변경이나 조회 쿼리를 작성할 때 다음 
 6. **Dead Code 지양**: `console.log`, 사용되지 않는 라이브러리 임포트, 임시 주석 처리된 코드는 발견 즉시 삭제하고 정돈된 프로덕션 품질의 코드를 생산하십시오.
 7. **주석 한글화 원칙**: 코드 내부의 설명 주석 및 함수/클래스 개발 관련 설명글은 반드시 한국어로 작성하여 직관적인 코드 가독성을 보장하십시오. 영문 주석은 외부 API 필드명이나 표준 용어 인용이 필요한 경우에만 사용합니다.
 8. **관련 문서 최신화**: 테이블 구조 신설/변경, 라우트 신설, 신규 컴포넌트 추가, 디렉토리 구조 변경 등 작업이 성공적으로 완료되면, 실제 코드를 바탕으로 연관된 프로젝트 사양 문서(예: `database_specification.md`, `project_structure.md` 등)를 누락 없이 최신 정보로 갱신하여 문서 일치성을 유지하십시오.
+
+---
+
+## 6. 거래소 간 자산 송금 및 재정거래 안전 규칙 (Arbitrage & Transfer)
+
+코인원(COINONE)에서 리플(XRP) 등의 가상자산을 매수하여 바이낸스(BINANCE)로 전송하고 즉각 매도하여 차익을 거두는 재정거래(Arbitrage) 파이프라인을 API로 구현할 때, 다음의 보안 및 안전 규정을 **반드시 최우선적으로 준수**해야 합니다.
+
+### 6.1 규제 및 인증 보안 제약 조건
+
+1. **출금 지갑 주소 화이트리스트 사전 등록 강제**:
+   * 대한민국 가상자산 트래블룰(Travel Rule) 규제에 따라, 임의의 주소로의 송금은 차단됩니다.
+   * 사용자는 코인원 공식 웹/앱에서 바이낸스의 본인 명의 리플 지갑 주소 및 데스티네이션 태그(Destination Tag)를 **사전에 출금 화이트리스트 주소로 반드시 등록**해 두어야 합니다.
+   * API 구현 시, 사전에 등록 완료된 화이트리스트 주소로만 출금 요청(`POST /v2.1/account/withdraw/coin`)을 날리도록 인터페이스를 설계해야 합니다.
+2. **API Key 권한 및 2차 인증 대응**:
+   * 코인원 API를 통한 출금 기능을 활성화하려면, 발급된 API Key에 **'출금(Withdraw)'** 권한이 허용되어 있어야 합니다.
+   * 2차 인증(OTP, PIN 번호 등) 프로세스가 API 흐름 내에 결합될 경우, 이를 자동화하거나 우회하려 하지 말고 사용자에게 명시적으로 PIN 입력을 요구하는 등의 검증 단계를 프론트엔드와 조율하여 구현하십시오.
+3. **24시간 원화 입금 후 출금 제한 예외 처리**:
+   * 국내 가상자산 거래소의 금융사고 방지 규칙에 따라, 원화(KRW) 입금 후 24시간 동안은 해당 자산 규모만큼 가상자산의 출금이 제한됩니다.
+   * 백엔드는 출금 API 호출 전 코인원 자산 현황(`GET /v2.1/account/balance/all`)을 조회하여 **'출금 가능 잔고(Available Balance)'**가 주문액보다 큰지 검증을 선행해야 합니다.
+
+### 6.2 전송 모니터링 및 주문 안정성 (Human-in-the-Loop)
+
+1. **송금 승인 프로세스 수동 확인 필터 적용**:
+   * 시스템이 코인원에서 리플 매수를 실행한 후, 바이낸스로의 실제 자산 이동(출금) 단계로 넘어갈 때는 **절대 백그라운드에서 독자적으로 자동 송금을 수행해서는 안 됩니다.**
+   * 반드시 Supabase `trade_proposals`에 송금 제안 카드를 생성하고, 사용자가 프론트엔드 화면에서 **최종 승인 버튼을 명시적으로 눌렀을 때만** 코인원 출금 API를 기동해야 합니다.
+2. **XRP Destination Tag 필수 유효성 검사**:
+   * 리플 전송 시 Destination Tag 누락 혹은 오기입으로 인한 자산 분실(미아) 사고를 막기 위해, 출금 페이로드 생성 시 `destination_tag`가 양의 정수로 정확히 포함되어 있는지 정규식 및 타입 검증을 강제하십시오.
+3. **바이낸스 입금 모니터링 및 실시간 폴링**:
+   * 송금이 개시되면 바이낸스의 입금 내역 확인 API(`GET /sapi/v1/capital/deposit/hisrec`)를 주기적으로 폴링(30초~1분 간격)하여, 입금 상태가 `Success`로 확인되는 순간 즉시 다음 단계인 매도 주문 트리거로 넘어가도록 비동기 이벤트를 작성하십시오.
+4. **전송 지연 시 세일 슬리피지(Slippage) 방어**:
+   * 블록체인 전송 도중(일반적으로 3~5분 소요) 해외 마켓의 가격 급락 리스크를 방어하기 위해, 바이낸스 입금이 완료된 순간 실시간 시세를 확인하여 코인원 매수 단가 대비 손실이 서비스 설정 한도(예: -1.5%)를 초과할 경우 매도를 보류하고 사용자에게 알리는 슬리피지 안전 장치를 마련하십시오.
+

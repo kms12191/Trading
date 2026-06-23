@@ -2,7 +2,7 @@
 
 본 문서는 **Toss증권 Open API를 메인 주식 브로커로 사용하는 AI 트레이딩 챗봇 시스템**의 Supabase 데이터베이스 물리 스키마 명세와 ERD 구조를 정리한 산출물입니다.
 
-현재 저장소의 기존 스키마는 KIS와 Upbit 기준으로 작성되어 있습니다. Toss 전환 이후 목표 스키마는 `TOSS`를 메인 값으로 추가하고, KIS는 레거시/보류, Upbit는 가상자산 확장용으로 유지하는 방향입니다. 본 문서는 목표 구조를 설명하며, 실제 DB 반영은 별도 Supabase 마이그레이션으로 수행해야 합니다.
+현재 저장소의 기존 스키마는 KIS와 Upbit 기준이었으나, 코인원(COINONE) 및 바이낸스(BINANCE)를 도입하고 업비트(UPBIT)는 배제합니다. 본 문서는 코인원과 바이낸스를 반영한 최종 목표 구조를 설명하며, 실제 DB 반영은 별도 Supabase 마이그레이션으로 수행해야 합니다.
 
 ## 1. 데이터베이스 ERD (Mermaid)
 
@@ -28,7 +28,7 @@ erDiagram
     user_api_keys {
         uuid id PK "기본키"
         uuid user_id FK "profiles(id) 참조"
-        string exchange "브로커/거래소 (TOSS | UPBIT | KIS)"
+        string exchange "브로커/거래소 (TOSS | COINONE | BINANCE | KIS)"
         string encrypted_access_key "암호화된 Access Key 또는 Toss client_id"
         string encrypted_secret_key "암호화된 Secret Key 또는 Toss client_secret"
         string toss_account_seq "Toss accountSeq"
@@ -61,7 +61,7 @@ erDiagram
     trade_proposals {
         uuid id PK "기본키"
         uuid user_id FK "profiles(id) 참조"
-        string exchange "브로커/거래소 (TOSS | UPBIT | KIS)"
+        string exchange "브로커/거래소 (TOSS | COINONE | BINANCE | KIS)"
         string asset_type "자산 종류 (CRYPTO | STOCK)"
         string ticker "내부 종목코드"
         string symbol "Toss API symbol"
@@ -83,7 +83,7 @@ erDiagram
     auto_trading_rules {
         uuid id PK "기본키"
         uuid user_id FK "profiles(id) 참조"
-        string exchange "브로커/거래소 (TOSS | UPBIT | KIS)"
+        string exchange "브로커/거래소 (TOSS | COINONE | BINANCE | KIS)"
         string asset_type "자산 종류 (CRYPTO | STOCK)"
         string ticker "내부 감시 종목코드"
         string symbol "Toss API symbol"
@@ -110,7 +110,8 @@ erDiagram
 | :--- | :--- | :--- |
 | `TOSS` | Toss증권 Open API. 국내·미국 주식 메인 브로커 | 메인 |
 | `KIS` | 한국투자증권 API | 레거시/보류 |
-| `UPBIT` | 업비트 API. 가상자산 확장 또는 페이퍼 트레이딩 | 후순위 확장 |
+| `COINONE` | 코인원 API. 메인 가상자산 브로커 | 메인 가상자산 |
+| `BINANCE` | 바이낸스 API. 글로벌 가상자산 확장 브로커 | 확장 가상자산 |
 
 ### 2.2 Toss 용어 매핑
 
@@ -152,21 +153,21 @@ erDiagram
 
 ### 3.2 `user_api_keys` (브로커/거래소 인증 정보)
 
-* **설명**: 사용자가 등록한 Toss, KIS, Upbit 인증 크리덴셜을 양방향 암호화(AES-256)하여 저장합니다.
+* **설명**: 사용자가 등록한 Toss, KIS, 코인원, 바이낸스 인증 크리덴셜을 양방향 암호화(AES-256)하여 저장합니다.
 * **Toss 기준**:
   * `encrypted_access_key`에는 Toss `client_id`를 암호화하여 저장합니다.
   * `encrypted_secret_key`에는 Toss `client_secret`을 암호화하여 저장합니다.
   * `toss_account_seq`는 `GET /api/v1/accounts` 응답의 `accountSeq`를 저장합니다.
   * `toss_account_no`는 계좌 식별 표시용으로만 사용하며, 프론트엔드에는 마스킹된 값만 노출합니다.
 * **제약 조건 목표**:
-  * `exchange`는 `TOSS`, `UPBIT`, `KIS` 중 하나여야 합니다.
+  * `exchange`는 `TOSS`, `COINONE`, `BINANCE`, `KIS` 중 하나여야 합니다.
   * 동일 사용자(`user_id`)가 같은 브로커(`exchange`)와 환경(`broker_env`)에 대해 중복 인증 정보를 만들지 않도록 유니크 제약을 둡니다.
 
 | 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `id` | `UUID` | PK, DEFAULT gen_random_uuid() | API 키 레코드 고유 ID |
 | `user_id` | `UUID` | FK, References `profiles(id)` | 소유자 고유 ID |
-| `exchange` | `TEXT` | CHECK (exchange IN ('TOSS', 'UPBIT', 'KIS')), NOT NULL | 브로커/거래소 구분 |
+| `exchange` | `TEXT` | CHECK (exchange IN ('TOSS', 'COINONE', 'BINANCE', 'KIS')), NOT NULL | 브로커/거래소 구분 |
 | `encrypted_access_key` | `TEXT` | NOT NULL | AES-256 암호화된 Access Key 또는 Toss client_id |
 | `encrypted_secret_key` | `TEXT` | NOT NULL | AES-256 암호화된 Secret Key 또는 Toss client_secret |
 | `toss_account_seq` | `TEXT` | - | Toss 계좌 기반 API의 `X-Tossinvest-Account` 헤더 값 |
@@ -223,7 +224,7 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | `id` | `UUID` | PK, DEFAULT gen_random_uuid() | 제안 고유 ID |
 | `user_id` | `UUID` | FK, References `profiles(id)` | 대상 사용자 ID |
-| `exchange` | `TEXT` | CHECK (exchange IN ('TOSS', 'UPBIT', 'KIS')), NOT NULL | 브로커/거래소 구분 |
+| `exchange` | `TEXT` | CHECK (exchange IN ('TOSS', 'COINONE', 'BINANCE', 'KIS')), NOT NULL | 브로커/거래소 구분 |
 | `asset_type` | `TEXT` | CHECK (asset_type IN ('CRYPTO', 'STOCK')), NOT NULL | 자산 유형 |
 | `ticker` | `TEXT` | NOT NULL | 내부 종목 코드 |
 | `symbol` | `TEXT` | - | Toss API 호출용 종목 심볼 |
@@ -254,7 +255,7 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | `id` | `UUID` | PK, DEFAULT gen_random_uuid() | 규칙 고유 ID |
 | `user_id` | `UUID` | FK, References `profiles(id)` | 소유자 고유 ID |
-| `exchange` | `TEXT` | CHECK (exchange IN ('TOSS', 'UPBIT', 'KIS')), NOT NULL | 브로커/거래소 구분 |
+| `exchange` | `TEXT` | CHECK (exchange IN ('TOSS', 'COINONE', 'BINANCE', 'KIS')), NOT NULL | 브로커/거래소 구분 |
 | `asset_type` | `TEXT` | CHECK (asset_type IN ('CRYPTO', 'STOCK')), NOT NULL | 자산 유형 |
 | `ticker` | `TEXT` | NOT NULL | 내부 감시 종목코드 |
 | `symbol` | `TEXT` | - | Toss API 호출용 종목 심볼 |
@@ -269,17 +270,16 @@ erDiagram
 
 ---
 
-## 4. Toss 전환 마이그레이션 계획
+## 4. Toss 및 가상자산 마이그레이션 적용 완료 내역
 
-문서 기준 목표 스키마를 실제 DB에 반영하려면 별도 마이그레이션이 필요합니다.
+목표 스키마를 실제 DB에 적용하기 위해 다음 마이그레이션이 반영되었습니다.
 
-1. `exchange` CHECK 제약을 `TOSS`, `UPBIT`, `KIS` 허용으로 변경합니다.
-2. `user_api_keys`에 `toss_account_seq`, `toss_account_no`, `broker_env` 컬럼을 추가합니다.
-3. 기존 `kis_env`가 실제 DB에 존재하는 경우 `broker_env`로 이전하거나 레거시 필드로 유지할지 결정합니다.
-4. `trade_proposals`에 `symbol`, `order_amount`, `time_in_force`, `market_country`, `currency`, `client_order_id`, `external_order_id` 컬럼을 추가합니다.
-5. `auto_trading_rules`에 `symbol`, `market_country` 컬럼을 추가합니다.
-6. `client_order_id`는 멱등성 방어를 위해 유니크 인덱스를 생성합니다. 단, NULL 중복 허용 정책을 고려해 Postgres 기본 UNIQUE 동작 또는 부분 인덱스를 선택합니다.
-7. 모든 신규 컬럼 추가 후 RLS 정책이 기존 `user_id = auth.uid()` 소유권 모델을 유지하는지 검증합니다.
+1. **멀티 브로커 지원 마이그레이션 (`20260623090000_update_user_api_keys_for_multi_broker.sql`)**
+   - `user_api_keys` 테이블에 `toss_account_seq`, `toss_account_no`, `broker_env` 컬럼을 추가하여 Toss 연동을 지원하도록 구성했습니다.
+   - `trade_proposals` 테이블에 `symbol`, `order_amount`, `time_in_force`, `market_country`, `currency`, `client_order_id`, `external_order_id` 컬럼을 추가하고, `client_order_id`에 대한 UNIQUE 제약을 부여해 주문 멱등성을 보장하도록 구성했습니다.
+   - `auto_trading_rules` 테이블에 `symbol`, `market_country` 컬럼을 추가했습니다.
+2. **코인원 및 바이낸스 대체 마이그레이션 (`20260623100000_replace_upbit_with_coinone_binance.sql`)**
+   - 가상자산 거래소를 업비트(`UPBIT`)에서 코인원(`COINONE`) 및 바이낸스(`BINANCE`)로 변경함에 따라 `user_api_keys`, `trade_proposals`, `auto_trading_rules` 테이블의 `exchange` CHECK 제약을 `('COINONE', 'BINANCE', 'KIS', 'TOSS')`만 허용하도록 전면 교체 적용 완료했습니다.
 
 ---
 
@@ -292,3 +292,59 @@ erDiagram
 * 백엔드만 암호화된 인증 정보를 복호화할 수 있으며, 복호화된 값은 로그에 기록하지 않습니다.
 * `trade_proposals.failure_reason`에는 민감정보를 저장하지 않고 Toss `requestId`, 에러 코드, 사용자 노출 가능한 메시지만 기록합니다.
 * 데이터베이스 단에서 사용자별 행을 완전히 격리하여 멀티 테넌시 안정성을 보장합니다.
+
+---
+
+## 6. 향후 토큰 캐시 DB화 및 Upsert 설계 로드맵
+
+현재 로컬 파일 시스템 캐시(`.toss_token_cache.json` 및 `.kis_token_cache.json`)로 관리 중인 OAuth 2.0 Access Token은 향후 클라우드 및 다중 서버(Scale-out) 배포 시 동기화와 영속성 확보를 위해 다음과 같은 DB 기반의 **Upsert(업서트) 패턴**으로 전환하여 고도화합니다.
+
+### 6.1 목표 스키마 설계 (`token_caches` 신설)
+
+```mermaid
+erDiagram
+    token_caches {
+        uuid id PK "기본키"
+        string exchange "거래소 (TOSS | KIS)"
+        string broker_env "브로커 환경 (MOCK | REAL)"
+        string encrypted_access_token "암호화된 Access Token"
+        timestamp expired_at "토큰 만료 일시"
+        timestamp updated_at "갱신 일시"
+    }
+```
+
+#### 테이블 명세 (`token_caches`)
+
+| 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, DEFAULT gen_random_uuid() | 고유 식별자 |
+| `exchange` | `TEXT` | CHECK (exchange IN ('TOSS', 'KIS')), NOT NULL | 거래소 구분 (현재 토큰 기반 거래소만 대상) |
+| `broker_env` | `TEXT` | CHECK (broker_env IN ('MOCK', 'REAL')), DEFAULT 'REAL' | 거래 환경 구분 |
+| `encrypted_access_token` | `TEXT` | NOT NULL | AES-256 GCM으로 양방향 암호화된 토큰 원문 |
+| `expired_at` | `TIMESTAMPTZ` | NOT NULL | 토큰의 실제 유효기간 만료 시각 |
+| `updated_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 마지막 업데이트 시각 |
+
+* **유니크 제약 (Unique Constraint)**:
+  * `UNIQUE (exchange, broker_env)` 제약을 생성하여, 동일 거래소의 동일 실행 환경에 대해서는 **항상 테이블 내에 오직 1개의 행만 유지**되도록 제약합니다.
+
+### 6.2 데이터 수명 주기 및 Upsert 동작 흐름
+
+1. **토큰 조회**:
+   * 백엔드 API 요청 시 `token_caches`에서 `exchange`와 `broker_env`에 매칭되는 데이터를 SELECT합니다.
+   * `expired_at`이 현재 시간보다 전이면 만료된 것으로 판정하여 재발급 프로세스를 시작합니다.
+2. **토큰 갱신 및 Upsert 실행**:
+   * 토큰이 만료되었거나 없을 경우, 해당 거래소 API를 통해 새로운 토큰을 발급받고 `CryptoHelper`로 암호화합니다.
+   * 저장 시 Postgres의 `ON CONFLICT (exchange, broker_env) DO UPDATE` 구문(Upsert)을 사용하여 기존 토큰 레코드를 덮어씁니다:
+     ```sql
+     INSERT INTO public.token_caches (exchange, broker_env, encrypted_access_token, expired_at, updated_at)
+     VALUES ('TOSS', 'REAL', 'encrypted_value_here', '2026-06-24 14:24:31+09', now())
+     ON CONFLICT (exchange, broker_env)
+     DO UPDATE SET 
+       encrypted_access_token = EXCLUDED.encrypted_access_token,
+       expired_at = EXCLUDED.expired_at,
+       updated_at = EXCLUDED.updated_at;
+     ```
+   * 이 방식을 통해 DB 내 데이터가 무한히 누적되는 문제를 방지하고, 별도의 클린업 쿼리 없이 **테이블 전체 크기를 최소화(최대 4개 행 이내)**하여 극단적인 쿼리 성능 향상을 꾀합니다.
+3. **로컬 파일 클린업**:
+   * DB 캐시 테이블 원격 배포 및 코드 적용 완료 시점 즉시, 로컬 디렉토리의 `.toss_token_cache.json` 및 `.kis_token_cache.json` 파일을 **영구 삭제(rm)**하고 `.gitignore` 항목을 정리합니다.
+

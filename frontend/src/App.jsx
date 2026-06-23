@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import News from './pages/News'
+import Settings from './pages/Settings'
 
 // 10문항 투자 성향 설문 데이터 정의 (한글 주석 준수)
 const SURVEY_QUESTIONS = [
@@ -517,6 +518,17 @@ export default function App() {
               isLoggedIn={isLoggedIn} 
               userEmail={userEmail} 
               handleLogout={handleLogout} 
+            />
+          } 
+        />
+        <Route 
+          path="/settings" 
+          element={
+            <Settings 
+              isLoggedIn={isLoggedIn} 
+              userEmail={userEmail} 
+              handleLogout={handleLogout}
+              userProfile={userProfile}
             />
           } 
         />

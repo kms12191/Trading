@@ -25,9 +25,11 @@ teamproject/
 │   ├── services/                 # 비즈니스 로직 서비스 레이어
 │   │   ├── __init__.py           # 패키지 초기화 파일 (추가 예정)
 │   │   ├── exchange_client.py    # 거래소/브로커 추상화 부모 클래스 (현재 구현됨)
-│   │   ├── toss_client.py        # Toss Open API 메인 클라이언트 (추가 예정)
-│   │   ├── kis_client.py         # 한국투자증권 레거시/보류 클라이언트 (현재 구현됨)
-│   │   ├── upbit_client.py       # 업비트 가상자산 확장 클라이언트 (추가 예정)
+│   │   ├── toss_client.py        # Toss Open API 메인 주식 클라이언트 (현재 구현됨)
+│   │   ├── kis_client.py         # 한국투자증권 레거시/보류 주식 클라이언트 (현재 구현됨)
+│   │   ├── coinone_client.py     # 코인원 가상자산 메인 클라이언트 (현재 구현됨)
+│   │   ├── binance_client.py     # 바이낸스 가상자산 확장 클라이언트 (현재 구현됨)
+│   │   ├── upbit_client.py       # 업비트 가상자산 클라이언트 (레거시/비활성화됨)
 │   │   ├── news_repository.py    # 뉴스 데이터 조회/저장 서비스 (현재 구현됨)
 │   │   ├── news_ingest.py        # 뉴스 수집 서비스 (현재 구현됨)
 │   │   ├── agent.py              # LLM & LangChain 챗봇 오케스트레이터 (추가 예정)
@@ -83,17 +85,21 @@ teamproject/
 
 * **`app.py` (API Gateway)**:
   * 프론트엔드와 챗봇의 모든 요청을 받아들이는 통로 역할을 수행하며, 세부 비즈니스 로직은 `services/`로 위임합니다.
-* **`services/toss_client.py` (추가 예정, 메인 브로커 클라이언트)**:
+* **`services/toss_client.py` (현재 구현됨, 메인 주식 클라이언트)**:
   * Toss Open API의 인증, 시세, 종목 정보, 시장 정보, 계좌, 보유자산, 주문 전 검증, 주문, 주문 조회를 담당합니다.
   * `/oauth2/token` 토큰 발급은 form-urlencoded 방식으로 처리합니다.
   * 계좌 기반 API 호출 전 `GET /api/v1/accounts`로 `accountSeq`를 조회하고, 이후 요청에 `X-Tossinvest-Account` 헤더를 포함합니다.
   * 일반 API 응답은 `result` envelope 기준으로 파싱하고, 에러 응답은 `error.requestId`, `error.code`, `error.message`, `error.data` 기준으로 처리합니다.
   * 토큰 발급 실패는 OAuth2 표준 에러 형식인 `error`, `error_description` 기준으로 별도 처리합니다.
 * **`services/exchange_client.py` (추상화 레이어)**:
-  * Toss, KIS, Upbit 구현체가 동일한 상위 인터페이스를 따르도록 설계합니다.
+  * Toss, KIS, Coinone, Binance 구현체가 동일한 상위 인터페이스를 따르도록 설계합니다.
   * Toss 금액 주문(`orderAmount`)과 수량 주문(`quantity`)처럼 기존 메서드 시그니처로 표현이 부족한 경우, 추상 클래스와 모든 구현체/호출부를 함께 수정합니다.
 * **`services/kis_client.py` (레거시/보류)**:
   * 현재 구현된 KIS 클라이언트는 보존하되, 신규 주식 기능의 기본 구현 대상은 Toss로 둡니다.
+* **`services/coinone_client.py` (현재 구현됨, 메인 가상자산 클라이언트)**:
+  * 코인원 Private API v2.1 HMAC-SHA512 서명 및 전체 잔고 조회와 연결 테스트 검증 기능을 제공합니다.
+* **`services/binance_client.py` (현재 구현됨, 확장 가상자산 클라이언트)**:
+  * 바이낸스 API Key 조회 권한을 활용한 계정 잔고 조회 및 HMAC-SHA256 기반 연결 테스트 기능을 제공합니다.
 * **`services/trading_engine.py` (추가 예정)**:
   * 사용자 조건식이 등록되면 독립적인 백그라운드 스레드 풀 또는 별도 프로세스로 감시 모듈을 기동하여 Flask 웹 요청 응답 속도에 영향을 주지 않도록 설계합니다.
   * 국내/미국 주식 장 운영 여부는 Toss 장 캘린더 API를 기준으로 판단합니다.
@@ -102,8 +108,9 @@ teamproject/
 
 * **`migrations/`**:
   * 테이블 생성, RLS(Row Level Security) 설정, Postgres 트리거 및 펑션 정의는 수동으로 원격 DB에 쿼리를 치는 것이 아니라, 버전 번호가 매겨진 `.sql` 마이그레이션 파일로 누적하여 형상 관리합니다.
-* **Toss 전환 시 DB 변경 대상**:
-  * `exchange` CHECK 제약에 `TOSS`를 추가해야 합니다.
+* **Toss/가상자산 전환 시 DB 변경 대상**:
+  * `exchange` CHECK 제약에 `TOSS`, `COINONE`, `BINANCE`를 추가해야 합니다.
+
   * `user_api_keys`에는 Toss `accountSeq` 저장 필드가 필요합니다.
   * `trade_proposals`에는 Toss `clientOrderId`, `orderId`, `marketCountry`, `currency`, `timeInForce`, `orderAmount` 매핑 필드가 필요합니다.
   * 실제 DB 변경은 문서 갱신 이후 별도 마이그레이션으로 수행합니다.

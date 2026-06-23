@@ -8,6 +8,7 @@ env/
 venv/
 .env
 .kis_token_cache.json
+.toss_token_cache.json
 
 # Frontend node files
 **/node_modules/
