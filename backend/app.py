@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import threading
 import time
 from datetime import datetime, timedelta
@@ -32,6 +33,165 @@ news_ingest_service = NewsIngestService()
 NEWS_INGEST_ENABLED = os.getenv("NEWS_INGEST_ENABLED", "false").lower() == "true"
 NEWS_INGEST_INTERVAL_SECONDS = int(os.getenv("NEWS_INGEST_INTERVAL_SECONDS", "600"))
 _news_ingest_started = False
+COINONE_WATCHLIST = ["BTC", "ETH", "XRP", "SOL"]
+
+
+def _to_float(value, default=0.0):
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_coinone_ticker(symbol: str, payload: dict) -> dict:
+    tickers = payload.get("tickers") or []
+    ticker = tickers[0] if tickers else payload.get("ticker") or payload
+
+    last = _to_float(
+        ticker.get("last")
+        or ticker.get("close")
+        or ticker.get("price")
+        or ticker.get("last_price")
+    )
+    first = _to_float(
+        ticker.get("first")
+        or ticker.get("open")
+        or ticker.get("yesterday_price")
+        or ticker.get("prev_close")
+    )
+    high = _to_float(ticker.get("high"))
+    low = _to_float(ticker.get("low"))
+    change_rate = _to_float(
+        ticker.get("change_rate")
+        or ticker.get("rate")
+        or ticker.get("change")
+        or ticker.get("price_change_percent")
+    )
+
+    if not change_rate and first:
+        change_rate = ((last - first) / first) * 100 if first else 0.0
+
+    if not first:
+        first = last
+
+    return {
+        "symbol": symbol,
+        "name": symbol,
+        "price": last,
+        "open": first,
+        "high": high,
+        "low": low,
+        "change_rate": change_rate,
+    }
+
+
+def _fetch_coinone_overview(symbols=None) -> list[dict]:
+    symbols = symbols or COINONE_WATCHLIST
+    rows = []
+
+    for symbol in symbols:
+        url = f"https://api.coinone.co.kr/public/v2/ticker_new/KRW/{symbol}"
+        response = requests.get(url, params={"additional_data": "true"}, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("result") not in (None, "success"):
+            raise Exception(payload.get("error_message") or payload.get("message") or "Coinone API error")
+        rows.append(_normalize_coinone_ticker(symbol, payload))
+
+    return rows
+
+
+def _split_kis_holdings(holdings: list[dict]) -> tuple[list[dict], list[dict]]:
+    domestic = []
+    foreign = []
+
+    for stock in holdings or []:
+        symbol = str(stock.get("symbol", "")).strip()
+        row = {
+            "symbol": symbol,
+            "name": stock.get("name", symbol),
+            "qty": _to_float(stock.get("qty")),
+            "avg_price": _to_float(stock.get("avg_price")),
+            "current_price": _to_float(stock.get("current_price")),
+            "profit": _to_float(stock.get("profit")),
+            "profit_rate": _to_float(stock.get("profit_rate")),
+        }
+
+        if re.search(r"[A-Za-z]", symbol):
+            foreign.append(row)
+        else:
+            domestic.append(row)
+
+    domestic.sort(key=lambda item: abs(item["profit_rate"]), reverse=True)
+    foreign.sort(key=lambda item: abs(item["profit_rate"]), reverse=True)
+    return domestic, foreign
+
+
+@app.route("/api/home/overview", methods=["POST"])
+def get_home_overview():
+    """
+    홈 화면용 시장 요약 데이터.
+    KIS 키가 있으면 계좌 보유 종목을, 키가 없어도 Coinone 공개 시세는 반환합니다.
+    """
+    data = request.json or {}
+    appkey = data.get("appkey")
+    appsecret = data.get("appsecret")
+    cano = data.get("cano")
+    acnt_prdt_cd = data.get("acnt_prdt_cd", "01")
+    env = data.get("env", "MOCK")
+
+    result = {
+        "kis": None,
+        "coins": [],
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+        "message": "",
+    }
+
+    try:
+        result["coins"] = _fetch_coinone_overview()
+    except Exception as coin_error:
+        result["message"] = f"Coinone 조회 실패: {str(coin_error)}"
+
+    has_kis_credentials = bool(appkey and appsecret and cano)
+    if not has_kis_credentials:
+        if not result["message"]:
+            result["message"] = "KIS 키를 입력하면 국내/해외 보유 종목을 함께 불러올 수 있습니다."
+        return jsonify({
+            "success": True,
+            "data": result
+        })
+
+    try:
+        client = KISClient(
+            appkey=appkey,
+            appsecret=appsecret,
+            cano=cano,
+            acnt_prdt_cd=acnt_prdt_cd,
+            env=env,
+        )
+
+        balance = client.get_balance()
+        domestic_holdings, foreign_holdings = _split_kis_holdings(balance.get("holdings", []))
+
+        result["kis"] = {
+            "total_evaluation": _to_float(balance.get("total_evaluation")),
+            "available_cash": _to_float(balance.get("available_cash")),
+            "domestic": domestic_holdings,
+            "foreign": foreign_holdings,
+        }
+
+        return jsonify({
+            "success": True,
+            "data": result
+        })
+    except Exception as kis_error:
+        return jsonify({
+            "success": False,
+            "message": f"KIS 조회 실패: {str(kis_error)}",
+            "data": result,
+        }), 500
 
 @app.route("/api/keys/test", methods=["POST"])
 def test_keys():

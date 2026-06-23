@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { supabase } from './supabaseClient'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import News from './pages/News'
+import Home from './pages/Home'
 
 // 10문항 투자 성향 설문 데이터 정의 (한글 주석 준수)
 const SURVEY_QUESTIONS = [
@@ -498,7 +499,7 @@ export default function App() {
       )}
 
       <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<Home />} />
         <Route 
           path="/dashboard" 
           element={
