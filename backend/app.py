@@ -33,6 +33,11 @@ CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "default-dev-encryption-key-32bytes!")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+KIS_APPKEY = os.getenv("KIS_APPKEY", "")
+KIS_APPSECRET = os.getenv("KIS_APPSECRET", "")
+KIS_CANO = os.getenv("KIS_CANO", "")
+KIS_ACNT_PRDT_CD = os.getenv("KIS_ACNT_PRDT_CD", "01")
+KIS_ENV = os.getenv("KIS_ENV", "MOCK")
 
 crypto = CryptoHelper(ENCRYPTION_KEY)
 news_repository = NewsRepository()
@@ -135,6 +140,77 @@ def _split_kis_holdings(holdings: list[dict]) -> tuple[list[dict], list[dict]]:
     domestic.sort(key=lambda item: abs(item["profit_rate"]), reverse=True)
     foreign.sort(key=lambda item: abs(item["profit_rate"]), reverse=True)
     return domestic, foreign
+
+
+def _resolve_kis_credentials(data: dict) -> dict:
+    return {
+        "appkey": data.get("appkey") or KIS_APPKEY,
+        "appsecret": data.get("appsecret") or KIS_APPSECRET,
+        "cano": data.get("cano") or KIS_CANO,
+        "acnt_prdt_cd": data.get("acnt_prdt_cd") or KIS_ACNT_PRDT_CD,
+        "env": (data.get("env") or KIS_ENV or "MOCK").upper(),
+    }
+
+
+def _build_home_overview(data: dict) -> dict:
+    kis = _resolve_kis_credentials(data)
+    appkey = kis["appkey"]
+    appsecret = kis["appsecret"]
+    cano = kis["cano"]
+    acnt_prdt_cd = kis["acnt_prdt_cd"]
+    env = kis["env"]
+
+    result = {
+        "kis": None,
+        "coins": [],
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+        "message": "",
+    }
+
+    try:
+        result["coins"] = _fetch_coinone_overview()
+    except Exception as coin_error:
+        result["message"] = f"Coinone 조회 실패: {str(coin_error)}"
+
+    if not (appkey and appsecret and cano):
+        if not result["message"]:
+            result["message"] = "KIS 환경변수가 없어서 국내/해외 보유 종목은 비어 있습니다."
+        return result
+
+    client = KISClient(
+        appkey=appkey,
+        appsecret=appsecret,
+        cano=cano,
+        acnt_prdt_cd=acnt_prdt_cd,
+        env=env,
+    )
+
+    balance = client.get_balance()
+    domestic_holdings, foreign_holdings = _split_kis_holdings(balance.get("holdings", []))
+
+    result["kis"] = {
+        "total_evaluation": _to_float(balance.get("total_evaluation")),
+        "available_cash": _to_float(balance.get("available_cash")),
+        "domestic": domestic_holdings,
+        "foreign": foreign_holdings,
+    }
+    return result
+
+
+@app.route("/api/home/market", methods=["POST"])
+def get_home_market():
+    try:
+        data = request.json or {}
+        overview = _build_home_overview(data)
+        return jsonify({
+            "success": True,
+            "data": overview
+        })
+    except Exception as error:
+        return jsonify({
+            "success": False,
+            "message": f"홈 시장 데이터 조회 실패: {str(error)}",
+        }), 500
 
 
 @app.route("/api/home/overview", methods=["POST"])
