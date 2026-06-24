@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Header from '../components/Header.jsx'
-import { fetchNewsArticles } from '../lib/supabaseClient.js'
+import { ensureNewsSummaries, fetchNewsArticles } from '../lib/supabaseClient.js'
 
 const PAGE_SIZE = 10
 
@@ -23,27 +23,27 @@ const categoryGuide = [
   {
     key: 'market',
     title: '시장',
-    description: '코스피, 코스닥, 증시, 환율, 금리처럼 국내 시장 전체 흐름을 묶습니다.',
+    description: '코스피, 코스닥, 증시, 환율, 금리 흐름입니다.',
   },
   {
     key: 'macro',
     title: '매크로',
-    description: '인플레이션, FOMC, 연준, 미국 국채처럼 거시경제와 글로벌 변수 중심입니다.',
+    description: '인플레이션, FOMC, 연준, 미국 국채 이슈입니다.',
   },
   {
     key: 'sentiment',
     title: '수급/심리',
-    description: '외국인 순매수, 기관 순매수, 공매도, 신용융자처럼 자금 흐름과 투자 심리 이슈입니다.',
+    description: '외국인·기관 수급, 공매도, 신용융자 이슈입니다.',
   },
   {
     key: 'sector',
     title: '섹터',
-    description: '반도체, 이차전지, 배터리, 바이오, 인공지능, AI처럼 주도 업종 흐름을 모읍니다.',
+    description: '반도체, 이차전지, 바이오, AI 같은 업종 흐름입니다.',
   },
   {
     key: 'symbol',
     title: '종목',
-    description: '현재는 symbol 값이 있는 기사 위주로 분류되며, 국내 관심종목은 watchlist가 채워져야 확장됩니다.',
+    description: '현재는 AAPL, MSFT, NVDA 관련 기사 위주입니다.',
   },
 ]
 
@@ -73,6 +73,8 @@ export default function News({ isLoggedIn, userEmail, handleLogout }) {
   const [newsLoading, setNewsLoading] = useState(false)
   const [newsError, setNewsError] = useState('')
   const [expandedNews, setExpandedNews] = useState(null)
+  const [isCategoryGuideOpen, setIsCategoryGuideOpen] = useState(true)
+  const [summaryLoadingId, setSummaryLoadingId] = useState('')
   const [lastFetchedAt, setLastFetchedAt] = useState('')
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
@@ -124,11 +126,48 @@ export default function News({ isLoggedIn, userEmail, handleLogout }) {
     loadNews()
   }, [loadNews])
 
-  const newsStats = useMemo(() => {
-    const domestic = newsItems.filter((item) => item.market === 'DOMESTIC').length
-    const global = newsItems.filter((item) => item.market === 'GLOBAL').length
-    return { domestic, global, total: newsItems.length }
-  }, [newsItems])
+  const handleSummaryToggle = useCallback(
+    async (item) => {
+      const isExpanded = expandedNews === item.id
+      if (isExpanded) {
+        setExpandedNews(null)
+        return
+      }
+
+      setExpandedNews(item.id)
+
+      if (item.ai_summary) {
+        return
+      }
+
+      setSummaryLoadingId(item.id)
+      try {
+        const summaryResult = await ensureNewsSummaries({ articleIds: [item.id] })
+        const summaryItem = summaryResult.items?.[0]
+
+        if (summaryItem?.ai_summary) {
+          setNewsItems((prevItems) =>
+            prevItems.map((newsItem) =>
+              newsItem.id === item.id
+                ? {
+                    ...newsItem,
+                    ai_summary: summaryItem.ai_summary,
+                    ai_summary_model: summaryItem.ai_summary_model,
+                    ai_summary_generated_at: summaryItem.ai_summary_generated_at,
+                    ai_summary_prompt_version: summaryItem.ai_summary_prompt_version,
+                  }
+                : newsItem,
+            ),
+          )
+        }
+      } catch (error) {
+        setNewsError(error.message)
+      } finally {
+        setSummaryLoadingId('')
+      }
+    },
+    [expandedNews],
+  )
 
   return (
     <div className="min-h-screen bg-obsidian-bg px-4 py-6 font-inter text-[#e2e2ec] sm:px-6 sm:py-8">
@@ -198,48 +237,40 @@ export default function News({ isLoggedIn, userEmail, handleLogout }) {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-white">카테고리 기준</h3>
-                <p className="mt-1 text-xs text-slate-400">
-                  검색 아래에서 각 카테고리가 어떤 뉴스 묶음인지 바로 확인할 수 있습니다.
-                </p>
+                <p className="mt-1 text-xs text-slate-400">검색 아래에서 각 카테고리 의미를 바로 확인할 수 있습니다.</p>
               </div>
-              <div className="text-[11px] text-slate-500">
-                종목은 현재 필터보다 검색창 직접 입력이 더 정확합니다.
+              <div className="flex items-center gap-3">
+                <div className="text-[11px] text-slate-500">종목은 검색창 직접 입력이 더 정확합니다.</div>
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryGuideOpen((prev) => !prev)}
+                  className="rounded border border-slate-700 px-3 py-1.5 text-[11px] text-slate-300 hover:border-ai-cyan/50 hover:text-white"
+                >
+                  {isCategoryGuideOpen ? '접기' : '펼치기'}
+                </button>
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
-              {categoryGuide.map((item) => {
-                const isActive = newsCategory === item.key
-                return (
-                  <div
-                    key={item.key}
-                    className={
-                      isActive
-                        ? 'rounded-lg border border-ai-cyan/50 bg-ai-cyan/10 p-3'
-                        : 'rounded-lg border border-slate-800 bg-[#0a0d14] p-3'
-                    }
-                  >
-                    <div className="text-sm font-semibold text-white">{item.title}</div>
-                    <p className="mt-1 text-xs leading-5 text-slate-400">{item.description}</p>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="rounded-lg border border-slate-700 bg-slate-surface p-4">
-              <div className="text-xs uppercase tracking-wider text-slate-400">현재 페이지</div>
-              <div className="mt-1 text-2xl font-bold text-white">{newsStats.total}</div>
-            </div>
-            <div className="rounded-lg border border-slate-700 bg-slate-surface p-4">
-              <div className="text-xs uppercase tracking-wider text-slate-400">국내</div>
-              <div className="mt-1 text-2xl font-bold text-white">{newsStats.domestic}</div>
-            </div>
-            <div className="rounded-lg border border-slate-700 bg-slate-surface p-4">
-              <div className="text-xs uppercase tracking-wider text-slate-400">해외</div>
-              <div className="mt-1 text-2xl font-bold text-white">{newsStats.global}</div>
-            </div>
+            {isCategoryGuideOpen ? (
+              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
+                {categoryGuide.map((item) => {
+                  const isActive = newsCategory === item.key
+                  return (
+                    <div
+                      key={item.key}
+                      className={
+                        isActive
+                          ? 'rounded-lg border border-ai-cyan/50 bg-ai-cyan/10 p-3'
+                          : 'rounded-lg border border-slate-800 bg-[#0a0d14] p-3'
+                      }
+                    >
+                      <div className="text-sm font-semibold text-white">{item.title}</div>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">{item.description}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : null}
           </div>
 
           <div className="mb-4 text-xs text-slate-500">
@@ -262,7 +293,8 @@ export default function News({ isLoggedIn, userEmail, handleLogout }) {
             ) : null}
 
             {newsItems.map((item, index) => {
-              const expanded = expandedNews === `${item.url}-${index}`
+              const expanded = expandedNews === item.id
+              const displaySummary = item.ai_summary || ''
               return (
                 <article
                   key={`${item.url}-${index}`}
@@ -285,7 +317,9 @@ export default function News({ isLoggedIn, userEmail, handleLogout }) {
 
                     <div>
                       <h3 className="break-words text-lg font-bold leading-snug text-white">{item.title}</h3>
-                      <p className="mt-2 break-words text-sm leading-6 text-slate-300">{item.summary}</p>
+                      <p className="mt-2 break-words text-sm leading-6 text-slate-300">
+                        {displaySummary || '요약 보기를 눌러 3줄 요약을 생성하세요.'}
+                      </p>
                     </div>
 
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -294,10 +328,10 @@ export default function News({ isLoggedIn, userEmail, handleLogout }) {
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <button
-                          onClick={() => setExpandedNews(expanded ? null : `${item.url}-${index}`)}
+                          onClick={() => handleSummaryToggle(item)}
                           className="rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
                         >
-                          {expanded ? '접기' : '요약 보기'}
+                          {expanded ? '접기' : summaryLoadingId === item.id ? '생성 중' : '요약 보기'}
                         </button>
                         <a
                           href={item.url}
@@ -312,9 +346,9 @@ export default function News({ isLoggedIn, userEmail, handleLogout }) {
 
                     {expanded ? (
                       <div className="mt-2 rounded border border-slate-800 bg-[#0c0e15] p-4 text-sm text-slate-300">
-                        <div className="mb-1 font-semibold text-white">게시판 요약</div>
-                        <p className="break-words leading-6">
-                          {item.summary || '아직 표시할 요약이 없습니다. 원문 링크에서 상세 내용을 확인해 주세요.'}
+                        <div className="mb-1 font-semibold text-white">AI 3줄 요약</div>
+                        <p className="whitespace-pre-line break-words leading-6">
+                          {displaySummary || '요약 생성 중입니다.'}
                         </p>
                       </div>
                     ) : null}

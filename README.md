@@ -137,6 +137,8 @@ python backend/scripts/export_training_candles.py \
 NAVER_CLIENT_ID=your-naver-client-id
 NAVER_CLIENT_SECRET=your-naver-client-secret
 FINNHUB_API_KEY=your-finnhub-api-key
+OPENAI_API_KEY=your-openai-api-key
+NEWS_SUMMARY_MODEL=gpt-4o-mini
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
@@ -157,3 +159,4 @@ curl -X POST http://localhost:5050/api/news/sync
 ```
 
 Naver 수집은 시장/매크로/수급/섹터 키워드를 기본으로 사용하고, `watchlist_symbols`에 활성 주식 종목이 있으면 실행당 일부만 선택해 `{종목명} 주식`, `{종목명} 실적`, `{종목명} 공시`, `{종목명} 영업이익` 쿼리를 순환 적용합니다.
+뉴스 카드의 `요약 보기`를 누르면 GPT 3줄 요약을 생성하고 `news_articles.ai_summary`에 저장한 뒤, 다음부터는 저장된 요약을 재사용합니다.

@@ -41,3 +41,26 @@ export async function fetchNewsArticles({ market, category = 'ALL', query, limit
     totalCount: count || 0,
   }
 }
+
+export async function ensureNewsSummaries({ articleIds = [] }) {
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
+
+  if (!Array.isArray(articleIds) || articleIds.length === 0) {
+    return { items: [], generatedCount: 0 }
+  }
+
+  const response = await fetch(`${apiBaseUrl}/api/news/summaries/ensure`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ article_ids: articleIds }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`News summary request failed: ${response.status} ${response.statusText}`)
+  }
+
+  const payload = await response.json()
+  return payload?.data || { items: [], generatedCount: 0 }
+}

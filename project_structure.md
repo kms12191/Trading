@@ -21,29 +21,44 @@ teamproject/
 ├── ml/                           # LightGBM 사전학습 및 예측 파이프라인
 │   ├── README.md                 # 로컬/Colab 학습 실행 가이드
 │   ├── experiments.md            # LightGBM 실험 결과 누적 기록
+│   ├── dataset_ops_runbook.md    # 데이터셋 수집/학습/검증 운영 절차 문서
+│   ├── live_run_checklist.md     # 관리자 페이지 기준 실전 실행 체크리스트
+│   ├── automation_plan.md        # 자동 수집/자동 학습/모델 레지스트리 설계 계획
 │   ├── requirements.txt          # ML 전용 Python 의존성
 │   ├── configs/
 │   │   ├── lgbm_stock_v1.yaml         # 주식 상승 신호 모델 설정
 │   │   ├── lgbm_stock_risk_v1.yaml    # 주식 하락 위험 모델 설정
-│   │   ├── lgbm_crypto_v1.yaml        # 코인 상승 신호 모델 설정
-│   │   └── lgbm_crypto_risk_v1.yaml   # 코인 하락 위험 모델 설정
+│   │   ├── ...
+│   │   ├── lgbm_stock_v6.yaml         # 주식 고도화 실험 설정
+│   │   ├── lgbm_stock_risk_v6.yaml    # 주식 하락 위험 고도화 설정
+│   │   ├── lgbm_crypto_v6.yaml        # 코인 고도화 실험 설정
+│   │   └── lgbm_crypto_risk_v6.yaml   # 코인 하락 위험 고도화 설정
 │   ├── data/
 │   │   ├── raw/                  # 원천 캔들 CSV 보관
-│   │   └── processed/            # 피처/라벨/예측 CSV 출력
+│   │   │   ├── *.template.csv    # 뉴스/코인 외부/주식 이벤트 피처 템플릿 예시
+│   │   ├── ops/                  # 데이터셋/학습 작업 이력(JSON), 모델 레지스트리 상태 및 운영 보조 산출물
+│   │   ├── processed/            # 피처/라벨/예측 CSV 출력
+│   │   └── reference/            # 유니버스 프리셋, 고정 메타 데이터 파일
+│   │       └── training_universes.json # 주식/코인 확장 수집용 프리셋 목록
 │   ├── models/                   # 학습된 모델 파일 출력
+│   ├── reports/                  # 생성된 실험 보고서 Markdown 산출물
 │   ├── notebooks/                # Colab 또는 로컬 Jupyter 실험 노트북
 │   └── src/
 │       ├── build_features.py     # 캔들 데이터 기반 피처/라벨 생성
 │       ├── train_model.py        # LightGBM 학습 및 모델 저장
 │       ├── evaluate.py           # 검증 지표 출력
 │       ├── predict.py            # 저장 모델 기반 최신 데이터 예측
-│       └── backtest_signals.py   # 상위 signal_score 후보 기준 단순 백테스트
+│       ├── backtest_signals.py   # 상위 signal_score 후보 기준 백테스트
+│       ├── run_pipeline_bundle.py# 동일 조건 재현용 일괄 실행기
+│       ├── compare_experiments.py# summary JSON 기준 버전별 성능 비교 스크립트
+│       ├── write_experiment_report.py # summary JSON 기반 Markdown 리포트 생성기
+│       └── model_utils.py        # 시계열 분할/가중치/평가 공용 유틸
 ├── backend/                      # Flask 백엔드 (API Gateway & 자동매매 엔진)
-│   ├── app.py                    # Flask 서버 진입점 (현재 구현됨)
+│   ├── app.py                    # Flask 서버 진입점 (현재 구현됨, model-results/registry/active-model/jobs/full-run/readiness API 포함)
 │   ├── requirements.txt          # 파이썬 의존성 패키지 목록 (현재 구현됨)
 │   ├── config.py                 # 환경 변수 및 공통 설정 로더 (추가 예정)
 │   ├── scripts/
-│   │   └── export_training_candles.py # 학습용 주식/코인 캔들 CSV 수집 스크립트 (현재 구현됨)
+│   │   └── export_training_candles.py # 학습용 주식/코인 캔들 CSV 수집 스크립트 (preset/chunk/failure-output 지원)
 │   ├── services/                 # 비즈니스 로직 서비스 레이어
 │   │   ├── __init__.py           # 패키지 초기화 파일 (추가 예정)
 │   │   ├── exchange_client.py    # 거래소/브로커 추상화 부모 클래스 (현재 구현됨)
@@ -53,8 +68,12 @@ teamproject/
 │   │   ├── binance_client.py     # 바이낸스 가상자산 확장 클라이언트 (현재 구현됨)
 │   │   ├── upbit_client.py       # 업비트 가상자산 클라이언트 (레거시/비활성화됨)
 │   │   ├── news_repository.py    # 뉴스 데이터 조회/저장 서비스 (현재 구현됨)
+│   │   ├── news_summary_service.py # 뉴스 GPT 요약 생성 서비스
 │   │   ├── news_query_planner.py # 뉴스 수집 쿼리 예산/쿨다운/우선순위 플래너
 │   │   ├── news_ingest.py        # 뉴스 수집 서비스 (현재 구현됨)
+│   │   ├── ml_job_service.py     # ML 작업 이력 저장 및 파이프라인 실행 서비스 (현재 구현됨)
+│   │   ├── ml_automation_service.py # 자동 수집+학습 preset 정의 서비스 (현재 구현됨)
+│   │   ├── ml_registry_service.py # 파일 기반 모델 레지스트리 상태 저장 서비스 (현재 구현됨)
 │   │   ├── symbol_metadata.py    # 모델 결과 표시용 심볼명/시장/섹터 메타데이터 매핑 (현재 구현됨)
 │   │   ├── agent.py              # LLM & LangChain 챗봇 오케스트레이터 (추가 예정)
 │   │   └── trading_engine.py     # 백그라운드 조건 감시 엔진 (추가 예정)
@@ -80,7 +99,7 @@ teamproject/
         ├── pages/                # 라우트 단위 페이지 컴포넌트
         │   ├── Dashboard.jsx     # 메인 대시보드 화면
         │   ├── News.jsx          # 뉴스 화면
-        │   ├── AdminMlData.jsx   # 학습 데이터 수집 관리자 화면
+        │   ├── AdminMlData.jsx   # 학습 데이터 수집 + 학습 실행 + 작업 이력 + 모델 버전별 성능 비교 + 레지스트리/서비스 반영 관리자 화면
         │   ├── Login.jsx         # 로그인 페이지
         │   └── Signup.jsx        # 이메일 회원가입 페이지
         ├── components/           # 재사용 가능한 UI 컴포넌트
@@ -118,12 +137,25 @@ teamproject/
     * 주식은 Toss Open API, 코인은 Binance 공개 캔들 API를 사용합니다.
     * Toss 수집 시 프론트엔드는 Supabase access token만 전달하고, 서버가 `user_api_keys`에서 로그인 사용자 API Key를 읽어 내부에서만 복호화합니다.
     * 생성 파일은 `ml/data/raw/stock_candles.csv` 또는 `ml/data/raw/crypto_candles.csv`에 저장합니다.
+    * 스크립트 레벨에서는 preset 유니버스, chunk 수집, 실패 심볼 요약 JSON 저장을 지원하며, 관리자 API 응답에도 실패 건수를 포함합니다.
+    * 호출 이력은 `ml/data/ops/job_history.json`에 `dataset_export` 타입으로 기록합니다.
+  * **ML 운영 준비 상태 API (`GET /api/ml/readiness`)**:
+    * 관리자 페이지에서 Toss 키 준비 여부, 원천 CSV, 외부 피처, 현재 serving 상태를 한 번에 조회합니다.
+    * Toss 키 항목은 `supabase.user_api_keys -> encrypted_access_key/encrypted_secret_key -> crypto.decrypt` 경로를 설명용 메타데이터로 함께 반환해, 실제 데이터셋 수집이 어떤 보안 흐름으로 동작하는지 운영자가 확인할 수 있게 합니다.
+  * **ML 작업 이력 API (`GET /api/ml/jobs`)**:
+    * 최근 데이터셋 수집 및 학습 실행 이력을 조회합니다.
+    * 현재는 Supabase 테이블이 아니라 파일 기반 작업 이력(JSON)을 읽습니다.
+  * **ML 학습 실행 API (`POST /api/ml/jobs/train`)**:
+    * 관리자 페이지에서 특정 config/risk-config 조합의 학습을 직접 실행합니다.
+    * 내부적으로 `ml/src/run_pipeline_bundle.py`를 호출하고, stdout/stderr 일부와 상태를 작업 이력에 남깁니다.
   * **모델 결과 조회 API (`GET /api/ml/model-results`)**:
     * 관리자 페이지(`/admin/ml-data`)에서 최신 모델 성능 지표와 예측 순위를 조회합니다.
-    * `ml/models/*.metrics.json`, `ml/data/processed/*_predictions_lgbm_v1.csv`, `ml/data/processed/*_backtest_*.json`을 읽어 주식/코인 결과를 분리 반환합니다.
-    * 상승 모델 지표, 하락 위험 모델 지표, 복합 점수 예측 결과, `up_only/composite` 백테스트 요약을 함께 제공합니다.
+    * `ml/models/*.metrics.json`, `ml/data/processed/*_predictions_lgbm_v*.csv`, `ml/data/processed/*_backtest_*.json`을 읽어 주식/코인 결과를 분리 반환합니다.
+    * 상승 모델 지표, 하락 위험 모델 지표, 시계열 CV 평균 지표, 복합 점수 예측 결과, `up_only/composite` 백테스트 요약을 함께 제공합니다.
     * 예측 결과의 티커는 `symbol_metadata.py`의 임시 메타데이터로 표시명, 시장, 섹터를 보강합니다. 추후 `watchlist_symbols` 테이블이 운영되면 DB 기반 메타데이터로 이전합니다.
     * 인증 헤더가 없는 요청은 차단하며, API Key나 계좌 정보는 응답에 포함하지 않습니다.
+    * 추천 버전은 단순 최신 버전이 아니라 비용 반영 백테스트와 시계열 안정성을 함께 고려해 선택합니다.
+    * 프론트엔드 관리자 페이지는 선택 버전과 `SERVING / PICK / LATEST` 기준 버전 사이의 핵심 지표 차이를 별도 요약 패널로 보여 주어, 운영자가 어떤 버전을 올릴지 빠르게 판단할 수 있게 합니다.
   * **통합 시세 조회 API (`GET /api/chart/candles`)**:
     * 프론트엔드에 일관된 데이터 인터페이스를 제공하기 위한 게이트웨이 라우트입니다.
     * 요청 파라미터(`exchange`, `symbol`, `interval`)에 맞추어 각각의 거래소 클라이언트를 동적으로 스위칭 호출합니다.
@@ -172,8 +204,10 @@ teamproject/
   * `ml/src/build_features.py`는 캔들 CSV를 읽어 과거 기반 피처와 미래 라벨을 생성합니다.
   * `ml/src/train_model.py`는 생성된 피처 파일로 LightGBM 모델을 학습하고 `ml/models/`에 저장합니다.
   * `ml/src/predict.py`는 저장된 모델로 최신 피처의 상승 확률, 하락 위험 점수, 종합 신호 점수를 산출합니다.
-  * `ml/src/backtest_signals.py`는 검증 구간에서 날짜별 상위 `signal_score` 후보의 단순 미래 수익률을 계산합니다.
+  * `ml/src/backtest_signals.py`는 검증 구간에서 날짜별 상위 `signal_score` 후보의 비용 반영 미래 수익률, 후보 승률, 최대 낙폭을 계산합니다.
+  * `ml/src/model_utils.py`는 시계열 분할, class weight, 심볼 균형 가중치, 확률 보정, 공통 평가 지표 계산을 담당합니다.
   * Flask 백엔드는 학습을 직접 수행하지 않고, 검증된 모델 파일을 로드해 예측 API만 제공합니다.
+  * 자동화 단계에서는 `ml/automation_plan.md`에 정의한 별도 워커/모델 레지스트리 구조를 기준으로 확장합니다.
 * **데이터 보안**:
   * `ml/data/`와 `ml/models/`에는 대용량 데이터와 모델 산출물이 생성되므로 Git 커밋 대상에서 제외합니다.
   * 사용자 개인 계좌 데이터, 주문 이력, API Key는 ML 학습 데이터로 사용하지 않습니다.

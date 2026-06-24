@@ -1,0 +1,95 @@
+data:
+  raw_candles_path: data/raw/crypto_candles.csv
+  features_path: data/processed/crypto_features_lgbm_v6.csv
+  predictions_path: data/processed/crypto_predictions_lgbm_v6.csv
+  backtest_up_only_summary_path: data/processed/crypto_backtest_up_only_v6.json
+  backtest_up_only_daily_path: data/processed/crypto_backtest_up_only_daily_v6.csv
+  backtest_composite_summary_path: data/processed/crypto_backtest_composite_v6.json
+  backtest_composite_daily_path: data/processed/crypto_backtest_composite_daily_v6.csv
+
+model:
+  version: lgbm_crypto_risk_v6
+  asset_type: CRYPTO
+  output_path: models/lgbm_crypto_risk_v6.joblib
+  horizon_periods: 4
+  up_return_threshold: 0.01
+  risk_return_threshold: -0.015
+  validation_ratio: 0.2
+  random_state: 42
+  target_column: risk_label
+  feature_columns:
+    - return_1
+    - return_4
+    - return_12
+    - return_24
+    - ma_4_gap
+    - ma_24_gap
+    - volume_ratio_4
+    - volume_ratio_24
+    - volatility_24
+    - rsi_14
+    - amount_zscore_24
+    - volume_zscore_24
+    - atr_14
+    - bollinger_position_20
+    - body_ratio_1
+    - upper_wick_ratio_1
+    - lower_wick_ratio_1
+    - intraday_return
+    - macd_line
+    - macd_signal
+    - macd_hist
+    - btcusdt_return_1
+    - btcusdt_return_4
+    - btcusdt_return_24
+    - ethusdt_return_1
+    - ethusdt_return_4
+    - relative_to_btc_return_4
+    - relative_to_eth_return_4
+    - crypto_market_return_4
+    - crypto_market_return_24
+    - relative_to_market_return_4
+    - relative_to_market_return_24
+    - range_ratio_1
+    - close_to_high_20
+    - close_to_low_20
+    - funding_rate
+    - open_interest
+    - open_interest_change_24h
+    - coinone_binance_spread
+    - kimchi_premium
+    - leader_btc_dominance_proxy
+    - hour_of_day
+    - day_of_week
+    - is_weekend
+    - news_sentiment
+    - news_article_count_24h
+    - news_burst_zscore
+
+labels:
+  neutral_zone_abs_return: 0.002
+  drop_neutral_samples: true
+
+training:
+  class_weight_mode: balanced
+  balance_symbol_weights: true
+  use_scale_pos_weight: true
+  enable_probability_calibration: true
+  calibration_ratio: 0.1
+  time_series_cv_splits: 3
+
+backtest:
+  fee_bps: 6
+  slippage_bps: 10
+
+lightgbm:
+  objective: binary
+  learning_rate: 0.02
+  n_estimators: 620
+  num_leaves: 31
+  max_depth: -1
+  subsample: 0.85
+  colsample_bytree: 0.85
+  min_child_samples: 32
+  reg_alpha: 0.1
+  reg_lambda: 0.7

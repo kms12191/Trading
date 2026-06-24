@@ -1,0 +1,62 @@
+data:
+  raw_candles_path: data/raw/stock_candles.csv
+  features_path: data/processed/stock_features_lgbm_v5.csv
+  predictions_path: data/processed/stock_predictions_lgbm_v5.csv
+  backtest_up_only_summary_path: data/processed/stock_backtest_up_only_v5.json
+  backtest_up_only_daily_path: data/processed/stock_backtest_up_only_daily_v5.csv
+  backtest_composite_summary_path: data/processed/stock_backtest_composite_v5.json
+  backtest_composite_daily_path: data/processed/stock_backtest_composite_daily_v5.csv
+
+model:
+  version: lgbm_stock_signal_v5
+  asset_type: STOCK
+  output_path: models/lgbm_stock_signal_v5.joblib
+  horizon_periods: 3
+  up_return_threshold: 0.01
+  risk_return_threshold: -0.02
+  validation_ratio: 0.2
+  random_state: 42
+  target_column: up_label
+  feature_columns:
+    - return_1
+    - return_3
+    - return_5
+    - return_10
+    - return_20
+    - ma_5_gap
+    - ma_20_gap
+    - volume_ratio_5
+    - volatility_20
+    - rsi_14
+    - amount_zscore_20
+    - amount_zscore_24
+    - relative_return_3
+    - relative_return_5
+    - sector_relative_return_3
+    - sector_relative_return_5
+    - usdkrw_return_3
+    - usdkrw_return_5
+    - atr_14
+    - bollinger_position_20
+    - sector_return_3_mean
+    - sector_return_5_mean
+    - macro_KOSPI_return_3
+    - macro_KOSPI_return_5
+    - macro_NASDAQ_return_3
+    - macro_NASDAQ_return_5
+    - range_ratio_1
+    - close_to_high_20
+    - close_to_low_20
+
+prediction:
+  risk_model_path: models/lgbm_stock_risk_v5.joblib
+
+lightgbm:
+  objective: binary
+  learning_rate: 0.025
+  n_estimators: 420
+  num_leaves: 31
+  max_depth: -1
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_samples: 20

@@ -14,13 +14,21 @@ CREATE TABLE IF NOT EXISTS public.news_articles (
     sentiment JSONB,
     content_hash TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT true,
-    raw_payload JSONB
+    raw_payload JSONB,
+    ai_summary TEXT,
+    ai_summary_model TEXT,
+    ai_summary_generated_at TIMESTAMPTZ,
+    ai_summary_prompt_version TEXT DEFAULT 'v1'
 );
 
 ALTER TABLE public.news_articles
     ADD COLUMN IF NOT EXISTS raw_payload JSONB,
     ADD COLUMN IF NOT EXISTS sentiment JSONB,
-    ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS ai_summary TEXT,
+    ADD COLUMN IF NOT EXISTS ai_summary_model TEXT,
+    ADD COLUMN IF NOT EXISTS ai_summary_generated_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS ai_summary_prompt_version TEXT DEFAULT 'v1';
 
 CREATE UNIQUE INDEX IF NOT EXISTS news_articles_url_key
     ON public.news_articles (url);
@@ -36,6 +44,9 @@ CREATE INDEX IF NOT EXISTS idx_news_articles_symbol
 
 CREATE INDEX IF NOT EXISTS idx_news_articles_content_hash
     ON public.news_articles (content_hash);
+
+CREATE INDEX IF NOT EXISTS idx_news_articles_ai_summary_generated_at
+    ON public.news_articles (ai_summary_generated_at DESC);
 
 ALTER TABLE public.news_articles ENABLE ROW LEVEL SECURITY;
 

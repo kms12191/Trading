@@ -13,11 +13,14 @@ erDiagram
     profiles ||--o{ trade_proposals : "requests"
     profiles ||--o{ auto_trading_rules : "defines"
     profiles ||--o{ paper_portfolios : "tracks virtual assets"
+    profiles ||--o{ ml_dataset_jobs : "starts dataset jobs"
+    profiles ||--o{ ml_training_runs : "starts training runs"
     watchlist_symbols ||--o{ market_candles : "collects"
     watchlist_symbols ||--o{ model_features : "generates"
     watchlist_symbols ||--o{ model_labels : "labels"
     watchlist_symbols ||--o{ model_predictions : "predicts"
     model_runs ||--o{ model_predictions : "produces"
+    ml_dataset_jobs ||--o{ ml_training_runs : "feeds"
 
     profiles {
         uuid id PK "auth.users(id) 참조"
@@ -175,6 +178,47 @@ erDiagram
         numeric risk_probability "하락 위험 확률"
         numeric signal_score "종합 신호 점수"
         timestamp created_at "생성 일시"
+    }
+
+    ml_dataset_jobs {
+        uuid id PK "기본키"
+        uuid user_id FK "profiles(id) 참조"
+        string asset_type "자산 종류"
+        string exchange "데이터 소스"
+        string preset_name "유니버스 프리셋"
+        string interval "봉 주기"
+        integer count "수집 개수"
+        string status "running/success/failed"
+        integer row_count "생성 행 수"
+        integer failure_count "실패 심볼 수"
+        text output_path "출력 파일 경로"
+        timestamp started_at "시작 시각"
+        timestamp finished_at "종료 시각"
+    }
+
+    ml_training_runs {
+        uuid id PK "기본키"
+        uuid user_id FK "profiles(id) 참조"
+        uuid dataset_job_id FK "ml_dataset_jobs(id) 참조"
+        string label "관리자용 실행 라벨"
+        string config_path "상승 모델 설정 경로"
+        string risk_config_path "하락 위험 모델 설정 경로"
+        string model_version "실행 모델 버전"
+        string status "running/success/failed"
+        integer returncode "실행 반환 코드"
+        timestamp started_at "시작 시각"
+        timestamp finished_at "종료 시각"
+    }
+
+    ml_model_registry {
+        uuid id PK "기본키"
+        string asset_type "자산 종류"
+        string model_version "모델 버전"
+        boolean is_latest "최신 여부"
+        boolean is_recommended "추천 여부"
+        boolean is_serving "서비스 반영 여부"
+        uuid approved_by FK "profiles(id) 참조"
+        timestamp approved_at "승인 시각"
     }
 ```
 
@@ -469,6 +513,92 @@ LightGBM 모델은 서비스 요청 중 직접 학습하지 않고, `ml/` 디렉
 * **운영 원칙**:
   * 주식 모델과 코인 모델은 `asset_type`과 `model_version`을 기준으로 분리합니다.
   * 새 모델이 기존 모델보다 검증 성능과 백테스트 안정성이 좋을 때만 서비스 모델로 교체합니다.
+
+### 5.6 `ml_dataset_jobs`, `ml_training_runs`, `ml_model_registry`
+
+자동화 단계에서 데이터셋 수집과 학습 실행을 추적하기 위해 아래 3개 테이블을 추가합니다.
+
+#### `ml_dataset_jobs`
+
+* **설명**: 관리자 또는 향후 스케줄러가 실행한 데이터셋 수집 작업을 추적합니다.
+* **현재 구현 상태**:
+  * 백엔드는 파일 이력(`ml/data/ops/job_history.json`)을 우선 사용합니다.
+  * Supabase 테이블이 존재하면 동일한 작업 정보를 함께 동기화하는 베스트 에포트 로직을 사용합니다.
+
+| 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK | 작업 ID |
+| `user_id` | `UUID` | FK, References `profiles(id)` | 작업 실행 사용자 |
+| `asset_type` | `TEXT` | CHECK (asset_type IN ('STOCK','CRYPTO')) | 자산 유형 |
+| `exchange` | `TEXT` | CHECK (exchange IN ('TOSS','COINONE','BINANCE','KIS')) | 데이터 소스 |
+| `preset_name` | `TEXT` | - | 유니버스 프리셋명 |
+| `interval` | `TEXT` | NOT NULL | 봉 주기 |
+| `count` | `INT` | NOT NULL | 수집 개수 |
+| `symbols` | `JSONB` | NOT NULL | 실제 수집 심볼 목록 |
+| `status` | `TEXT` | CHECK (status IN ('running','success','failed')) | 작업 상태 |
+| `row_count` | `INT` | - | 생성된 행 수 |
+| `failure_count` | `INT` | DEFAULT 0 | 실패 심볼 수 |
+| `output_path` | `TEXT` | - | 출력 파일 경로 |
+| `failures` | `JSONB` | DEFAULT '[]' | 실패 심볼 상세 |
+| `started_at` | `TIMESTAMPTZ` | NOT NULL | 시작 시각 |
+| `finished_at` | `TIMESTAMPTZ` | - | 종료 시각 |
+
+`preset_name`은 `ml/data/reference/training_universes.json`의 논리 이름을 저장하고, `symbols`에는 preset 확장 이후 실제 실행된 심볼 목록을 저장합니다.
+
+#### `ml_training_runs`
+
+* **설명**: `run_pipeline_bundle.py` 기준 학습/평가/백테스트 실행 이력을 저장합니다.
+* **목적**:
+  * 어떤 config로 학습했는지
+  * 어떤 요약 결과가 생성됐는지
+  * 어떤 stdout/stderr가 남았는지
+  를 한 곳에서 추적하기 위함입니다.
+
+| 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK | 작업 ID |
+| `user_id` | `UUID` | FK, References `profiles(id)` | 작업 실행 사용자 |
+| `dataset_job_id` | `UUID` | FK, References `ml_dataset_jobs(id)` | 연결된 데이터셋 작업 |
+| `label` | `TEXT` | - | 관리자 화면 표시용 라벨 |
+| `config_path` | `TEXT` | NOT NULL | 상승 모델 설정 경로 |
+| `risk_config_path` | `TEXT` | - | 하락 위험 모델 설정 경로 |
+| `summary_output_path` | `TEXT` | - | 요약 JSON 경로 |
+| `model_version` | `TEXT` | - | 실행된 모델 버전 |
+| `status` | `TEXT` | CHECK (status IN ('running','success','failed')) | 작업 상태 |
+| `command` | `JSONB` | DEFAULT '[]' | 실제 실행 명령 |
+| `returncode` | `INT` | - | 프로세스 반환 코드 |
+| `stdout_tail` | `TEXT` | - | 표준 출력 끝부분 |
+| `stderr_tail` | `TEXT` | - | 표준 에러 끝부분 |
+| `metrics_json` | `JSONB` | - | 상승 모델 지표 스냅샷 |
+| `risk_metrics_json` | `JSONB` | - | 하락 위험 모델 지표 스냅샷 |
+| `backtest_up_only_json` | `JSONB` | - | 단순 백테스트 요약 |
+| `backtest_composite_json` | `JSONB` | - | 복합 백테스트 요약 |
+| `started_at` | `TIMESTAMPTZ` | NOT NULL | 시작 시각 |
+| `finished_at` | `TIMESTAMPTZ` | - | 종료 시각 |
+
+#### `ml_model_registry`
+
+* **설명**: 추천 버전, 최신 버전, 실제 서비스 반영 버전을 분리하기 위한 레지스트리입니다.
+* **현재 구현 상태**:
+  * 실제 서비스 반영 제어는 아직 파일 기반 추천 로직이 우선입니다.
+  * 테이블은 향후 관리자 승인 워크플로우 도입을 위한 준비 단계입니다.
+  * 현재 백엔드 학습 작업 성공 시 best-effort 방식으로 `is_latest`, `is_recommended` 플래그를 동기화합니다.
+  * Supabase 테이블이 없어도 `ml/data/ops/model_registry.json` 파일 레지스트리로 `is_serving` 상태를 유지합니다.
+
+| 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK | 레코드 ID |
+| `asset_type` | `TEXT` | CHECK (asset_type IN ('STOCK','CRYPTO')) | 자산 유형 |
+| `model_version` | `TEXT` | NOT NULL | 모델 버전 |
+| `model_path` | `TEXT` | - | 모델 파일 경로 |
+| `metrics_path` | `TEXT` | - | metrics 파일 경로 |
+| `summary_path` | `TEXT` | - | 요약 JSON 경로 |
+| `recommendation_reason` | `TEXT` | - | 추천 사유 |
+| `is_latest` | `BOOLEAN` | DEFAULT false | 최신 버전 여부 |
+| `is_recommended` | `BOOLEAN` | DEFAULT false | 추천 버전 여부 |
+| `is_serving` | `BOOLEAN` | DEFAULT false | 실제 서비스 사용 버전 여부 |
+| `approved_by` | `UUID` | FK, References `profiles(id)` | 승인 사용자 |
+| `approved_at` | `TIMESTAMPTZ` | - | 승인 시각 |
 
 ---
 

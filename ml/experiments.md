@@ -119,6 +119,74 @@ BNBUSDT: 2.45
 
 ---
 
+## 2026-06-24 v7 고도화 준비 상태
+
+### 목적
+
+* 주식/코인 데이터 범위를 넓히고 외부 피처를 더 반영하는 `v7` 실험 축을 준비합니다.
+* 단순 학습 성공이 아니라, 관리자 페이지와 백엔드 자동화 흐름까지 연결 가능한 상태를 만드는 것이 목표입니다.
+
+### 준비 완료 항목
+
+* 유니버스 프리셋 추가
+  * `stock_core_90`
+  * `crypto_core_30`
+  * 추가 비교용 보조 프리셋 포함
+* 외부 피처 템플릿 추가
+  * `news_features.template.csv`
+  * `crypto_market_features.template.csv`
+  * `stock_event_features.template.csv`
+* `v7` 설정 파일 추가
+  * `lgbm_stock_v7.yaml`
+  * `lgbm_stock_risk_v7.yaml`
+  * `lgbm_crypto_v7.yaml`
+  * `lgbm_crypto_risk_v7.yaml`
+* 관리자 페이지 기능 확장
+  * preset 입력
+  * chunk 수집
+  * 매크로 동시 갱신
+  * `v7` 학습 버튼
+  * `stock-v7-full`, `crypto-v7-full` 자동 수집+학습 버튼
+* 백엔드 자동화 API 추가
+  * `GET /api/ml/automation/presets`
+  * `POST /api/ml/jobs/full-run`
+
+### 현재 기준선 성능
+
+주식 `v6`
+
+```text
+ROC AUC                    0.5636
+Average Precision          0.4747
+시계열 CV ROC AUC          0.5218
+상위 10% 적중              0.4976
+복합 초과수익(순)          +0.001161
+상승 전용 초과수익(순)     +0.005047
+```
+
+코인 `v6`
+
+```text
+ROC AUC                    0.6233
+Average Precision          0.2403
+시계열 CV ROC AUC          0.6027
+상위 10% 적중              0.2517
+복합 초과수익(순)          -0.000447
+상승 전용 초과수익(순)     -0.000754
+```
+
+### 해석
+
+* 주식은 `v6`가 분류력과 비용 반영 백테스트 기준에서 개선 신호를 보였습니다.
+* 코인은 분류력은 나쁘지 않지만, 아직 비용 반영 수익성이 음수라서 외부 피처 실측값 반영 전에는 운영 반영 보류가 맞습니다.
+* 따라서 `v7`의 1차 목표는 “더 복잡한 모델”이 아니라
+  * 더 넓은 유니버스
+  * 실측 외부 피처
+  * 시장/섹터 편차 확인
+  를 통한 안정성 개선입니다.
+
+---
+
 ## 2026-06-24 2차 데이터셋 확대 검증
 
 ### 목적
@@ -279,3 +347,271 @@ NEARUSDT: 15.90
 2. 코인은 `BTC/ETH 동조`, `거래량 급증`, `변동성 확장`, `김치프리미엄 후보` 피처를 더 강화합니다.
 3. 단순 평균 수익률 외에 누적 수익률, 최대 낙폭, 거래 비용 반영 백테스트로 확장합니다.
 4. 그 다음에야 threshold, horizon, top_n 같은 하이퍼파라미터 튜닝을 진행합니다.
+
+---
+
+## 2026-06-24 4차 주식 v2 동일 조건 재실행 검증
+
+### 목적
+
+* 같은 원천 데이터(`stock_candles.csv`, `macro_indices.csv`)와 같은 설정(`lgbm_stock_v2.yaml`, `lgbm_stock_risk_v2.yaml`)으로 재실행했을 때 결과가 재현되는지 확인합니다.
+* 다음 변경 실험 전에 기준선이 흔들리지 않는지 확인합니다.
+
+### 실행 명령
+
+```bash
+source ml/.venv/bin/activate
+python ml/src/run_pipeline_bundle.py \
+  --config ml/configs/lgbm_stock_v2.yaml \
+  --risk-config ml/configs/lgbm_stock_risk_v2.yaml \
+  --summary-output ml/data/processed/stock_v2_rerun_summary.json
+```
+
+### 재실행 결과
+
+#### 상승 모델 `lgbm_stock_signal_v2`
+
+| 전체 정답률 | 상위후보 적중도 | 구분력 | 학습 행 수 | 검증 행 수 |
+|---:|---:|---:|---:|---:|
+| 0.5513 | 0.4181 | 0.5228 | 3,000 | 760 |
+
+#### 하락 위험 모델 `lgbm_stock_risk_v2`
+
+| 전체 정답률 | 상위후보 적중도 | 구분력 | 학습 행 수 | 검증 행 수 |
+|---:|---:|---:|---:|---:|
+| 0.5776 | 0.5196 | 0.5968 | 3,000 | 760 |
+
+#### 백테스트
+
+| 전략 | 상위 3개 평균 수익률 | 전체 평균 수익률 | 초과수익 | 날짜 승률 | 선택 종목 승률 |
+|---|---:|---:|---:|---:|---:|
+| `up_only` | -0.0027 | -0.0045 | 0.0018 | 0.4902 | 0.4510 |
+| `composite` | -0.0016 | -0.0045 | 0.0029 | 0.4510 | 0.4575 |
+
+### 확인 결과
+
+* 재실행 결과는 직전 v2 결과와 동일했습니다.
+* 즉, 현재 주식 v2 파이프라인은 같은 입력과 같은 설정에서 재현 가능하게 동작합니다.
+* 아직 상위 후보 평균 수익률 자체는 음수입니다. 다만 전체 평균보다 덜 나쁜 후보를 고르는 방향으로는 개선이 확인됩니다.
+* 다음 실험부터는 피처를 한 가지씩만 추가해도 비교 해석이 가능해졌습니다.
+
+### 기록 파일
+
+```text
+ml/data/processed/stock_v2_rerun_summary.json
+```
+
+---
+
+## 코인 v2 피처 구성 계획
+
+### 기본 원칙
+
+* 코인은 24시간 거래이므로 주식처럼 일봉 중심보다 `1h` 또는 `4h` 기준으로 설계합니다.
+* 코인 단독 가격 피처만 보지 않고, `시장 대장주 동조`, `거래대금 급증`, `변동성 체 regime`, `해외-국내 가격 차이 후보`를 같이 봅니다.
+* 첫 코인 v2는 너무 많은 것을 한 번에 넣지 않고, 계산 가능한 피처부터 단계적으로 붙입니다.
+
+### 1차 권장 피처 묶음
+
+#### 가격/모멘텀
+
+* `return_1`, `return_4`, `return_12`, `return_24`
+* `ma_4_gap`, `ma_24_gap`
+* `rsi_14`
+
+#### 거래량/거래대금
+
+* `volume_ratio_4`, `volume_ratio_24`
+* `amount_zscore_24`
+  * 의미: 평소보다 거래대금이 비정상적으로 몰리는지 확인
+
+#### 변동성
+
+* `volatility_24`
+* `atr_14`
+  * 의미: 단순 방향성보다 흔들림 크기까지 같이 반영
+
+#### 시장 동조
+
+* `btc_return_1`, `btc_return_4`, `btc_return_24`
+* `eth_return_1`, `eth_return_4`
+* `relative_to_btc_return_4`
+  * 의미: 알트코인이 BTC보다 강한지 약한지 확인
+
+#### 밴드/과열
+
+* `bollinger_position_20`
+  * 의미: 현재 가격이 20기간 밴드 상단/하단 중 어디에 있는지
+
+### 2차 확장 피처
+
+* `kimchi_premium_proxy`
+  * 국내 거래소 가격과 바이낸스 가격, 환율을 조합한 후보 값
+* `btc_dominance_proxy`
+  * BTC 강세장에서 알트가 같이 가는지, 오히려 눌리는지 구분
+* `news_sentiment`, `news_frequency_zscore`
+  * 코인 뉴스/공시 수집이 붙은 뒤 활성화
+
+### 첫 구현 우선순위
+
+1. `amount_zscore_24`
+2. `btc/eth 동조 피처`
+3. `relative_to_btc_return_4`
+4. `atr_14`
+5. `bollinger_position_20`
+
+### 이유
+
+* 이 다섯 개는 코인 시장 특성에 직접 닿아 있으면서도 비교적 계산이 명확합니다.
+* 뉴스나 김치프리미엄은 의미는 크지만 수집 파이프라인이 붙어야 해서, 먼저 넣으면 실험 해석이 오히려 복잡해질 수 있습니다.
+
+---
+
+## 2026-06-24 5차 주식/코인 v2~v5 고도화 비교
+
+### 목적
+
+* 주식과 코인 모두 피처 구성을 단계적으로 확장하면서 `v2 -> v5` 성능 변화를 비교합니다.
+* 관리자 페이지에서 즉시 비교 가능하도록 각 버전의 모델 파일, 예측 CSV, 백테스트 JSON을 모두 생성합니다.
+
+### 버전 구성
+
+#### 주식
+
+* `v2`: 거래대금 Z-score, 상대수익률, 섹터 상대수익률, 환율 피처
+* `v3`: `v2` + `amount_zscore_24`, `atr_14`, `bollinger_position_20`
+* `v4`: `v3` + 섹터 평균 수익률, KOSPI/NASDAQ 매크로 수익률
+* `v5`: `v4` + `range_ratio_1`, `close_to_high_20`, `close_to_low_20`
+
+#### 코인
+
+* `v2`: 거래대금 Z-score, `atr_14`, `bollinger_position_20`
+* `v3`: `v2` + BTC/ETH 동조 및 상대수익률 피처
+* `v4`: `v3` + 코인 시장 평균 수익률 및 시장 대비 상대수익률
+* `v5`: `v4` + `range_ratio_1`, `close_to_high_20`, `close_to_low_20`
+
+### 주식 비교 결과
+
+| 버전 | 상승 구분력 | 상승 적중도 | 하락 구분력 | 하락 적중도 | 복합 초과수익 |
+|---|---:|---:|---:|---:|---:|
+| `v2` | 0.5228 | 0.4181 | 0.5968 | 0.5196 | 0.002938 |
+| `v3` | 0.4922 | 0.4128 | 0.6037 | 0.5170 | -0.003071 |
+| `v4` | 0.4993 | 0.4169 | 0.6345 | 0.5543 | 0.002404 |
+| `v5` | 0.5011 | 0.4197 | 0.6321 | 0.5587 | 0.000761 |
+
+### 주식 해석
+
+* 주식은 `v2`와 `v4`가 상대적으로 낫습니다.
+* `v4`는 상승 모델은 강하지 않았지만, 하락 위험 모델과 복합 점수 백테스트가 가장 균형적입니다.
+* `v3`는 ATR/볼린저만 추가한 버전인데 오히려 복합 초과수익이 크게 악화됐습니다.
+* `v5`의 고가/저가 거리 피처는 하락 위험 적중도는 약간 개선했지만 백테스트 이득은 제한적이었습니다.
+
+### 코인 비교 결과
+
+| 버전 | 상승 구분력 | 상승 적중도 | 하락 구분력 | 하락 적중도 | 복합 초과수익 |
+|---|---:|---:|---:|---:|---:|
+| `v1` | 0.6342 | 0.2007 | 0.6596 | 0.2050 | -0.000027 |
+| `v2` | 0.6483 | 0.2115 | 0.6468 | 0.1900 | -0.000190 |
+| `v3` | 0.6286 | 0.1913 | 0.6660 | 0.2018 | -0.000413 |
+| `v4` | 0.6419 | 0.1926 | 0.6727 | 0.2534 | -0.000543 |
+| `v5` | 0.6253 | 0.1849 | 0.6829 | 0.2562 | -0.000877 |
+
+### 코인 해석
+
+* 코인은 상승 모델만 보면 `v2`가 가장 좋았습니다.
+* 하락 위험 모델은 버전이 올라갈수록 오히려 개선됐고, `v5`가 가장 높은 구분력을 보였습니다.
+* 하지만 복합 백테스트 기준으로는 `v1`이 아직 가장 덜 나빴고, 이후 버전은 오히려 초과수익이 악화됐습니다.
+* 즉 코인은 `리스크 분류 성능 향상`과 `실제 상위 후보 선별 성능`이 아직 같은 방향으로 가지 않고 있습니다.
+
+### 현재 판단
+
+* 주식 기본 후보는 `v4`를 우선 검토할 가치가 있습니다.
+* 코인은 `v2` 또는 `v1`을 기준선으로 두고, 김치프리미엄 후보나 뉴스 피처가 붙기 전까지는 추가 복잡도를 보수적으로 가져가는 편이 낫습니다.
+* 관리자 페이지에서는 현재 `v1 ~ v5` 전체 버전을 비교 표로 확인할 수 있습니다.
+## 2026-06-24 6차 고도화 준비 (v6)
+
+### 변경 포인트
+
+- 데이터 수집 스크립트에 `preset`, `chunk-size`, `failure-output` 옵션 추가
+- 주식/코인 v6 설정 파일 추가
+- 피처 확장:
+  - 공통: `body_ratio_1`, `upper_wick_ratio_1`, `lower_wick_ratio_1`, `intraday_return`, `volume_zscore`, `macd_*`
+  - 주식: `relative_return_10`, `sector_relative_return_10`, 뉴스/이벤트 피처 훅
+  - 코인: `funding_rate`, `open_interest`, `coinone_binance_spread`, `kimchi_premium`, 시간 피처
+- 라벨 정제:
+  - `neutral_zone_abs_return`
+  - `drop_neutral_samples`
+- 학습 고도화:
+  - 클래스 가중치
+  - 심볼 균형 가중치
+  - `scale_pos_weight`
+  - 확률 보정(sigmoid logistic calibration)
+  - 시계열 CV 평균 지표 기록
+- 백테스트 고도화:
+  - `top-percent`
+  - 수수료/슬리피지 반영
+  - `precision_at_top_n`
+  - `max_drawdown_net`
+  - `symbol_breakdown`
+
+### 실행 명령
+
+```bash
+source ml/.venv/bin/activate
+
+python ml/src/run_pipeline_bundle.py \
+  --config ml/configs/lgbm_stock_v6.yaml \
+  --risk-config ml/configs/lgbm_stock_risk_v6.yaml \
+  --summary-output ml/data/processed/stock_v6_summary.json
+
+python ml/src/run_pipeline_bundle.py \
+  --config ml/configs/lgbm_crypto_v6.yaml \
+  --risk-config ml/configs/lgbm_crypto_risk_v6.yaml \
+  --summary-output ml/data/processed/crypto_v6_summary.json
+```
+
+### 기록할 비교 항목
+
+- `roc_auc`
+- `average_precision`
+- `accuracy`
+- `precision`
+- `recall`
+- `precision_at_top_10pct`
+- `excess_return_net`
+- `max_drawdown_net`
+- `time_series_cv_average`
+
+### 1차 실행 결과
+
+```text
+stock_v6
+- up roc_auc: 0.5636
+- up average_precision: 0.4747
+- cv roc_auc average: 0.5218
+- cv precision_at_top_10pct: 0.4976
+- up_only excess_return_net: +0.005047
+- composite excess_return_net: +0.001161
+- composite selection_win_rate_net: 0.5316
+- composite max_drawdown_net: -0.5009
+- risk roc_auc: 0.5554
+- risk average_precision: 0.4420
+
+crypto_v6
+- up roc_auc: 0.6233
+- up average_precision: 0.2403
+- cv roc_auc average: 0.6027
+- cv precision_at_top_10pct: 0.2517
+- up_only excess_return_net: -0.000754
+- composite excess_return_net: -0.000447
+- composite selection_win_rate_net: 0.4683
+- composite max_drawdown_net: -0.5748
+- risk roc_auc: 0.6594
+- risk average_precision: 0.2661
+```
+
+### 해석 메모
+
+- 주식은 v6에서 분류 지표와 `up_only` 백테스트가 모두 양수로 나와 다음 비교 후보로 볼 만합니다.
+- 코인은 분류 지표는 나쁘지 않지만 비용 반영 백테스트가 아직 음수라, 외부 피처 실측값 투입 전까지는 운영 추천 모델로 바로 올리기 어렵습니다.
+- 특히 뉴스/펀딩/오픈이자 피처가 현재 0으로 대체된 상태라, 실제 데이터를 채워 넣은 뒤 재평가하는 것이 다음 단계입니다.

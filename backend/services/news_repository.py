@@ -26,7 +26,7 @@ class NewsRepository:
             return []
 
         params: dict[str, str] = {
-            "select": "id,market,source,source_article_id,title,summary,url,published_at,fetched_at,company_name,symbol,language,sentiment,content_hash,is_active,raw_payload",
+            "select": "id,market,source,source_article_id,title,summary,url,published_at,fetched_at,company_name,symbol,language,sentiment,content_hash,is_active,raw_payload,ai_summary,ai_summary_model,ai_summary_generated_at,ai_summary_prompt_version",
             "order": "published_at.desc",
             "limit": str(limit),
             "offset": str(offset),
@@ -154,6 +154,50 @@ class NewsRepository:
             except (TypeError, ValueError):
                 total += 0
         return total
+
+    def list_articles_by_ids(self, ids: list[str]) -> list[dict[str, Any]]:
+        if not self.supabase_url or not self.supabase_anon_key or not ids:
+            return []
+
+        ids = [str(item).strip() for item in ids if str(item).strip()]
+        if not ids:
+            return []
+
+        params = {
+            "select": "id,title,summary,url,market,source,company_name,symbol,raw_payload,content_hash,ai_summary,ai_summary_model,ai_summary_generated_at,ai_summary_prompt_version",
+            "id": f"in.({','.join(ids)})",
+        }
+        response = requests.get(
+            f"{self.supabase_url}/rest/v1/news_articles",
+            headers=self._read_headers(),
+            params=params,
+            timeout=15,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def upsert_article_summaries(self, rows: list[dict[str, Any]]) -> None:
+        if not self.is_configured or not rows:
+            return
+
+        for row in rows:
+            article_id = str(row.get("id") or "").strip()
+            if not article_id:
+                continue
+
+            payload = {
+                "ai_summary": row.get("ai_summary"),
+                "ai_summary_model": row.get("ai_summary_model"),
+                "ai_summary_generated_at": row.get("ai_summary_generated_at"),
+                "ai_summary_prompt_version": row.get("ai_summary_prompt_version"),
+            }
+            response = requests.patch(
+                f"{self.supabase_url}/rest/v1/news_articles?id=eq.{article_id}",
+                headers=self._write_headers(),
+                json=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
 
     def upsert_articles(self, articles: list[dict[str, Any]]) -> None:
         if not self.is_configured or not articles:

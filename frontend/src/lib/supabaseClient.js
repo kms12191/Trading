@@ -1,5 +1,6 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
 function buildHeaders() {
   return {
@@ -15,7 +16,7 @@ export async function fetchNewsArticles({ market = 'ALL', category = 'ALL', quer
   }
 
   const params = new URLSearchParams({
-    select: 'id,market,source,source_article_id,title,summary,url,published_at,fetched_at,company_name,symbol,language,sentiment,content_hash,is_active,raw_payload',
+    select: 'id,market,source,source_article_id,title,summary,url,published_at,fetched_at,company_name,symbol,language,sentiment,content_hash,is_active,raw_payload,ai_summary,ai_summary_model,ai_summary_generated_at,ai_summary_prompt_version',
     order: 'published_at.desc',
     limit: String(limit),
     offset: String(offset),
@@ -68,5 +69,26 @@ export async function fetchNewsArticles({ market = 'ALL', category = 'ALL', quer
     items: Array.isArray(data) ? data : [],
     totalCount: count,
   }
+}
+
+export async function ensureNewsSummaries({ articleIds = [] }) {
+  if (!Array.isArray(articleIds) || articleIds.length === 0) {
+    return { items: [], generatedCount: 0 }
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/news/summaries/ensure`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ article_ids: articleIds }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`News summary request failed: ${response.status} ${response.statusText}`)
+  }
+
+  const payload = await response.json()
+  return payload?.data || { items: [], generatedCount: 0 }
 }
 

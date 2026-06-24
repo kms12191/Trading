@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import Header from '../components/Header.jsx'
+import InvestmentSurveyModal from '../components/InvestmentSurveyModal'
 
 export default function Settings({ isLoggedIn, userEmail, handleLogout, userProfile, hideHeader }) {
   // 브로커 연동 현황 상태
@@ -10,11 +11,12 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
     COINONE: { registered: false },
     BINANCE: { registered: false }
   })
-  
+
   const [activeTab, setActiveTab] = useState('TOSS') // TOSS | KIS | COINONE | BINANCE
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState({ text: '', isError: false })
-  
+  const [showSurveyModal, setShowSurveyModal] = useState(false)
+
   // Toss 폼 상태
   const [tossForm, setTossForm] = useState({
     client_id: '',
@@ -47,6 +49,18 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
     api_key: '',
     secret_key: '',
     broker_env: 'REAL'
+  })
+
+  //
+  // 투자성향분석결과 (나중에 DB 연결하면 하드코딩 제거)
+  //
+
+  const [newPassword, setNewPassword] = useState('')
+
+  const [investmentProfile, setInvestmentProfile] = useState({
+    investment_type: '위험중립형',
+    risk_score: 29,
+    created_at: '2026-06-24'
   })
 
   // 세션 헤더 획득 헬퍼 함수
@@ -279,9 +293,9 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
         },
         body: JSON.stringify(testPayload)
       })
-      
+
       const testData = await testResponse.json()
-      
+
       if (testData.success) {
         // 테스트 통과 시 바로 저장
         await saveKeysDirect(authHeader, payload)
@@ -298,9 +312,9 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
           }
         } else {
           // FATAL(인증 실패 등) 오류 시에는 저장하지 않고 에러 표시
-          setMessage({ 
-            text: `[저장 실패] 유효하지 않은 키 정보입니다. 연결 검증에 실패했습니다.\n사유: ${testData.message}`, 
-            isError: true 
+          setMessage({
+            text: `[저장 실패] 유효하지 않은 키 정보입니다. 연결 검증에 실패했습니다.\n사유: ${testData.message}`,
+            isError: true
           })
         }
       }
@@ -371,7 +385,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
       {!hideHeader && <Header isLoggedIn={isLoggedIn} userEmail={userEmail} handleLogout={handleLogout} userProfile={userProfile} />}
 
       <main className="max-w-4xl mx-auto flex flex-col gap-8 mt-6">
-        
+
         {/* 브로커 API 연동 현황판 */}
         <section className="ai-glass rounded-lg p-6 flex flex-col gap-4">
           <h2 className="text-lg font-bold text-white flex items-center gap-2 uppercase tracking-wider border-b border-slate-800 pb-2">
@@ -379,7 +393,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
             API Key Connection Status (브로커 인증 연동 현황)
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            
+
             {/* Toss 현황 */}
             <div className={`p-4 rounded border transition-all ${status.TOSS.registered ? 'bg-[#0f1b2b]/50 border-blue-900/60' : 'bg-[#0e0f14]/80 border-slate-800'}`}>
               <div className="flex justify-between items-center mb-2">
@@ -455,11 +469,10 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
                   setActiveTab(tab)
                   setMessage({ text: '', isError: false })
                 }}
-                className={`px-6 py-2.5 text-xs font-extrabold tracking-widest transition-all cursor-pointer border-b-2 ${
-                  activeTab === tab
+                className={`px-6 py-2.5 text-xs font-extrabold tracking-widest transition-all cursor-pointer border-b-2 ${activeTab === tab
                     ? 'border-ai-cyan text-ai-cyan bg-ai-cyan/5'
                     : 'border-transparent text-slate-400 hover:text-white'
-                }`}
+                  }`}
                 type="button"
               >
                 [{tab}]
@@ -469,11 +482,10 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
 
           {/* 에러/성공 메시지 알림 카드 */}
           {message.text && (
-            <div className={`p-3 rounded text-xs border transition-all ${
-              message.isError 
-                ? 'bg-red-950/20 border-red-800 text-red-300' 
+            <div className={`p-3 rounded text-xs border transition-all ${message.isError
+                ? 'bg-red-950/20 border-red-800 text-red-300'
                 : 'bg-emerald-950/20 border-emerald-800 text-emerald-300'
-            }`}>
+              }`}>
               {message.text}
             </div>
           )}
@@ -503,27 +515,14 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 mb-1">ENVIRONMENT</label>
-                  <select
-                    value={tossForm.broker_env}
-                    onChange={(e) => setTossForm(prev => ({ ...prev, broker_env: e.target.value }))}
-                    className="w-full bg-[#0F172A] border border-slate-700 rounded px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-ai-cyan cursor-pointer"
-                  >
-                    <option value="REAL">REAL (실거래)</option>
-                    <option value="MOCK">MOCK (모의/테스트)</option>
-                  </select>
-                </div>
-                <div>
-                  <button
-                    onClick={handleFetchTossAccounts}
-                    disabled={tossAccLoading}
-                    className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold py-2 rounded transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    {tossAccLoading ? '계좌 가져오는 중...' : '계좌 조회'}
-                  </button>
-                </div>
+              <div className="mt-2">
+                <button
+                  onClick={handleFetchTossAccounts}
+                  disabled={tossAccLoading}
+                  className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold py-2.5 rounded transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {tossAccLoading ? '계좌 가져오는 중...' : '계좌 조회'}
+                </button>
               </div>
 
               {tossAccounts.length > 0 && (
@@ -632,7 +631,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
                 <button
                   onClick={() => handleSaveKeys('KIS')}
                   disabled={loading}
-                  className="flex-1 bg-gradient-to-r from-emerald-700 to-teal-500 text-white text-xs font-bold py-2.5 rounded transition-all cursor-pointer disabled:opacity-50"
+                  className="flex-1 bg-gradient-to-r from-blue-700 to-cyan-400 text-white text-xs font-bold py-2.5 rounded transition-all cursor-pointer disabled:opacity-50"
                 >
                   저장
                 </button>
@@ -676,7 +675,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
                 <button
                   onClick={() => handleSaveKeys('COINONE')}
                   disabled={loading}
-                  className="flex-1 bg-gradient-to-r from-sky-700 to-sky-500 text-white text-xs font-bold py-2.5 rounded transition-all cursor-pointer disabled:opacity-50"
+                  className="flex-1 bg-gradient-to-r from-blue-700 to-cyan-400 text-white text-xs font-bold py-2.5 rounded transition-all cursor-pointer disabled:opacity-50"
                 >
                   저장
                 </button>
@@ -720,7 +719,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
                 <button
                   onClick={() => handleSaveKeys('BINANCE')}
                   disabled={loading}
-                  className="flex-1 bg-gradient-to-r from-amber-700 to-amber-500 text-white text-xs font-bold py-2.5 rounded transition-all cursor-pointer disabled:opacity-50"
+                  className="flex-1 bg-gradient-to-r from-blue-700 to-cyan-400 text-white text-xs font-bold py-2.5 rounded transition-all cursor-pointer disabled:opacity-50"
                 >
                   저장
                 </button>
@@ -736,7 +735,113 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
           )}
         </section>
 
+        {/* ================= 계정 정보 ================= */}
+
+        <section className="ai-glass rounded-lg p-6 flex flex-col gap-6">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2 uppercase tracking-wider border-b border-slate-800 pb-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-ai-cyan" />
+            MY ACCOUNT
+          </h2>          
+
+          <div className="grid md:grid-cols-2 gap-5">
+            <div>
+
+              <label className="text-[11px] text-slate-400 font-bold">
+                EMAIL
+              </label>
+
+              <div className="mt-2 bg-[#0F172A] border border-slate-700 rounded p-3 font-mono">
+                {userEmail}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-slate-400 font-bold">
+                USER NAME
+              </label>
+
+              <div className="mt-2 bg-[#0F172A] border border-slate-700 rounded p-3 font-mono">
+                {userProfile?.nickname}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[11px] text-slate-400 font-bold mb-2 block">
+              CHANGE PASSWORD
+            </label>
+
+            <div className="flex gap-4">
+              <input
+                type="password"
+                placeholder="새 비밀번호 입력"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="flex-1 bg-[#0F172A]
+                   border border-slate-700
+                   rounded px-4 py-3
+                   text-white
+                   focus:outline-none
+                   focus:border-ai-cyan"
+              />
+
+              <button
+                onClick={() => { }}
+                className="flex-1 bg-gradient-to-r from-blue-700 to-cyan-400 text-white text-xs font-bold py-2.5 rounded transition-all cursor-pointer disabled:opacity-50"
+                >
+                비밀번호 변경
+              </button>
+            </div>
+          </div>
+        </section>
+
+
+        {/* ================= 투자 성향 ================= */}
+
+        <section className="ai-glass rounded-lg p-6 flex flex-col gap-6">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2 uppercase tracking-wider border-b border-slate-800 pb-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-ai-cyan" />
+            INVESTMENT PROFILE
+          </h2>
+
+          <div className="bg-[#0F172A] border border-ai-cyan/40 rounded-lg p-6">
+            <div className="text-slate-400 text-xs font-bold">
+              현재 투자 성향
+            </div>
+
+            <div className="mt-4 text-3xl font-bold text-ai-cyan">
+              {userProfile?.invest_type}
+            </div>
+
+            <div className="mt-5 text-sm text-slate-300">
+              위험 점수 : {userProfile?.invest_score || 0} / 50
+            </div>
+
+            <div className="text-sm text-slate-500 mt-2">
+              최근 분석일 : {investmentProfile?.created_at}
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowSurveyModal(true)}
+            className="flex-1 bg-gradient-to-r from-blue-700 to-cyan-400 text-white text-xs font-bold py-2.5 rounded transition-all cursor-pointer disabled:opacity-50"
+          >
+            투자 성향 재분석
+          </button>
+        </section>
+
+        {
+          showSurveyModal && (
+            <InvestmentSurveyModal
+              onClose={() => setShowSurveyModal(false)}
+              userProfile={userProfile}
+            />
+          )
+        }
+
       </main>
     </div>
   )
+
+
 }

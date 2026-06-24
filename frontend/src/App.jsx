@@ -501,7 +501,16 @@ export default function App() {
       )}
 
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route
+          path="/"
+          element={
+            <Home
+              isLoggedIn={isLoggedIn}
+              userEmail={userEmail}
+              handleLogout={handleLogout}
+            />
+          }
+        />
         <Route 
           path="/dashboard" 
           element={

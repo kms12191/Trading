@@ -1,0 +1,110 @@
+data:
+  raw_candles_path: data/raw/stock_candles.csv
+  features_path: data/processed/stock_features_lgbm_v7.csv
+  predictions_path: data/processed/stock_predictions_lgbm_v7.csv
+  backtest_up_only_summary_path: data/processed/stock_backtest_up_only_v7.json
+  backtest_up_only_daily_path: data/processed/stock_backtest_up_only_daily_v7.csv
+  backtest_composite_summary_path: data/processed/stock_backtest_composite_v7.json
+  backtest_composite_daily_path: data/processed/stock_backtest_composite_daily_v7.csv
+
+model:
+  version: lgbm_stock_signal_v7
+  asset_type: STOCK
+  output_path: models/lgbm_stock_signal_v7.joblib
+  horizon_periods: 3
+  up_return_threshold: 0.01
+  risk_return_threshold: -0.02
+  validation_ratio: 0.2
+  random_state: 42
+  target_column: up_label
+  feature_columns:
+    - return_1
+    - return_3
+    - return_5
+    - return_10
+    - return_20
+    - ma_5_gap
+    - ma_20_gap
+    - volume_ratio_5
+    - volatility_20
+    - rsi_14
+    - amount_zscore_20
+    - amount_zscore_24
+    - volume_zscore_20
+    - relative_return_3
+    - relative_return_5
+    - relative_return_10
+    - sector_relative_return_3
+    - sector_relative_return_5
+    - sector_relative_return_10
+    - usdkrw_return_3
+    - usdkrw_return_5
+    - atr_14
+    - bollinger_position_20
+    - sector_return_1_mean
+    - sector_return_3_mean
+    - sector_return_5_mean
+    - sector_return_10_mean
+    - macro_KOSPI_return_3
+    - macro_KOSPI_return_5
+    - macro_KOSDAQ_return_3
+    - macro_KOSDAQ_return_5
+    - macro_NASDAQ_return_3
+    - macro_NASDAQ_return_5
+    - macro_USDKRW_ma_20_gap
+    - range_ratio_1
+    - body_ratio_1
+    - upper_wick_ratio_1
+    - lower_wick_ratio_1
+    - intraday_return
+    - close_to_high_20
+    - close_to_low_20
+    - macd_line
+    - macd_signal
+    - macd_hist
+    - day_of_week
+    - is_us_asset
+    - is_kr_asset
+    - news_sentiment
+    - news_article_count_24h
+    - news_burst_zscore
+    - negative_keyword_ratio
+    - market_news_sentiment
+    - market_news_article_count_24h
+    - market_news_burst_zscore
+    - market_negative_keyword_ratio
+    - warning_flag
+    - price_limit_proximity
+    - turnover_ratio
+    - market_open_flag
+
+prediction:
+  risk_model_path: models/lgbm_stock_risk_v7.joblib
+
+labels:
+  neutral_zone_abs_return: 0.003
+  drop_neutral_samples: true
+
+training:
+  class_weight_mode: balanced
+  balance_symbol_weights: true
+  use_scale_pos_weight: true
+  enable_probability_calibration: true
+  calibration_ratio: 0.1
+  time_series_cv_splits: 4
+
+backtest:
+  fee_bps: 8
+  slippage_bps: 12
+
+lightgbm:
+  objective: binary
+  learning_rate: 0.018
+  n_estimators: 700
+  num_leaves: 31
+  max_depth: -1
+  subsample: 0.82
+  colsample_bytree: 0.82
+  min_child_samples: 28
+  reg_alpha: 0.15
+  reg_lambda: 0.7
