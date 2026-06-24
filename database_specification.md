@@ -13,6 +13,11 @@ erDiagram
     profiles ||--o{ trade_proposals : "requests"
     profiles ||--o{ auto_trading_rules : "defines"
     profiles ||--o{ paper_portfolios : "tracks virtual assets"
+    watchlist_symbols ||--o{ market_candles : "collects"
+    watchlist_symbols ||--o{ model_features : "generates"
+    watchlist_symbols ||--o{ model_labels : "labels"
+    watchlist_symbols ||--o{ model_predictions : "predicts"
+    model_runs ||--o{ model_predictions : "produces"
 
     profiles {
         uuid id PK "auth.users(id) 참조"
@@ -95,6 +100,81 @@ erDiagram
         string status "감시 상태"
         timestamp created_at "생성 일시"
         timestamp updated_at "수정 일시"
+    }
+
+    watchlist_symbols {
+        uuid id PK "기본키"
+        string symbol "종목 심볼"
+        string name "종목명"
+        string exchange "데이터 출처"
+        string asset_type "자산 종류"
+        string market_country "시장 국가"
+        string currency "통화"
+        boolean is_active "수집 활성화 여부"
+        string source "편입 출처"
+        timestamp created_at "생성 일시"
+    }
+
+    market_candles {
+        uuid id PK "기본키"
+        string symbol "종목 심볼"
+        string exchange "데이터 출처"
+        string asset_type "자산 종류"
+        string interval "캔들 주기"
+        timestamp candle_time "캔들 시각"
+        numeric open_price "시가"
+        numeric high_price "고가"
+        numeric low_price "저가"
+        numeric close_price "종가"
+        numeric volume "거래량"
+        timestamp created_at "생성 일시"
+    }
+
+    model_features {
+        uuid id PK "기본키"
+        string symbol "종목 심볼"
+        string asset_type "자산 종류"
+        timestamp feature_time "피처 기준 시각"
+        jsonb features "모델 입력 피처"
+        timestamp created_at "생성 일시"
+    }
+
+    model_labels {
+        uuid id PK "기본키"
+        string symbol "종목 심볼"
+        string asset_type "자산 종류"
+        timestamp base_time "라벨 기준 시각"
+        integer horizon_periods "예측 기간"
+        numeric future_return "미래 수익률"
+        integer up_label "상승 라벨"
+        integer risk_label "하락 위험 라벨"
+        timestamp created_at "생성 일시"
+    }
+
+    model_runs {
+        uuid id PK "기본키"
+        string model_version "모델 버전"
+        string asset_type "자산 종류"
+        string model_type "모델 종류"
+        timestamp trained_at "학습 일시"
+        timestamp train_start_time "학습 시작 시각"
+        timestamp train_end_time "학습 종료 시각"
+        jsonb metrics "검증 지표"
+        jsonb feature_columns "피처 목록"
+        string model_file_path "모델 파일 경로"
+    }
+
+    model_predictions {
+        uuid id PK "기본키"
+        uuid model_run_id FK "model_runs(id) 참조"
+        string symbol "종목 심볼"
+        string asset_type "자산 종류"
+        timestamp prediction_time "예측 기준 시각"
+        integer horizon_periods "예측 기간"
+        numeric up_probability "상승 확률"
+        numeric risk_probability "하락 위험 확률"
+        numeric signal_score "종합 신호 점수"
+        timestamp created_at "생성 일시"
     }
 ```
 
@@ -283,7 +363,96 @@ erDiagram
 
 ---
 
-## 5. 보안 정책 (Row Level Security, RLS)
+## 5. LightGBM 주식/코인 예측 데이터 설계
+
+LightGBM 모델은 서비스 요청 중 직접 학습하지 않고, `ml/` 디렉토리의 오프라인 학습 파이프라인에서 사전학습한 뒤 백엔드에 탑재합니다. 아래 테이블은 목표 설계이며, 실제 DB 반영은 별도 마이그레이션으로 수행해야 합니다.
+
+### 5.1 `watchlist_symbols` (학습 및 수집 대상 종목)
+
+* **설명**: 데이터 수집과 모델 예측 대상이 되는 주식/코인 목록을 관리합니다.
+* **초기 운영 기준**:
+  * 주식은 Toss 기준 국내·미국 대표 종목부터 시작합니다.
+  * 코인은 코인원/바이낸스에서 공통으로 조회 가능한 BTC, ETH, XRP, SOL 등 유동성 높은 종목부터 시작합니다.
+
+| 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, DEFAULT gen_random_uuid() | 종목 레코드 고유 ID |
+| `symbol` | `TEXT` | NOT NULL | 거래소 API 호출용 심볼 |
+| `name` | `TEXT` | - | 종목명 |
+| `exchange` | `TEXT` | CHECK (exchange IN ('TOSS', 'COINONE', 'BINANCE', 'KIS')) | 데이터 출처 |
+| `asset_type` | `TEXT` | CHECK (asset_type IN ('CRYPTO', 'STOCK')) | 자산 유형 |
+| `market_country` | `TEXT` | CHECK (market_country IN ('KR', 'US')) | 주식 시장 국가. 코인은 NULL 가능 |
+| `currency` | `TEXT` | - | 거래 통화 |
+| `is_active` | `BOOLEAN` | DEFAULT true | 수집 활성화 여부 |
+| `source` | `TEXT` | DEFAULT 'ADMIN' | 편입 출처 (`ADMIN`, `USER`, `RANKING`, `MODEL`) |
+| `created_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 생성 일시 |
+
+### 5.2 `market_candles` (캔들 원천 데이터)
+
+* **설명**: Toss, Coinone, Binance 등에서 수집한 OHLCV 캔들 데이터를 저장합니다.
+* **주식 기준**: 일봉 중심으로 시작하고, 3거래일 뒤 상승/하락 위험 라벨을 생성합니다.
+* **코인 기준**: 1시간봉 또는 4시간봉 중심으로 시작하고, 4시간 뒤 상승/하락 위험 라벨을 생성합니다.
+* **주의**: 대용량 테이블이 될 수 있으므로 `exchange`, `symbol`, `interval`, `candle_time` 기준 유니크 인덱스와 조회 인덱스를 설계해야 합니다.
+
+| 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, DEFAULT gen_random_uuid() | 캔들 레코드 고유 ID |
+| `symbol` | `TEXT` | NOT NULL | 종목 심볼 |
+| `exchange` | `TEXT` | NOT NULL | 데이터 출처 |
+| `asset_type` | `TEXT` | CHECK (asset_type IN ('CRYPTO', 'STOCK')) | 자산 유형 |
+| `interval` | `TEXT` | NOT NULL | 캔들 주기 (`1d`, `1h`, `4h` 등) |
+| `candle_time` | `TIMESTAMPTZ` | NOT NULL | 캔들 기준 시각 |
+| `open_price` | `NUMERIC` | NOT NULL | 시가 |
+| `high_price` | `NUMERIC` | NOT NULL | 고가 |
+| `low_price` | `NUMERIC` | NOT NULL | 저가 |
+| `close_price` | `NUMERIC` | NOT NULL | 종가 |
+| `volume` | `NUMERIC` | - | 거래량 |
+| `created_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 생성 일시 |
+
+### 5.3 `model_features` (모델 입력 피처)
+
+* **설명**: 캔들 데이터에서 계산한 과거 기반 피처를 저장합니다. 미래 수익률과 같은 라벨 정보는 절대 포함하지 않습니다.
+* **주식 대표 피처**: 1일·3일·5일·10일·20일 수익률, 5일·20일 이동평균 괴리율, 거래량 평균 대비 비율, 20일 변동성, RSI 등.
+* **코인 대표 피처**: 1봉·4봉·12봉·24봉 수익률, 4봉·24봉 이동평균 괴리율, 4봉·24봉 거래량 비율, 24봉 변동성, RSI 등.
+
+| 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, DEFAULT gen_random_uuid() | 피처 레코드 고유 ID |
+| `symbol` | `TEXT` | NOT NULL | 종목 심볼 |
+| `asset_type` | `TEXT` | CHECK (asset_type IN ('CRYPTO', 'STOCK')) | 자산 유형 |
+| `feature_time` | `TIMESTAMPTZ` | NOT NULL | 피처 기준 시각 |
+| `features` | `JSONB` | NOT NULL | 모델 입력 피처 묶음 |
+| `created_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 생성 일시 |
+
+### 5.4 `model_labels` (학습 정답 라벨)
+
+* **설명**: 피처 기준 시각 이후 실제 수익률을 계산하여 학습 정답으로 저장합니다.
+* **주식 초기 기준**: `horizon_periods = 3`, `future_return >= 0.01`이면 `up_label = 1`, `future_return <= -0.02`이면 `risk_label = 1`로 시작합니다.
+* **코인 초기 기준**: `horizon_periods = 4`, `future_return >= 0.01`이면 `up_label = 1`, `future_return <= -0.015`이면 `risk_label = 1`로 시작합니다.
+
+| 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, DEFAULT gen_random_uuid() | 라벨 레코드 고유 ID |
+| `symbol` | `TEXT` | NOT NULL | 종목 심볼 |
+| `asset_type` | `TEXT` | CHECK (asset_type IN ('CRYPTO', 'STOCK')) | 자산 유형 |
+| `base_time` | `TIMESTAMPTZ` | NOT NULL | 라벨 기준 시각 |
+| `horizon_periods` | `INT` | NOT NULL | 예측 기간 |
+| `future_return` | `NUMERIC` | NOT NULL | 기준 시각 이후 실제 수익률 |
+| `up_label` | `INT` | CHECK (up_label IN (0, 1)) | 상승 라벨 |
+| `risk_label` | `INT` | CHECK (risk_label IN (0, 1)) | 하락 위험 라벨 |
+| `created_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 생성 일시 |
+
+### 5.5 `model_runs` 및 `model_predictions`
+
+* **`model_runs`**: 모델 버전, 자산 유형, 학습 기간, 검증 지표, 피처 목록, 모델 파일 경로를 기록합니다.
+* **`model_predictions`**: 모델이 생성한 종목별 상승 확률, 하락 위험 확률, 종합 신호 점수를 기록합니다.
+* **운영 원칙**:
+  * 주식 모델과 코인 모델은 `asset_type`과 `model_version`을 기준으로 분리합니다.
+  * 새 모델이 기존 모델보다 검증 성능과 백테스트 안정성이 좋을 때만 서비스 모델로 교체합니다.
+
+---
+
+## 6. 보안 정책 (Row Level Security, RLS)
 
 모든 테이블은 데이터 보안을 강화하기 위해 **Row Level Security(RLS)**를 사용합니다.
 
@@ -291,15 +460,16 @@ erDiagram
 * Toss `client_id`, `client_secret`, access token, 계좌번호 원문은 프론트엔드에 노출하지 않습니다.
 * 백엔드만 암호화된 인증 정보를 복호화할 수 있으며, 복호화된 값은 로그에 기록하지 않습니다.
 * `trade_proposals.failure_reason`에는 민감정보를 저장하지 않고 Toss `requestId`, 에러 코드, 사용자 노출 가능한 메시지만 기록합니다.
+* 사용자 개인 계좌 데이터와 주문 이력은 ML 모델 학습 데이터로 사용하지 않고, 개인화 설명 및 리스크 안내에만 사용합니다.
 * 데이터베이스 단에서 사용자별 행을 완전히 격리하여 멀티 테넌시 안정성을 보장합니다.
 
 ---
 
-## 6. 향후 토큰 캐시 DB화 및 Upsert 설계 로드맵
+## 7. 향후 토큰 캐시 DB화 및 Upsert 설계 로드맵
 
 현재 로컬 파일 시스템 캐시(`.toss_token_cache.json` 및 `.kis_token_cache.json`)로 관리 중인 OAuth 2.0 Access Token은 향후 클라우드 및 다중 서버(Scale-out) 배포 시 동기화와 영속성 확보를 위해 다음과 같은 DB 기반의 **Upsert(업서트) 패턴**으로 전환하여 고도화합니다.
 
-### 6.1 목표 스키마 설계 (`token_caches` 신설)
+### 7.1 목표 스키마 설계 (`token_caches` 신설)
 
 ```mermaid
 erDiagram
@@ -327,7 +497,7 @@ erDiagram
 * **유니크 제약 (Unique Constraint)**:
   * `UNIQUE (exchange, broker_env)` 제약을 생성하여, 동일 거래소의 동일 실행 환경에 대해서는 **항상 테이블 내에 오직 1개의 행만 유지**되도록 제약합니다.
 
-### 6.2 데이터 수명 주기 및 Upsert 동작 흐름
+### 7.2 데이터 수명 주기 및 Upsert 동작 흐름
 
 1. **토큰 조회**:
    * 백엔드 API 요청 시 `token_caches`에서 `exchange`와 `broker_env`에 매칭되는 데이터를 SELECT합니다.
@@ -347,4 +517,3 @@ erDiagram
    * 이 방식을 통해 DB 내 데이터가 무한히 누적되는 문제를 방지하고, 별도의 클린업 쿼리 없이 **테이블 전체 크기를 최소화(최대 4개 행 이내)**하여 극단적인 쿼리 성능 향상을 꾀합니다.
 3. **로컬 파일 클린업**:
    * DB 캐시 테이블 원격 배포 및 코드 적용 완료 시점 즉시, 로컬 디렉토리의 `.toss_token_cache.json` 및 `.kis_token_cache.json` 파일을 **영구 삭제(rm)**하고 `.gitignore` 항목을 정리합니다.
-

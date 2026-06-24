@@ -6,6 +6,8 @@
 .Python
 env/
 venv/
+.venv/
+ml/.venv/
 .env
 .kis_token_cache.json
 .toss_token_cache.json
@@ -15,6 +17,14 @@ venv/
 **/dist/
 **/dist-ssr/
 *.local
+
+# ML data and model artifacts
+ml/data/raw/*
+ml/data/processed/*
+ml/models/*
+!ml/data/raw/.gitkeep
+!ml/data/processed/.gitkeep
+!ml/models/.gitkeep
 
 # OS & IDEs
 .DS_Store

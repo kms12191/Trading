@@ -7,6 +7,7 @@ import Signup from './pages/Signup'
 import News from './pages/News'
 import Settings from './pages/Settings'
 import Home from './pages/Home'
+import AdminMlData from './pages/AdminMlData'
 
 // 10문항 투자 성향 설문 데이터 정의 (한글 주석 준수)
 const SURVEY_QUESTIONS = [
@@ -530,6 +531,16 @@ export default function App() {
               userEmail={userEmail} 
               handleLogout={handleLogout}
               userProfile={userProfile}
+            />
+          } 
+        />
+        <Route 
+          path="/admin/ml-data" 
+          element={
+            <AdminMlData 
+              isLoggedIn={isLoggedIn} 
+              userEmail={userEmail} 
+              handleLogout={handleLogout}
             />
           } 
         />

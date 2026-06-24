@@ -1,6 +1,6 @@
 # Stock & Coin Trading Bot MVP
 
-한국투자증권(주식) 및 업비트(가상자산) API를 단일 챗봇 및 대시보드로 통합 관리하는 AI 기반 트레이딩 보조 시스템의 기본 프레임워크 MVP입니다.
+Toss증권 Open API(국내·미국 주식), 코인원 및 바이낸스(가상자산)를 단일 챗봇 및 대시보드로 통합 관리하는 AI 기반 트레이딩 보조 시스템의 MVP입니다. LightGBM 기반 사전학습 신호 엔진은 주식과 코인을 별도 모델로 분리하여 `ml/` 디렉토리에서 관리합니다.
 
 ---
 
@@ -15,14 +15,22 @@ teamproject/
 │   ├── utils/
 │   │   └── crypto_helper.py   # API Key AES-256-GCM 암호화/복호화 유틸리티
 │   ├── app.py                 # Flask API 엔트리포인트 (Port: 5050)
+│   ├── scripts/               # 학습 데이터 수집 등 운영 스크립트
 │   └── requirements.txt       # 백엔드 의존 라이브러리 정의
 │
 ├── frontend/                 # Vite + React 프론트엔드
 │   ├── src/
-│   │   ├── App.jsx            # API 테스트 및 대시보드 메인 화면
+│   │   ├── App.jsx            # 라우팅 및 전역 세션 감지
+│   │   ├── pages/             # 대시보드, 뉴스, 설정, 관리자 화면
 │   │   └── index.css          # design.md 기반의 Obsidian Navy 테마 CSS (Tailwind v4)
 │   ├── package.json           # 프론트엔드 의존성 및 스크립트 정의
 │   └── vite.config.js         # Vite 및 Tailwind v4 컴파일 설정
+│
+├── ml/                       # LightGBM 사전학습 및 예측 파이프라인
+│   ├── configs/              # 주식/코인 모델 설정
+│   ├── data/                 # 원천/가공 데이터 보관
+│   ├── models/               # 학습 모델 파일 출력
+│   └── src/                  # 피처 생성, 학습, 평가, 예측 스크립트
 │
 ├── design.md                 # Stitch 프로젝트 기반 UI/UX 디자인 가이드라인
 ├── agents.md                 # AI 개발 에이전트를 위한 설계 사상 지침서
@@ -70,3 +78,51 @@ npm run dev
 ## 🔒 보안 규칙 (Security Rule)
 * **대칭키 분실 주의**: `ENCRYPTION_KEY`가 변경되면 이전에 DB에 암호화 저장된 API Key 복호화가 불가능해집니다. 로컬 개발 환경별 키 공유 관리에 주의하십시오.
 * **토큰 캐시**: KIS 토큰은 불필요한 Rate Limit 소모 방지를 위해 로컬 디렉토리의 `.kis_token_cache.json` 파일에 저장 및 자동 관리되므로 Git에 커밋되지 않도록 `.gitignore`에 등록되어 있습니다.
+* **ML 데이터 분리**: `ml/data/`와 `ml/models/`에는 대용량 학습 데이터와 모델 산출물이 생성되므로 원칙적으로 Git에 커밋하지 않습니다.
+
+---
+
+## 🧠 LightGBM 학습 준비
+
+초기 학습은 맥북 M2 로컬 Python 환경에서 진행하고, 대량 분봉 데이터나 반복 튜닝이 필요할 때 Colab을 보조 환경으로 사용합니다.
+
+```bash
+cd ml
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+주식 모델은 일봉 중심으로 시작합니다.
+
+```bash
+python src/build_features.py --config configs/lgbm_stock_v1.yaml
+python src/train_model.py --config configs/lgbm_stock_v1.yaml
+```
+
+코인 모델은 24시간 시장 특성에 맞춰 1시간봉 또는 4시간봉 데이터로 시작합니다.
+
+```bash
+python src/build_features.py --config configs/lgbm_crypto_v1.yaml
+python src/train_model.py --config configs/lgbm_crypto_v1.yaml
+```
+
+학습용 캔들 CSV는 관리자 페이지 또는 스크립트로 생성합니다.
+
+```text
+관리자 페이지: http://localhost:5173/admin/ml-data
+백엔드 API: POST http://localhost:5050/api/ml/export-candles
+```
+
+코인 CSV는 Binance 공개 캔들 API로 즉시 수집할 수 있습니다.
+
+```bash
+source ml/.venv/bin/activate
+python backend/scripts/export_training_candles.py \
+  --asset-type CRYPTO \
+  --exchange BINANCE \
+  --symbols BTCUSDT,ETHUSDT \
+  --interval 1h \
+  --count 500 \
+  --output ml/data/raw/crypto_candles.csv
+```

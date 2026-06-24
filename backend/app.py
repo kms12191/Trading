@@ -4,6 +4,7 @@ import re
 import threading
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -20,6 +21,7 @@ from backend.services.coinone_client import CoinoneClient
 from backend.services.binance_client import BinanceClient
 from backend.services.news_repository import NewsRepository
 from backend.services.news_ingest import NewsIngestService
+from backend.scripts.export_training_candles import fetch_binance_klines, fetch_toss_candles, write_rows
 
 load_dotenv()
 
@@ -646,6 +648,68 @@ def get_dashboard_balance():
         return jsonify({
             "success": False,
             "message": f"잔고 조회 중 실패: {str(e)}"
+        }), 500
+
+
+@app.route("/api/ml/export-candles", methods=["POST"])
+def export_ml_candles():
+    """
+    관리자 페이지에서 학습용 캔들 CSV를 생성합니다.
+    사용자의 API Key는 프론트엔드로 전달하지 않고 서버 내부에서만 사용합니다.
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"success": False, "message": "인증 헤더가 누락되었습니다."}), 401
+
+    data = request.json or {}
+    asset_type = str(data.get("asset_type", "")).upper()
+    exchange = str(data.get("exchange", "")).upper()
+    symbols = data.get("symbols") or []
+    interval = data.get("interval")
+    count = int(data.get("count") or 200)
+
+    if isinstance(symbols, str):
+        symbols = [symbol.strip().upper() for symbol in symbols.split(",") if symbol.strip()]
+    else:
+        symbols = [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()]
+
+    if not symbols:
+        return jsonify({"success": False, "message": "수집할 심볼을 입력해 주세요."}), 400
+
+    if count < 1 or count > 1000:
+        return jsonify({"success": False, "message": "count는 1 이상 1000 이하로 입력해 주세요."}), 400
+
+    try:
+        token = auth_header.split(" ", 1)[1] if auth_header.startswith("Bearer ") else auth_header
+
+        if exchange == "TOSS" and asset_type == "STOCK":
+            rows = fetch_toss_candles(symbols, token, interval or "1d", count)
+            output = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "ml" / "data" / "raw" / "stock_candles.csv"
+        elif exchange == "BINANCE" and asset_type == "CRYPTO":
+            rows = fetch_binance_klines(symbols, interval or "1h", count)
+            output = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "ml" / "data" / "raw" / "crypto_candles.csv"
+        else:
+            return jsonify({"success": False, "message": "지원하지 않는 asset_type/exchange 조합입니다."}), 400
+
+        write_rows(output, rows)
+
+        return jsonify({
+            "success": True,
+            "message": "학습용 캔들 CSV 생성이 완료되었습니다.",
+            "data": {
+                "output": str(output),
+                "row_count": len(rows),
+                "symbols": symbols,
+                "asset_type": asset_type,
+                "exchange": exchange,
+                "interval": interval or ("1d" if exchange == "TOSS" else "1h"),
+                "count": count,
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"학습용 캔들 CSV 생성 실패: {str(e)}"
         }), 500
 
 

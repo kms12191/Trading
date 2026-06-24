@@ -1,0 +1,36 @@
+data:
+  raw_candles_path: data/raw/crypto_candles.csv
+  features_path: data/processed/crypto_features_lgbm_v1.csv
+  predictions_path: data/processed/crypto_predictions_lgbm_v1.csv
+
+model:
+  version: lgbm_crypto_signal_v1
+  asset_type: CRYPTO
+  output_path: models/lgbm_crypto_signal_v1.joblib
+  horizon_periods: 4
+  up_return_threshold: 0.01
+  risk_return_threshold: -0.015
+  validation_ratio: 0.2
+  random_state: 42
+  target_column: up_label
+  feature_columns:
+    - return_1
+    - return_4
+    - return_12
+    - return_24
+    - ma_4_gap
+    - ma_24_gap
+    - volume_ratio_4
+    - volume_ratio_24
+    - volatility_24
+    - rsi_14
+
+lightgbm:
+  objective: binary
+  learning_rate: 0.03
+  n_estimators: 400
+  num_leaves: 31
+  max_depth: -1
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_samples: 30

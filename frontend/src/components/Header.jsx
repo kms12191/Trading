@@ -49,6 +49,16 @@ export default function Header({ isLoggedIn, userEmail, handleLogout }) {
           >
             뉴스
           </Link>
+          <Link
+            to="/admin/ml-data"
+            className={`px-3 py-1.5 rounded text-xs font-semibold border transition-all ${
+              currentPath === '/admin/ml-data'
+                ? 'bg-ai-cyan text-black border-ai-cyan'
+                : 'text-slate-300 border-slate-700 hover:border-slate-500'
+            }`}
+          >
+            관리자
+          </Link>
         </nav>
 
         <span className="hidden md:inline text-xs font-mono text-slate-500">SYSTEM TIME: 2026-06-22T11:53:27</span>
