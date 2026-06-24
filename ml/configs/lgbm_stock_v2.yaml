@@ -1,0 +1,52 @@
+data:
+  raw_candles_path: data/raw/stock_candles.csv
+  features_path: data/processed/stock_features_lgbm_v2.csv
+  predictions_path: data/processed/stock_predictions_lgbm_v2.csv
+  backtest_up_only_summary_path: data/processed/stock_backtest_up_only_v2.json
+  backtest_up_only_daily_path: data/processed/stock_backtest_up_only_daily_v2.csv
+  backtest_composite_summary_path: data/processed/stock_backtest_composite_v2.json
+  backtest_composite_daily_path: data/processed/stock_backtest_composite_daily_v2.csv
+
+model:
+  version: lgbm_stock_signal_v2
+  asset_type: STOCK
+  output_path: models/lgbm_stock_signal_v2.joblib
+  horizon_periods: 3
+  up_return_threshold: 0.01
+  risk_return_threshold: -0.02
+  validation_ratio: 0.2
+  random_state: 42
+  target_column: up_label
+  feature_columns:
+    - return_1
+    - return_3
+    - return_5
+    - return_10
+    - return_20
+    - ma_5_gap
+    - ma_20_gap
+    - volume_ratio_5
+    - volatility_20
+    - rsi_14
+    - amount_zscore_20
+    - relative_return_3
+    - relative_return_5
+    - sector_relative_return_3
+    - sector_relative_return_5
+    - usdkrw_return_3
+    - usdkrw_return_5
+    - news_sentiment
+    - news_frequency_zscore
+
+prediction:
+  risk_model_path: models/lgbm_stock_risk_v2.joblib
+
+lightgbm:
+  objective: binary
+  learning_rate: 0.03
+  n_estimators: 300
+  num_leaves: 31
+  max_depth: -1
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_samples: 20

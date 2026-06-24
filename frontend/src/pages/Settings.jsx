@@ -515,27 +515,14 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 mb-1">ENVIRONMENT</label>
-                  <select
-                    value={tossForm.broker_env}
-                    onChange={(e) => setTossForm(prev => ({ ...prev, broker_env: e.target.value }))}
-                    className="w-full bg-[#0F172A] border border-slate-700 rounded px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-ai-cyan cursor-pointer"
-                  >
-                    <option value="REAL">REAL (실거래)</option>
-                    <option value="MOCK">MOCK (모의/테스트)</option>
-                  </select>
-                </div>
-                <div>
-                  <button
-                    onClick={handleFetchTossAccounts}
-                    disabled={tossAccLoading}
-                    className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold py-2 rounded transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    {tossAccLoading ? '계좌 가져오는 중...' : '계좌 조회'}
-                  </button>
-                </div>
+              <div className="mt-2">
+                <button
+                  onClick={handleFetchTossAccounts}
+                  disabled={tossAccLoading}
+                  className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold py-2.5 rounded transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {tossAccLoading ? '계좌 가져오는 중...' : '계좌 조회'}
+                </button>
               </div>
 
               {tossAccounts.length > 0 && (

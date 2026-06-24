@@ -1,0 +1,53 @@
+data:
+  raw_candles_path: data/raw/crypto_candles.csv
+  features_path: data/processed/crypto_features_lgbm_v3.csv
+  predictions_path: data/processed/crypto_predictions_lgbm_v3.csv
+  backtest_up_only_summary_path: data/processed/crypto_backtest_up_only_v3.json
+  backtest_up_only_daily_path: data/processed/crypto_backtest_up_only_daily_v3.csv
+  backtest_composite_summary_path: data/processed/crypto_backtest_composite_v3.json
+  backtest_composite_daily_path: data/processed/crypto_backtest_composite_daily_v3.csv
+
+model:
+  version: lgbm_crypto_signal_v3
+  asset_type: CRYPTO
+  output_path: models/lgbm_crypto_signal_v3.joblib
+  horizon_periods: 4
+  up_return_threshold: 0.01
+  risk_return_threshold: -0.015
+  validation_ratio: 0.2
+  random_state: 42
+  target_column: up_label
+  feature_columns:
+    - return_1
+    - return_4
+    - return_12
+    - return_24
+    - ma_4_gap
+    - ma_24_gap
+    - volume_ratio_4
+    - volume_ratio_24
+    - volatility_24
+    - rsi_14
+    - amount_zscore_24
+    - atr_14
+    - bollinger_position_20
+    - btcusdt_return_1
+    - btcusdt_return_4
+    - btcusdt_return_24
+    - ethusdt_return_1
+    - ethusdt_return_4
+    - relative_to_btc_return_4
+    - relative_to_eth_return_4
+
+prediction:
+  risk_model_path: models/lgbm_crypto_risk_v3.joblib
+
+lightgbm:
+  objective: binary
+  learning_rate: 0.03
+  n_estimators: 440
+  num_leaves: 31
+  max_depth: -1
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_samples: 30

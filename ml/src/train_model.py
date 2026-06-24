@@ -1,12 +1,27 @@
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import joblib
 import pandas as pd
 import yaml
 from lightgbm import LGBMClassifier
-from sklearn.metrics import accuracy_score, average_precision_score, roc_auc_score
+from sklearn.linear_model import LogisticRegression
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+from ml.src.model_utils import (
+    apply_probability_calibration,
+    build_sample_weights,
+    build_time_series_folds,
+    calculate_metrics,
+    compute_scale_pos_weight,
+    split_by_time,
+    split_train_calibration,
+)
 
 
 def load_config(path: str) -> dict:
@@ -18,27 +33,6 @@ def resolve_ml_path(config_path: str, target_path: str) -> Path:
     base_dir = Path(config_path).resolve().parent.parent
     path = Path(target_path)
     return path if path.is_absolute() else base_dir / path
-
-
-def split_by_time(df: pd.DataFrame, validation_ratio: float) -> tuple[pd.DataFrame, pd.DataFrame]:
-    dates = pd.Series(pd.to_datetime(df["date"]).sort_values().unique())
-    split_index = max(1, int(len(dates) * (1 - validation_ratio)))
-    split_date = dates.iloc[split_index - 1]
-    train_df = df[pd.to_datetime(df["date"]) <= split_date].copy()
-    valid_df = df[pd.to_datetime(df["date"]) > split_date].copy()
-    if train_df.empty or valid_df.empty:
-        raise ValueError("시계열 검증 분할 결과가 비어 있습니다. 데이터 기간을 늘려주세요.")
-    return train_df, valid_df
-
-
-def calculate_metrics(y_true: pd.Series, y_prob: pd.Series) -> dict:
-    y_pred = (y_prob >= 0.5).astype(int)
-    metrics = {
-        "accuracy": float(accuracy_score(y_true, y_pred)),
-        "average_precision": float(average_precision_score(y_true, y_prob)),
-    }
-    metrics["roc_auc"] = float(roc_auc_score(y_true, y_prob)) if y_true.nunique() > 1 else None
-    return metrics
 
 
 def main() -> None:
@@ -56,27 +50,122 @@ def main() -> None:
     target_column = config["model"]["target_column"]
     train_df, valid_df = split_by_time(df, float(config["model"]["validation_ratio"]))
 
+    training_options = config.get("training", {})
+    class_weight_mode = str(training_options.get("class_weight_mode", "none"))
+    balance_symbols = bool(training_options.get("balance_symbol_weights", False))
+    calibration_enabled = bool(training_options.get("enable_probability_calibration", False))
+    calibration_ratio = float(training_options.get("calibration_ratio", 0.1))
+    cv_splits = int(training_options.get("time_series_cv_splits", 0))
+
+    base_train_df, calibration_df = split_train_calibration(train_df, calibration_ratio if calibration_enabled else 0.0)
+    fit_df = base_train_df if not base_train_df.empty else train_df
+
+    lightgbm_params = dict(config["lightgbm"])
+    if training_options.get("use_scale_pos_weight"):
+        lightgbm_params["scale_pos_weight"] = compute_scale_pos_weight(fit_df[target_column])
+
+    sample_weights = build_sample_weights(
+        fit_df,
+        target_column=target_column,
+        class_weight_mode=class_weight_mode,
+        balance_symbols=balance_symbols,
+    )
+
     model = LGBMClassifier(
         random_state=int(config["model"]["random_state"]),
-        **config["lightgbm"],
+        **lightgbm_params,
     )
-    model.fit(train_df[feature_columns], train_df[target_column])
+    model.fit(
+        fit_df[feature_columns],
+        fit_df[target_column],
+        sample_weight=sample_weights,
+    )
 
-    valid_prob = pd.Series(model.predict_proba(valid_df[feature_columns])[:, 1], index=valid_df.index)
+    calibrator = None
+    calibration_rows = 0
+    if calibration_enabled and not calibration_df.empty:
+        calibration_prob = model.predict_proba(calibration_df[feature_columns])[:, 1]
+        calibrator = LogisticRegression(random_state=int(config["model"]["random_state"]), max_iter=1000)
+        calibrator.fit(calibration_prob.reshape(-1, 1), calibration_df[target_column])
+        calibration_rows = int(len(calibration_df))
+
+    valid_prob = model.predict_proba(valid_df[feature_columns])[:, 1]
+    valid_prob = apply_probability_calibration(valid_prob, calibrator)
+    valid_prob = pd.Series(valid_prob, index=valid_df.index)
     metrics = calculate_metrics(valid_df[target_column], valid_prob)
     metrics["model_version"] = config["model"]["version"]
     metrics["asset_type"] = config["model"]["asset_type"]
     metrics["target_column"] = target_column
-    metrics["train_rows"] = int(len(train_df))
+    metrics["train_rows"] = int(len(fit_df))
+    metrics["train_rows_before_calibration_split"] = int(len(train_df))
+    metrics["calibration_rows"] = calibration_rows
     metrics["valid_rows"] = int(len(valid_df))
-    metrics["train_start_date"] = str(train_df["date"].min())
-    metrics["train_end_date"] = str(train_df["date"].max())
+    metrics["train_start_date"] = str(fit_df["date"].min())
+    metrics["train_end_date"] = str(fit_df["date"].max())
     metrics["valid_start_date"] = str(valid_df["date"].min())
     metrics["valid_end_date"] = str(valid_df["date"].max())
     metrics["feature_columns"] = feature_columns
+    metrics["class_weight_mode"] = class_weight_mode
+    metrics["balance_symbol_weights"] = balance_symbols
+    metrics["used_scale_pos_weight"] = bool(training_options.get("use_scale_pos_weight"))
+    metrics["probability_calibration"] = bool(calibrator is not None)
+
+    cv_metrics: list[dict] = []
+    for fold_number, (train_dates, fold_valid_dates) in enumerate(
+        build_time_series_folds(df["date"], cv_splits),
+        start=1,
+    ):
+        fold_train_df = df[pd.to_datetime(df["date"]).isin(train_dates)].copy()
+        fold_valid_df = df[pd.to_datetime(df["date"]).isin(fold_valid_dates)].copy()
+        if fold_train_df.empty or fold_valid_df.empty:
+            continue
+
+        fold_model = LGBMClassifier(
+            random_state=int(config["model"]["random_state"]),
+            **lightgbm_params,
+        )
+        fold_weights = build_sample_weights(
+            fold_train_df,
+            target_column=target_column,
+            class_weight_mode=class_weight_mode,
+            balance_symbols=balance_symbols,
+        )
+        fold_model.fit(
+            fold_train_df[feature_columns],
+            fold_train_df[target_column],
+            sample_weight=fold_weights,
+        )
+        fold_prob = fold_model.predict_proba(fold_valid_df[feature_columns])[:, 1]
+        fold_metric = calculate_metrics(fold_valid_df[target_column], pd.Series(fold_prob))
+        fold_metric["fold"] = fold_number
+        fold_metric["train_rows"] = int(len(fold_train_df))
+        fold_metric["valid_rows"] = int(len(fold_valid_df))
+        fold_metric["valid_start_date"] = str(fold_valid_df["date"].min())
+        fold_metric["valid_end_date"] = str(fold_valid_df["date"].max())
+        cv_metrics.append(fold_metric)
+
+    if cv_metrics:
+        cv_frame = pd.DataFrame(cv_metrics)
+        metrics["time_series_cv"] = cv_metrics
+        metrics["time_series_cv_average"] = {
+            "accuracy": float(cv_frame["accuracy"].mean()),
+            "average_precision": float(cv_frame["average_precision"].mean()),
+            "precision": float(cv_frame["precision"].mean()),
+            "recall": float(cv_frame["recall"].mean()),
+            "precision_at_top_10pct": float(cv_frame["precision_at_top_10pct"].mean()),
+            "roc_auc": float(cv_frame["roc_auc"].dropna().mean()) if cv_frame["roc_auc"].notna().any() else None,
+        }
 
     model_path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"model": model, "config": config, "metrics": metrics}, model_path)
+    joblib.dump(
+        {
+            "model": model,
+            "calibrator": calibrator,
+            "config": config,
+            "metrics": metrics,
+        },
+        model_path,
+    )
     metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"모델 저장 완료: {model_path}")
