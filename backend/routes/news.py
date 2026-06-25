@@ -1,6 +1,7 @@
 import requests
 from datetime import datetime
 from flask import Blueprint, request, jsonify, current_app
+from backend.services.symbol_metadata import SYMBOL_METADATA
 
 news_bp = Blueprint("news", __name__)
 
@@ -9,8 +10,17 @@ def get_news_feed():
     """뉴스 데이터베이스로부터 수집된 최근 뉴스 피드 목록을 필터링 및 검색하여 반환합니다."""
     market = request.args.get("market", "ALL")
     query = request.args.get("query", "")
+    symbol = request.args.get("symbol", "")
     limit = request.args.get("limit", 10)
     offset = request.args.get("offset", 0)
+    
+    if symbol:
+        meta = SYMBOL_METADATA.get(symbol.upper(), {})
+        display_name = meta.get("display_name", "")
+        if display_name:
+            query = display_name
+        else:
+            query = symbol
     
     news_repository = current_app.news_repository
     try:
