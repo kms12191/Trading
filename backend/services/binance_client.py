@@ -113,6 +113,7 @@ class BinanceClient:
         return {
             "total_evaluation": total_eval,
             "available_cash": available_cash,
+            "currency": "USD",
             "holdings": holdings,
             "raw": data
         }

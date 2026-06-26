@@ -258,3 +258,52 @@ def upsert_user_api_key(auth_header: str, data: dict):
     else:
         data["user_id"] = user_id
         query_supabase(auth_header, "user_api_keys", "POST", json_data=data)
+
+def query_supabase_as_service_role(endpoint: str, method: str = "GET", json_data: dict = None, params: dict = None) -> any:
+    """
+    사용자 JWT 인증 없이 SUPABASE_SERVICE_ROLE_KEY 권한으로 Supabase REST API를 직접 쿼리합니다.
+    주로 백그라운드 스케줄러, 토큰 캐시 DB화 등 관리자 수준 동기화 작업에 사용됩니다.
+    """
+    url = f"{SUPABASE_URL}/rest/v1/{endpoint}"
+    service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    if not service_role_key:
+        raise ValueError("SUPABASE_SERVICE_ROLE_KEY 환경 변수가 로드되지 않았습니다.")
+        
+    headers = {
+        "apikey": service_role_key,
+        "Authorization": f"Bearer {service_role_key}",
+        "Content-Type": "application/json"
+    }
+    
+    if method == "GET":
+        res = requests.get(url, headers=headers, params=params)
+    elif method == "POST":
+        res = requests.post(url, headers=headers, json=json_data, params=params)
+    elif method == "PATCH":
+        res = requests.patch(url, headers=headers, json=json_data, params=params)
+    elif method == "PUT":
+        res = requests.put(url, headers=headers, json=json_data, params=params)
+    elif method == "DELETE":
+        res = requests.delete(url, headers=headers, params=params)
+    else:
+        raise ValueError("지원하지 않는 HTTP 메소드입니다.")
+        
+    if res.status_code not in (200, 201, 204):
+        raise Exception(f"Supabase REST API service_role 에러 ({res.status_code}): {res.text}")
+        
+    if res.text:
+        try:
+            return res.json()
+        except Exception:
+            return res.text
+    return None
+
+def safe_query_supabase_as_service_role(endpoint: str, method: str = "GET", json_data: dict = None, params: dict = None) -> any:
+    """
+    safe_query_supabase의 service_role 버전. 예외를 무시하고 진행합니다.
+    """
+    try:
+        return query_supabase_as_service_role(endpoint, method=method, json_data=json_data, params=params)
+    except Exception:
+        return None
+

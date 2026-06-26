@@ -5,7 +5,31 @@ import { WATCHLIST_MOCK, WATCH_CHARTS_MOCK } from '../dashboardConstants.js'
 import { MiniSparkline, Rate, SectionHeader } from '../components/DashboardComponents.jsx'
 import { formatNewsDate, getWatchlistNewsMarket, mergeLatestNews } from '../dashboardUtils.js'
 
-export default function WatchlistTab() {
+export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1380 }) {
+  const formatCurrency = (value, currency, targetDisplayCurrency = displayCurrency) => {
+    const numeric = Number(value)
+    const val = Number.isFinite(numeric) ? numeric : 0
+    const rate = Number(exchangeRate) || 1380
+
+    if (targetDisplayCurrency === 'KRW') {
+      if (currency === 'USD' || currency === 'USDT') {
+        return `₩${Math.round(val * rate).toLocaleString()}`
+      }
+      return `₩${Math.round(val).toLocaleString()}`
+    }
+
+    if (targetDisplayCurrency === 'USD') {
+      if (currency === 'KRW') {
+        return `$${(val / rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      }
+      return `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    }
+
+    if (currency === 'USD' || currency === 'USDT') {
+      return `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    }
+    return `₩${Math.round(val).toLocaleString()}`
+  }
   const [selectedId, setSelectedId] = useState(WATCHLIST_MOCK[0]?.id || '')
   const [newsItems, setNewsItems] = useState([])
   const [newsLoading, setNewsLoading] = useState(false)
@@ -144,12 +168,19 @@ export default function WatchlistTab() {
             ['종목명', selectedItem?.name],
             ['계좌종류', selectedItem?.account],
             ['수량', selectedItem?.quantity],
-            ['평균 단가', selectedItem?.average],
+            ['평균 단가', (() => {
+              if (!selectedItem) return '-'
+              const isForeign = /[a-zA-Z]/.test(selectedItem.id) || selectedItem.market.includes('해외')
+              const stockCurrency = isForeign ? 'USD' : 'KRW'
+              const rawAvg = parseFloat(selectedItem.average.replace(/[^0-9.-]/g, '')) || 0
+              const currentDisplayCurrency = isForeign ? displayCurrency : 'KRW'
+              return formatCurrency(rawAvg, stockCurrency, currentDisplayCurrency)
+            })()],
             ['등락율', selectedItem?.change],
           ].map(([label, value]) => (
             <div key={label} className="rounded-lg bg-[#0f172a] p-4">
               <p className="text-xs font-bold text-slate-500">{label}</p>
-              <p className="mt-2 font-bold text-white font-mono">{label === '등락율' ? <Rate value={value} /> : value}</p>
+              <p className="mt-2 font-bold text-white font-mono">{label === '등락율' || label.startsWith('등락율') ? <Rate value={value} /> : value}</p>
             </div>
           ))}
         </div>

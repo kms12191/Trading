@@ -446,14 +446,16 @@ def split_kis_holdings(holdings: list[dict]) -> tuple[list[dict], list[dict]]:
 
 
 def resolve_kis_credentials(data: dict) -> dict:
-    env_credentials = get_kis_env_credentials()
+    # 절대 서버 환경변수(env)로 개인 자산 조회용 키를 Fallback(대체)하지 않도록 수정합니다.
+    # 사용자가 화면에서 직접 등록한 본인 키가 있을 때만 유효하며,
+    # 키가 없을 경우 공백으로 반환되어 조회 실패 또는 차단 처리됩니다.
     return {
-        "appkey": data.get("appkey") or env_credentials["appkey"],
-        "appsecret": data.get("appsecret") or env_credentials["appsecret"],
-        "cano": data.get("cano") or env_credentials["cano"],
-        "acnt_prdt_cd": data.get("acnt_prdt_cd") or env_credentials["acnt_prdt_cd"],
-        "env": (data.get("env") or env_credentials["env"] or "MOCK").upper(),
-        "credential_source": resolve_kis_credential_source(data, env_credentials),
+        "appkey": data.get("appkey") or "",
+        "appsecret": data.get("appsecret") or "",
+        "cano": data.get("cano") or "",
+        "acnt_prdt_cd": data.get("acnt_prdt_cd") or "01",
+        "env": (data.get("env") or "MOCK").upper(),
+        "credential_source": "REQUEST_BODY" if data.get("appkey") else "NONE",
     }
 
 

@@ -17,6 +17,7 @@ teamproject/
 ├── database_specification.md     # Supabase 테이블 및 ERD 명세
 ├── design.md                     # 프론트엔드 UI 디자인 규격 설계서
 ├── project_structure.md          # [본 문서] 디렉토리 아키텍처 설계 가이드
+├── system_workflow.md            # [NEW] 시스템 데이터 아키텍처 및 핵심 워크플로우 흐름 가이드
 ├── supabase/                     # Supabase CLI 설정 및 DB 마이그레이션
 │   ├── config.toml               # 로컬/원격 Supabase 설정 파일
 │   └── migrations/               # DB 버전 관리 SQL 마이그레이션 파일들
@@ -67,7 +68,8 @@ teamproject/
 │       ├── write_experiment_report.py # summary JSON 기반 Markdown 리포트 생성기
 │       └── model_utils.py        # 시계열 분할/가중치/평가 공용 유틸
 ├── backend/                      # Flask 백엔드 (API Gateway & 자동매매 엔진)
-│   ├── app.py                    # Flask 서버 진입점 (CORS, 전역 인스턴스 바인딩, Blueprint 라우트 등록 및 스케줄러 기동)
+│   ├── app.py                    # Flask 서버 진입점 (CORS, 전역 인스턴스 바인딩, Blueprint 라우트 등록 및 스케줄러 기동 제약 적용)
+│   ├── worker.py                 # [NEW] API Gateway와 완전히 격리되어 백그라운드 스케줄러 스레드들을 독자적으로 띄우는 독립 실행 프로세스
 │   ├── requirements.txt          # 파이썬 의존성 패키지 목록 (현재 구현됨)
 │   ├── scripts/
 │   │   ├── export_training_candles.py # 학습용 주식/코인 캔들 CSV 수집 스크립트 (preset/chunk/failure-output 지원)
@@ -101,7 +103,9 @@ teamproject/
 │   │   ├── home_service.py       # 대시보드 종합 데이터 빌드 및 코인원/KIS 정보 헬퍼 서비스 (신설됨)
 │   │   ├── keys_service.py       # API 호출 에러 분류 (FATAL / TEMPORARY) 서비스 (신설됨)
 │   │   ├── ml_model_service.py   # ML 모델 지표 스캔, 추천, 준비 상태 빌드 및 보고서 기동 서비스 (신설됨)
-│   │   ├── ml_scheduler.py       # 백그라운드 뉴스 수집 및 ML 자동화 스케줄러 서비스 (신설됨)
+│   │   ├── ml_scheduler.py       # 백그라운드 뉴스 수집 및 ML 자동화 스케줄러 서비스 (신설됨 - 분산 락 탑재)
+│   │   ├── lock_service.py       # [NEW] Supabase active_locks 테이블과 PG RPC 함수 기반 Context Manager 분산 락 서비스
+│   │   ├── token_cache_service.py # [NEW] Supabase token_caches 테이블과 암복호화 유틸 기반 Toss/KIS 토큰 DB 캐시 서비스
 │   │   ├── agent.py              # LLM & LangChain 챗봇 오케스트레이터 (추가 예정)
 │   │   └── trading_engine.py     # 백그라운드 조건 감시 엔진 (추가 예정)
 │   └── utils/                    # 공통 유틸리티 함수
@@ -161,6 +165,11 @@ teamproject/
 * **통합 금융 차트 라이브러리 채택**:
   * 주식(Toss, KIS) 및 코인(Coinone, Binance)의 실시간 캔들 차트를 그리기 위해 **TradingView Lightweight Charts**를 전면 채택합니다.
   * 단일 리액트 차트 컴포넌트를 설계하여, 사용자의 거래소/종목/주기 변경 이벤트에 따라 동적으로 시세 데이터를 교체(setData)하는 고성능 비동기 방식으로 구현합니다.
+* **모의계좌 ON/OFF 토글 필터 기능**:
+  * `Dashboard.jsx`에서 `showMockAssets` 상태를 통해 모의투자 자산의 합산 여부를 제어합니다.
+  * API 호출 횟수를 최소화하고 즉각적인 전환을 보장하기 위해, 기수집된 자산 원본(`rawBalances`)에서 `broker_env === 'MOCK'` 연산을 프론트엔드 단에서 O(1) 수준으로 즉시 재계산 및 병합 연산하여 하위 컴포넌트(`AssetsTab.jsx` 등)에 전달합니다.
+* **실시간 환율 UI 모니터링**:
+  * 토스 실시간 환율 수집 상태(Live API vs Fallback 임시 고정 환율)를 `Dashboard.jsx` 및 상단 헤더 영역에서 배지 형식으로 표시하여, 사용자가 현재 적용 환율을 명확히 모니터링할 수 있도록 렌더링합니다.
 
 ### 2.2 백엔드 (`backend/`)
 
@@ -231,6 +240,13 @@ teamproject/
     * 사용자가 대시보드 퀵 검색창에 한글 입력(예: "삼성")을 진행할 때, 입력 도중 실시간으로 매칭되는 종목명(삼성전자, 삼성전기 등)의 후보 리스트를 매핑 테이블(`symbol_metadata.py`)에서 필터링하여 프론트엔드 드롭다운 컴포넌트에 즉각 반환합니다.
   * **종목코드 매핑 API (`GET /api/symbol/lookup`)**:
     * 사용자가 선택한 한글 종목명에 대해 내부에서 사용하는 고유 심볼/종목코드 정보를 매핑하여 정확한 코드로 변환해 반환합니다.
+  * **실시간 환율 API 보정 및 폴백**:
+    * `toss_client.py`에서 Toss 환율 API 호출 시 `baseCurrency="USD"`, `quoteCurrency="KRW"` 파라미터를 명시하여 `400 Bad Request` 에러를 방지하고 실시간 연동을 성공시켰습니다.
+    * API 장애 시 현실적인 값인 `1500.0`원으로 안전하게 폴백(Fallback)하도록 설계되었습니다.
+  * **Toss 해외주식 수익률 스케일링 통일**:
+    * 타 브로커(KIS)와의 일관성을 위해 Toss 해외주식의 수익률 필드 `profit_rate` 계산 시 `* 100.0` 보정을 일괄 적용하여 백분율 스케일로 통일했습니다.
+  * **백그라운드 포트폴리오 스냅샷 스케줄러**:
+    * `app.py` 전역 영역에서 백그라운드 스레드 형태로 스냅샷 스케줄러가 구동되며, `.env`의 `PORTFOLIO_SNAPSHOT_RUN_ON_START=true` 설정을 통해 서버 기동 즉시 첫 1회 강제 스냅샷 수집이 트리거되어 스냅샷 누락 리스크를 방어합니다.
 * **`services/toss_client.py` (현재 구현됨, 메인 주식 클라이언트)**:
   * Toss Open API의 인증, 시세, 종목 정보, 시장 정보, 계좌, 보유자산, 주문 전 검증, 주문, 주문 조회를 담당합니다.
   * `/oauth2/token` 토큰 발급은 form-urlencoded 방식으로 처리합니다.

@@ -37,11 +37,6 @@ def _floor_kst_bucket_timestamp(timestamp: int, interval_minutes: int) -> int:
     bucket_dt = dt_kst.replace(minute=bucket_minute, second=0, microsecond=0)
     return int(bucket_dt.timestamp())
 
-# 스케줄러와 웹 요청 스레드 간의 토큰 파일 경로 공유 및 중복 획득 제한
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-TOKEN_CACHE_FILE = str(PROJECT_ROOT / ".kis_token_cache.json")
-TOKEN_LOCK = threading.Lock()
-
 class KISClient(ExchangeClient):
     def __init__(self, appkey: str, appsecret: str, cano: str, acnt_prdt_cd: str = "01", env: str = "MOCK"):
         self.appkey = appkey
@@ -61,50 +56,52 @@ class KISClient(ExchangeClient):
             self.buy_tr_id = "VTTC0802U"
             self.sell_tr_id = "VTTC0801U"
 
+    def _clear_token_cache(self):
+        """
+        DB 캐시 테이블에서 현재 KIS 토큰 정보를 강제 만료시킵니다.
+        """
+        from backend.services.token_cache_service import clear_db_token
+        try:
+            clear_db_token("KIS", self.env)
+        except Exception:
+            pass
+
     def _get_cached_token(self) -> str:
         """
-        로컬 JSON 캐시에서 Access Token을 가져옵니다.
-        만료되었거나 캐시가 존재하지 않으면 새로 발급을 요청하고 캐시를 갱신합니다.
+        Supabase DB의 token_caches 테이블에서 KIS Access Token을 가져옵니다.
+        토큰이 만료되었거나 캐시가 없으면 새로 발급을 요청합니다.
         """
-        with TOKEN_LOCK:
-            cache = {}
-            if os.path.exists(TOKEN_CACHE_FILE):
-                try:
-                    with open(TOKEN_CACHE_FILE, "r") as f:
-                        cache = json.load(f)
-                except Exception:
-                    pass
-                    
-            key_cache = cache.get(self.appkey, {})
-            token = key_cache.get("access_token")
-            expired_at_str = key_cache.get("expired_at")
-            
-            if token and expired_at_str:
-                try:
-                    expired_at = datetime.strptime(expired_at_str, "%Y-%m-%d %H:%M:%S")
-                    if (expired_at - datetime.now()).total_seconds() > 300:
-                        return token
-                except Exception:
-                    pass
-                    
-            token_data = self._request_new_token()
-            new_token = token_data["access_token"]
-            
-            expired_at_raw = token_data.get("access_token_token_expired")
-            if not expired_at_raw:
-                expired_at_raw = datetime.fromtimestamp(time.time() + 86400).strftime("%Y-%m-%d %H:%M:%S")
-                
-            cache[self.appkey] = {
-                "access_token": new_token,
-                "expired_at": expired_at_raw
-            }
+        from backend.services.token_cache_service import get_db_token, set_db_token
+        
+        # DB에서 유효한 공용 토큰 획득 시도
+        try:
+            token = get_db_token("KIS", self.env)
+            if token:
+                return token
+        except Exception:
+            pass
+
+        # 토큰 새로 발급
+        token_data = self._request_new_token()
+        new_token = token_data["access_token"]
+        
+        # 만료 시각 계산
+        expires_in = 86400
+        expired_at_raw = token_data.get("access_token_token_expired")
+        if expired_at_raw:
             try:
-                with open(TOKEN_CACHE_FILE, "w") as f:
-                    json.dump(cache, f, indent=2)
+                exp_dt = datetime.strptime(expired_at_raw, "%Y-%m-%d %H:%M:%S")
+                expires_in = int((exp_dt - datetime.now()).total_seconds())
             except Exception:
                 pass
-                
-            return new_token
+
+        # DB 캐시 테이블에 신규 토큰 저장 (Upsert)
+        try:
+            set_db_token("KIS", self.env, new_token, expires_in)
+        except Exception:
+            pass
+            
+        return new_token
 
     def _request_new_token(self) -> dict:
         _enforce_kis_mock_rate_limit(self.env)
@@ -472,6 +469,7 @@ class KISClient(ExchangeClient):
         return {
             "total_evaluation": total_eval,
             "available_cash": available_cash,
+            "currency": "KRW",
             "holdings": holdings
         }
 

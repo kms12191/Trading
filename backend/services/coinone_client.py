@@ -118,9 +118,10 @@ class CoinoneClient:
                     "profit_rate": 0.0
                 })
 
-        return {
+         return {
             "total_evaluation": total_eval,
             "available_cash": available_cash,
+            "currency": "KRW",
             "holdings": holdings,
             "raw": data
         }

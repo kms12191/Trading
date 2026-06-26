@@ -15,12 +15,39 @@ erDiagram
     profiles ||--o{ paper_portfolios : "tracks virtual assets"
     profiles ||--o{ ml_dataset_jobs : "starts dataset jobs"
     profiles ||--o{ ml_training_runs : "starts training runs"
+    profiles ||--o{ portfolio_snapshots : "tracks assets over time"
     watchlist_symbols ||--o{ market_candles : "collects"
     watchlist_symbols ||--o{ model_features : "generates"
     watchlist_symbols ||--o{ model_labels : "labels"
     watchlist_symbols ||--o{ model_predictions : "predicts"
     model_runs ||--o{ model_predictions : "produces"
     ml_dataset_jobs ||--o{ ml_training_runs : "feeds"
+
+    portfolio_snapshots {
+        uuid id PK "기본키"
+        uuid user_id FK "profiles(id) 참조"
+        timestamp snapshot_at "스냅샷 시각 (1시간 단위)"
+        date snapshot_date "스냅샷 기준 일자"
+        numeric total_evaluation "총 평가 자산"
+        numeric available_cash "보유 예수금"
+        numeric portfolio_profit_rate "포트폴리오 수익률"
+        timestamp created_at "생성 일시"
+    }
+
+    market_indices_latest {
+        uuid id PK "기본키"
+        string symbol UK "지수 심볼"
+        string label "표시명"
+        string source "제공처"
+        string market_country "시장 국가"
+        string ticker "내부 티커"
+        numeric current_value "현재 가격"
+        numeric change_value "전일대비 변동액"
+        numeric change_percent "전일대비 변동률 (%)"
+        string currency "통화"
+        integer display_order "표시 정렬 순서"
+        timestamp as_of "최종 업데이트 시각"
+    }
 
     profiles {
         uuid id PK "auth.users(id) 참조"
@@ -398,6 +425,55 @@ erDiagram
 
 ---
 
+### 3.7 `portfolio_snapshots` (자산 평가 스냅샷 이력)
+
+* **설명**: 사용자의 총 평가 자산, 예수금, 포트폴리오 수익률 변화 추이를 시계열로 추적하기 위한 스냅샷 테이블입니다. 백그라운드 스케줄러가 주기적으로 사용자별 자산을 집계하여 이 테이블에 기록합니다.
+* **보안 정책 및 제약**:
+  * `user_id`가 `profiles(id)`를 외래키로 참조하며 삭제 시 연쇄 삭제(Cascade)됩니다.
+  * 동일 사용자에 대해 동일 시간대(`snapshot_at`) 중복 스냅샷이 생기지 않도록 `UNIQUE (user_id, snapshot_at)` 제약이 적용됩니다.
+  * RLS가 활성화되어 있으며, 로그인한 사용자는 오직 본인의 스냅샷 데이터만 조회/저장/수정할 수 있습니다.
+
+| 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, DEFAULT gen_random_uuid() | 스냅샷 레코드 고유 ID |
+| `user_id` | `UUID` | FK, References `profiles(id)`, NOT NULL | 소유자 고유 ID |
+| `snapshot_at` | `TIMESTAMPTZ` | NOT NULL | 스냅샷 시각 (1시간 단위 수집) |
+| `snapshot_date` | `DATE` | NOT NULL | 스냅샷 기준 날짜 |
+| `total_evaluation` | `NUMERIC` | DEFAULT 0, NOT NULL | 총 자산 평가금 (원화 환산 기준) |
+| `available_cash` | `NUMERIC` | DEFAULT 0, NOT NULL | 보유 원화 예수금 |
+| `portfolio_profit_rate` | `NUMERIC` | DEFAULT 0, NOT NULL | 포트폴리오 총 수익률 (%) |
+| `created_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 레코드 생성 일시 |
+| `updated_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 레코드 최종 수정 일시 |
+
+---
+
+### 3.8 `market_indices_latest` (마켓 주요 지수 실시간 스냅샷)
+
+* **설명**: 국내 및 글로벌 주요 마켓 지수(KOSPI, KOSDAQ, NASDAQ, USD/KRW 환율 등)의 실시간 상태 및 캐시 데이터를 관리합니다.
+* **보안 정책 및 제약**:
+  * `symbol` 필드는 고유(UNIQUE)해야 합니다.
+  * RLS가 활성화되어 있으며, 일반 및 인증 사용자(`anon`, `authenticated`)는 SELECT 조회만 가능하고, 백엔드 서비스 역할(`service_role`)만 전체 데이터를 관리(INSERT/UPDATE/DELETE)할 수 있습니다.
+
+| 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | PK, DEFAULT gen_random_uuid() | 레코드 고유 ID |
+| `symbol` | `TEXT` | UNIQUE, NOT NULL | 지수 고유 심볼 |
+| `label` | `TEXT` | NOT NULL | UI 표시명 |
+| `source` | `TEXT` | NOT NULL | 시세 수집 제공처 |
+| `market_country` | `TEXT` | DEFAULT 'GLOBAL', NOT NULL | 마켓 국가 구분 |
+| `ticker` | `TEXT` | NOT NULL | 내부 매핑용 티커 |
+| `current_value` | `NUMERIC` | DEFAULT 0, NOT NULL | 현재 지수 값 |
+| `change_value` | `NUMERIC` | DEFAULT 0, NOT NULL | 전일 대비 변동 금액 |
+| `change_percent` | `NUMERIC` | DEFAULT 0, NOT NULL | 전일 대비 변동 비율 (%) |
+| `currency` | `TEXT` | DEFAULT 'USD', NOT NULL | 거래 통화 |
+| `display_order` | `INTEGER` | DEFAULT 0, NOT NULL | UI 표시 순서 |
+| `as_of` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 지수 최종 수집 기준 시각 |
+| `raw_payload` | `JSONB` | - | 수집 API 응답 원본 페이로드 캐시 |
+| `created_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 생성 일시 |
+| `updated_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 수정 일시 |
+
+---
+
 ## 4. Toss 및 가상자산 마이그레이션 적용 완료 내역
 
 목표 스키마를 실제 DB에 적용하기 위해 다음 마이그레이션이 반영되었습니다.
@@ -408,6 +484,10 @@ erDiagram
    - `auto_trading_rules` 테이블에 `symbol`, `market_country` 컬럼을 추가했습니다.
 2. **코인원 및 바이낸스 대체 마이그레이션 (`20260623100000_replace_upbit_with_coinone_binance.sql`)**
    - 가상자산 거래소를 업비트(`UPBIT`)에서 코인원(`COINONE`) 및 바이낸스(`BINANCE`)로 변경함에 따라 `user_api_keys`, `trade_proposals`, `auto_trading_rules` 테이블의 `exchange` CHECK 제약을 `('COINONE', 'BINANCE', 'KIS', 'TOSS')`만 허용하도록 전면 교체 적용 완료했습니다.
+3. **자산 평가 스냅샷 마이그레이션 (`20260626093000_create_portfolio_snapshots.sql`, `20260626094500_update_portfolio_snapshots_hourly.sql`)**
+   - 시간별(hourly) 자산 스냅샷 시계열을 수집 및 저장하기 위한 `portfolio_snapshots` 테이블을 구축하고, 사용자별 RLS 조회를 강화했습니다.
+4. **마켓 주요 지수 스냅샷 마이그레이션 (`20260626101500_create_market_indices_latest.sql`)**
+   - 글로벌 지수 정보의 일관된 보관과 조회를 보장하기 위한 `market_indices_latest` 테이블을 생성하고 RLS 및 읽기/쓰기 역할 권한 조정을 적용했습니다.
 
 ---
 
@@ -621,13 +701,14 @@ LightGBM 모델은 서비스 요청 중 직접 학습하지 않고, `ml/` 디렉
 
 ---
 
-## 7. 향후 토큰 캐시 DB화 및 Upsert 설계 로드맵
+## 7. 토큰 캐시 DB화 및 분산 락 시스템 명세
 
-현재 로컬 파일 시스템 캐시(`.toss_token_cache.json` 및 `.kis_token_cache.json`)로 관리 중인 OAuth 2.0 Access Token은 향후 클라우드 및 다중 서버(Scale-out) 배포 시 동기화와 영속성 확보를 위해 다음과 같은 DB 기반의 **Upsert(업서트) 패턴**으로 전환하여 고도화합니다.
+OAuth 2.0 Access Token의 다중 서버(Scale-out) 배포 환경에서의 동기화와 백그라운드 스케줄러의 중복 기동 방지를 위해 DB 기반의 **Upsert(업서트) 패턴**과 **테이블 기반 분산 락(Distributed Lock) 시스템**이 구축되어 작동하고 있습니다.
 
-### 7.1 목표 스키마 설계 (`token_caches` 신설)
+### 7.1 스키마 설계 (`token_caches` 및 `active_locks`)
 
 ```mermaid
+erJulia
 erDiagram
     token_caches {
         uuid id PK "기본키"
@@ -635,7 +716,14 @@ erDiagram
         string broker_env "브로커 환경 (MOCK | REAL)"
         string encrypted_access_token "암호화된 Access Token"
         timestamp expired_at "토큰 만료 일시"
+        timestamp created_at "생성 일시"
         timestamp updated_at "갱신 일시"
+    }
+    active_locks {
+        string lock_key PK "락 키 식별자"
+        string owner_id "락 소유 프로세스 ID"
+        timestamp acquired_at "락 획득 시각"
+        timestamp expires_at "락 만료 시각"
     }
 ```
 
@@ -645,31 +733,42 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | `id` | `UUID` | PK, DEFAULT gen_random_uuid() | 고유 식별자 |
 | `exchange` | `TEXT` | CHECK (exchange IN ('TOSS', 'KIS')), NOT NULL | 거래소 구분 (현재 토큰 기반 거래소만 대상) |
-| `broker_env` | `TEXT` | CHECK (broker_env IN ('MOCK', 'REAL')), DEFAULT 'REAL' | 거래 환경 구분 |
+| `broker_env` | `TEXT` | CHECK (broker_env IN ('MOCK', 'REAL')), NOT NULL | 거래 환경 구분 |
 | `encrypted_access_token` | `TEXT` | NOT NULL | AES-256 GCM으로 양방향 암호화된 토큰 원문 |
 | `expired_at` | `TIMESTAMPTZ` | NOT NULL | 토큰의 실제 유효기간 만료 시각 |
+| `created_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 생성 일시 |
 | `updated_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 마지막 업데이트 시각 |
 
 * **유니크 제약 (Unique Constraint)**:
-  * `UNIQUE (exchange, broker_env)` 제약을 생성하여, 동일 거래소의 동일 실행 환경에 대해서는 **항상 테이블 내에 오직 1개의 행만 유지**되도록 제약합니다.
+  * `UNIQUE (exchange, broker_env)` 제약을 생성하여, 동일 거래소의 동일 실행 환경에 대해서는 **항상 테이블 내에 오직 1개의 행만 유지(Upsert)**되도록 제약합니다.
 
-### 7.2 데이터 수명 주기 및 Upsert 동작 흐름
+#### 테이블 명세 (`active_locks`)
 
-1. **토큰 조회**:
-   * 백엔드 API 요청 시 `token_caches`에서 `exchange`와 `broker_env`에 매칭되는 데이터를 SELECT합니다.
-   * `expired_at`이 현재 시간보다 전이면 만료된 것으로 판정하여 재발급 프로세스를 시작합니다.
-2. **토큰 갱신 및 Upsert 실행**:
-   * 토큰이 만료되었거나 없을 경우, 해당 거래소 API를 통해 새로운 토큰을 발급받고 `CryptoHelper`로 암호화합니다.
-   * 저장 시 Postgres의 `ON CONFLICT (exchange, broker_env) DO UPDATE` 구문(Upsert)을 사용하여 기존 토큰 레코드를 덮어씁니다:
-     ```sql
-     INSERT INTO public.token_caches (exchange, broker_env, encrypted_access_token, expired_at, updated_at)
-     VALUES ('TOSS', 'REAL', 'encrypted_value_here', '2026-06-24 14:24:31+09', now())
-     ON CONFLICT (exchange, broker_env)
-     DO UPDATE SET 
-       encrypted_access_token = EXCLUDED.encrypted_access_token,
-       expired_at = EXCLUDED.expired_at,
-       updated_at = EXCLUDED.updated_at;
-     ```
-   * 이 방식을 통해 DB 내 데이터가 무한히 누적되는 문제를 방지하고, 별도의 클린업 쿼리 없이 **테이블 전체 크기를 최소화(최대 4개 행 이내)**하여 극단적인 쿼리 성능 향상을 꾀합니다.
-3. **로컬 파일 클린업**:
-   * DB 캐시 테이블 원격 배포 및 코드 적용 완료 시점 즉시, 로컬 디렉토리의 `.toss_token_cache.json` 및 `.kis_token_cache.json` 파일을 **영구 삭제(rm)**하고 `.gitignore` 항목을 정리합니다.
+| 컬럼명 | 데이터 타입 | 제약 조건 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `lock_key` | `TEXT` | PK | 락 키 식별자 (예: `news_ingest`, `crypto_automation`, `stock_automation`) |
+| `owner_id` | `TEXT` | NOT NULL | 락을 소유한 개별 백엔드 프로세스의 호스트 및 UUID 식별자 |
+| `acquired_at` | `TIMESTAMPTZ` | DEFAULT now(), NOT NULL | 락을 최초 획득한 시각 |
+| `expires_at` | `TIMESTAMPTZ` | NOT NULL | 락 자동 해제(타임아웃) 일시 |
+
+### 7.2 RPC 함수 명세 (분산 락 관리)
+
+여러 백엔드 워커 스레드나 개발자 로컬 협업 환경 간 배타적 실행 제어를 위해 Supabase REST API를 통해 원격 기동할 수 있는 두 개의 PostgreSQL PL/pgSQL RPC 함수가 구현되었습니다.
+
+#### 1. `acquire_lock` (락 획득 시도)
+* **함수 정의**: `public.acquire_lock(p_lock_key TEXT, p_owner_id TEXT, p_duration_seconds INTEGER) RETURNS BOOLEAN`
+* **동작 원리**:
+  1. 현재 시간 기준 `expires_at < now()`인 기존 만료 락을 자동으로 청소(DELETE)합니다.
+  2. `INSERT INTO public.active_locks`를 시도하여, 성공하면 `TRUE`를 반환합니다.
+  3. 만약 락 키가 고유 제약조건(PK)에 의해 충돌할 경우(unique_violation), 이미 다른 프로세스가 가동 중이므로 `FALSE`를 반환합니다.
+
+#### 2. `release_lock` (락 명시적 해제)
+* **함수 정의**: `public.release_lock(p_lock_key TEXT, p_owner_id TEXT) RETURNS BOOLEAN`
+* **동작 원리**:
+  * 전달받은 `p_lock_key`와 `p_owner_id`가 완벽하게 일치하는 행을 `active_locks` 테이블에서 삭제(DELETE)합니다. 정상적으로 삭제 완료 시 `TRUE`, 실패 시 `FALSE`를 반환합니다.
+
+### 7.3 데이터 수명 주기 및 RLS 보안 통제
+* **RLS 활성화**: `token_caches` 및 `active_locks` 테이블 모두 RLS가 강제 적용됩니다.
+* **접근 정책**: 일반 사용자 및 익명 토큰(`anon`, `authenticated`)의 테이블 SELECT/INSERT/UPDATE/DELETE 접근은 완벽히 원천 차단되며, 오직 백엔드 어플리케이션이 전달하는 `service_role` 세션만 테이블을 전적으로 제어할 수 있어 토큰 탈취나 락 강제 훼손을 차단합니다.
+* **로컬 파일 클린업**:
+  * DB 캐시 테이블 원격 배포 및 코드 적용 완료 시점 즉시, 로컬 디렉토리의 `.toss_token_cache.json` 및 `.kis_token_cache.json` 파일은 영구 삭제(rm) 처리되어 캐싱은 DB 기반으로 단일화되었습니다.

@@ -20,6 +20,30 @@ const toNumber = (value) => {
 
 const formatKrw = (value) => `₩${Math.round(toNumber(value)).toLocaleString()}`
 
+const formatCurrency = (value, currency, displayCurrency = 'KRW', exchangeRate = 1500) => {
+  const numeric = toNumber(value)
+  const rate = toNumber(exchangeRate) || 1500
+  
+  if (displayCurrency === 'KRW') {
+    if (currency === 'USD' || currency === 'USDT') {
+      return `₩${Math.round(numeric * rate).toLocaleString()}`
+    }
+    return `₩${Math.round(numeric).toLocaleString()}`
+  }
+  
+  if (displayCurrency === 'USD') {
+    if (currency === 'KRW') {
+      return `$${(numeric / rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    }
+    return `$${numeric.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  }
+  
+  if (currency === 'USD' || currency === 'USDT') {
+    return `$${numeric.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  }
+  return `₩${Math.round(numeric).toLocaleString()}`
+}
+
 const formatSignedRate = (value) => {
   const numericValue = toNumber(value)
   return `${numericValue >= 0 ? '+' : ''}${numericValue.toFixed(2)}%`
@@ -86,10 +110,11 @@ const getTrendQueryRange = (periodKey, dateRange) => {
   return { start: start.toISOString(), end: end.toISOString() }
 }
 
-const formatTrendDelta = (values) => {
+const formatTrendDelta = (values, displayCurrency = 'KRW', exchangeRate = 1500) => {
   if (!values.length) return '+0'
   const delta = values[values.length - 1] - values[0]
-  return `${delta >= 0 ? '+' : '-'}${formatKrw(Math.abs(delta))}`
+  const formatted = formatCurrency(Math.abs(delta), 'KRW', displayCurrency, exchangeRate)
+  return `${delta >= 0 ? '+' : '-'}${formatted}`
 }
 
 const getPortfolioProfitRate = (accountBalance) => {
@@ -120,21 +145,45 @@ const getPortfolioProfitRate = (accountBalance) => {
   return (totalProfit / investedAmount) * 100
 }
 
-const mergeAccountBalances = (items) => {
+const mergeAccountBalances = (items, showMockAssets = true) => {
   const validItems = items.filter(Boolean)
-  const holdings = validItems.flatMap((item) =>
-    (item.holdings || []).map((holding) => ({
+  const filteredItems = validItems.filter((item) => showMockAssets || item.env !== 'MOCK')
+  const representativeRate = filteredItems.find((item) => item.exchange_rate)?.exchange_rate || 1500
+  
+  let totalEvaluationKrw = 0
+  let availableCashKrw = 0
+  
+  const holdings = filteredItems.flatMap((item) => {
+    const exchange = item.exchange
+    const rate = toNumber(item.exchange_rate) || representativeRate
+    const itemCurrency = item.currency || 'KRW'
+    
+    let itemEval = toNumber(item.total_evaluation)
+    let itemCash = toNumber(item.available_cash)
+    
+    if (itemCurrency === 'USD' || itemCurrency === 'USDT') {
+      itemEval = itemEval * rate
+      itemCash = itemCash * rate
+    }
+    
+    totalEvaluationKrw += itemEval
+    availableCashKrw += itemCash
+    
+    return (item.holdings || []).map((holding) => ({
       ...holding,
-      exchange: holding.exchange || item.exchange,
-      account_type: holding.account_type || item.exchange,
-    })),
-  )
+      exchange: holding.exchange || exchange,
+      account_type: holding.account_type || exchange,
+      env: item.env || 'REAL',
+    }))
+  })
 
   return {
-    total_evaluation: validItems.reduce((sum, item) => sum + toNumber(item.total_evaluation), 0),
-    available_cash: validItems.reduce((sum, item) => sum + toNumber(item.available_cash), 0),
+    total_evaluation: totalEvaluationKrw,
+    available_cash: availableCashKrw,
+    currency: 'KRW', // 통합 잔고는 항상 KRW 기준
+    exchange_rate: representativeRate,
     holdings,
-    sources: validItems.map((item) => item.exchange),
+    sources: filteredItems.map((item) => item.exchange),
   }
 }
 
@@ -156,10 +205,34 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   const [message, setMessage] = useState({ text: '', isError: false })
   const [balance, setBalance] = useState(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
+  const [showMockAssets, setShowMockAssets] = useState(true)
+  const [rawBalances, setRawBalances] = useState([])
+
+  const [holdingsSort, setHoldingsSort] = useState({ key: null, direction: 'asc' })
+
+  const handleHoldingsSort = (key) => {
+    let direction = 'asc'
+    if (holdingsSort.key === key && holdingsSort.direction === 'asc') {
+      direction = 'desc'
+    }
+    setHoldingsSort({ key, direction })
+  }
+
+  const getSortedHoldings = (holdingsList) => {
+    if (!holdingsList) return []
+    if (!holdingsSort.key) return holdingsList
+    return [...holdingsList].sort((a, b) => {
+      let aVal = toNumber(a[holdingsSort.key])
+      let bVal = toNumber(b[holdingsSort.key])
+      return holdingsSort.direction === 'asc' ? aVal - bVal : bVal - aVal
+    })
+  }
   const [balanceError, setBalanceError] = useState('')
   const [assetTrendRows, setAssetTrendRows] = useState([])
   const [assetTrendLoading, setAssetTrendLoading] = useState(false)
   const [assetTrendSource, setAssetTrendSource] = useState('current-balance')
+
+  const [displayCurrency, setDisplayCurrency] = useState('KRW')
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -253,11 +326,12 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
             if (!response.ok || !payload.success) {
               return {
                 exchange,
+                env,
                 error: payload.message || `${exchange} 잔고 조회 실패`,
               }
             }
 
-            return { ...payload.data, exchange }
+            return { ...payload.data, exchange, env }
           } catch (error) {
             return {
               exchange,
@@ -268,7 +342,9 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
       )
 
       const failedResults = results.filter((item) => item?.error)
-      const mergedBalance = mergeAccountBalances(results.filter((item) => !item?.error))
+      const successResults = results.filter((item) => !item?.error)
+      setRawBalances(successResults)
+      const mergedBalance = mergeAccountBalances(successResults, showMockAssets)
       setBalance(mergedBalance)
 
       if (mergedBalance.sources.length === 0) {
@@ -337,6 +413,12 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
     loadAssetTrend()
   }, [isLoggedIn, selectedAssetPeriod, assetDateRange.start, assetDateRange.end])
 
+  useEffect(() => {
+    if (rawBalances.length > 0) {
+      setBalance(mergeAccountBalances(rawBalances, showMockAssets))
+    }
+  }, [rawBalances, showMockAssets])
+
   const refreshBalance = async () => {
     if (!encrypted) {
       await loadAccountBalance()
@@ -355,7 +437,9 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
       })
       const resData = await response.json()
       if (resData.success) {
-        setBalance(resData.data)
+        const freshData = { ...resData.data, exchange: encrypted.exchange || 'KIS', env: inputs.env }
+        setRawBalances([freshData])
+        setBalance(mergeAccountBalances([freshData], showMockAssets))
       } else {
         setMessage({ text: resData.message || 'Failed to refresh balance.', isError: true })
       }
@@ -442,13 +526,20 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   const assetTrendValues = assetTrendDbValues.length > 0
     ? assetTrendDbValues
     : buildCurrentBalanceTrend(balance?.total_evaluation, selectedAssetPeriod)
+  const displayTrendValues = (() => {
+    if (displayCurrency === 'USD') {
+      const rate = toNumber(balance?.exchange_rate) || 1380
+      return assetTrendValues.map(v => v / rate)
+    }
+    return assetTrendValues
+  })()
   const assetTrendLabels = assetTrendDbValues.length > 0
     ? assetTrendPoints.map((item) => formatTrendAxisLabel(getTrendPointTime(item), selectedAssetPeriod))
     : buildFallbackTrendLabels(selectedAssetPeriod)
   const assetTrendSummary = assetTrendSource === 'portfolio_snapshots'
     ? `${assetDateRange.start || '시작일'} ~ ${assetDateRange.end || '종료일'}`
     : `현재 계정 자산 기준 · ${assetDateRange.start || '시작일'} ~ ${assetDateRange.end || '종료일'}`
-  const assetTrendDelta = formatTrendDelta(assetTrendValues)
+  const assetTrendDelta = formatTrendDelta(assetTrendValues, displayCurrency, balance?.exchange_rate)
 
   const handleAssetPeriodChange = (periodKey) => {
     setSelectedAssetPeriod(periodKey)
@@ -479,19 +570,94 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
           {activeTab === 'dashboard' && (
             <main className="max-w-7xl mx-auto flex flex-col gap-6">
 
+              {/* 계정 필터 및 통화 단위 토글 스위치 영역 */}
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-1 bg-slate-surface/40 border border-slate-800/60 p-3 rounded-lg">
+                {/* 실시간 적용 환율 상태 모니터링 뱃지 */}
+                <div className="flex items-center gap-2 text-xs text-slate-400 font-sans">
+                  <span className={`w-1.5 h-1.5 rounded-full ${(!balance?.exchange_rate || balance.exchange_rate === 1500) ? 'bg-amber-400' : 'bg-[#38bdf8] animate-pulse'}`} />
+                  <span className="font-bold">적용 환율:</span>
+                  <span className="font-mono font-bold text-white">
+                    ₩{toNumber(balance?.exchange_rate || 1500).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                  </span>
+                  {(!balance?.exchange_rate || balance.exchange_rate === 1500) ? (
+                    <span className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[10px] font-bold text-amber-400">
+                      임시 고정 환율 적용됨
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-400">
+                      실시간 API (Live)
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3 self-end sm:self-auto">
+                  {/* 모의계좌 포함 / 실거래 전용 필터 */}
+                  <div className="inline-flex rounded-md bg-[#0f172a] p-1 border border-slate-700/80">
+                    <button
+                      onClick={() => setShowMockAssets(true)}
+                      className={`px-3 py-1 text-xs font-bold rounded transition-all cursor-pointer ${
+                        showMockAssets
+                          ? 'bg-slate-700 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      type="button"
+                    >
+                      모의계좌 포함
+                    </button>
+                    <button
+                      onClick={() => setShowMockAssets(false)}
+                      className={`px-3 py-1 text-xs font-bold rounded transition-all cursor-pointer ${
+                        !showMockAssets
+                          ? 'bg-slate-700 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      type="button"
+                    >
+                      실거래 전용
+                    </button>
+                  </div>
+
+                  {/* 원화/달러 보기 토글 스위치 */}
+                  <div className="inline-flex rounded-md bg-[#0f172a] p-1 border border-slate-700/80">
+                    <button
+                      onClick={() => setDisplayCurrency('USD')}
+                      className={`px-3 py-1 text-xs font-bold rounded transition-all cursor-pointer ${
+                        displayCurrency === 'USD'
+                          ? 'bg-slate-700 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      type="button"
+                    >
+                      $
+                    </button>
+                    <button
+                      onClick={() => setDisplayCurrency('KRW')}
+                      className={`px-3 py-1 text-xs font-bold rounded transition-all cursor-pointer ${
+                        displayCurrency === 'KRW'
+                          ? 'bg-slate-700 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      type="button"
+                    >
+                      원
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* 자산 요약 카드 */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-5">
-                  <span className="text-xs font-bold text-slate-400">총 평가 자산 (KRW)</span>
+                  <span className="text-xs font-bold text-slate-400">총 평가 자산 ({balance?.currency || 'KRW'})</span>
                   <div className="text-xl font-bold font-mono text-white mt-1">
-                    {balanceLoading ? '조회 중' : formatKrw(balance?.total_evaluation)}
+                    {balanceLoading ? '조회 중' : formatCurrency(balance?.total_evaluation, balance?.currency, 'KRW', balance?.exchange_rate)}
                   </div>
                 </div>
 
                 <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-5">
-                  <span className="text-xs font-bold text-slate-400">가용 예수금 (Cash)</span>
+                  <span className="text-xs font-bold text-slate-400">가용 예수금 (KRW)</span>
                   <div className="text-xl font-bold font-mono text-white mt-1">
-                    {balanceLoading ? '조회 중' : formatKrw(balance?.available_cash)}
+                    {balanceLoading ? '조회 중' : formatCurrency(balance?.available_cash, balance?.currency, 'KRW', balance?.exchange_rate)}
                   </div>
                 </div>
 
@@ -531,7 +697,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                   </div>
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <p className="text-2xl font-bold text-white font-mono">{balanceLoading ? '조회 중' : formatKrw(balance?.total_evaluation)}</p>
+                      <p className="text-2xl font-bold text-white font-mono">{balanceLoading ? '조회 중' : formatCurrency(balance?.total_evaluation, balance?.currency, 'KRW', balance?.exchange_rate)}</p>
                       <p className="text-[11px] text-slate-400 mt-1">
                         {assetTrendSummary} <span className="text-emerald-400 font-bold font-mono">{assetTrendDelta}</span>
                       </p>
@@ -571,7 +737,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                     </div>
                   ) : null}
                   <div className="mt-2 rounded border border-slate-800 bg-[#0f172a]/60 p-4">
-                    <Sparkline values={assetTrendValues} labels={assetTrendLabels} />
+                    <Sparkline values={displayTrendValues} labels={assetTrendLabels} />
                     <div className="mt-3 flex items-center justify-between text-[10px] font-bold text-slate-500">
                       <span>
                         {assetTrendLoading
@@ -580,7 +746,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                             ? 'DB 자산 스냅샷 기준'
                             : '현재 계정 자산 기준'}
                       </span>
-                      <span>{assetTrendValues.length}개 포인트</span>
+                      <span>{displayTrendValues.length}개 포인트</span>
                     </div>
                   </div>
                 </div>
@@ -634,14 +800,23 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/40">
-                        {WATCHLIST_MOCK.map((item) => (
-                          <tr key={item.id} className="hover:bg-slate-800/20 transition-colors">
-                            <td className="px-3 py-2.5 font-bold text-white">{item.name}</td>
-                            <td className="px-3 py-2.5 text-slate-400">{item.market}</td>
-                            <td className="px-3 py-2.5 text-right font-mono text-slate-300">{item.average}</td>
-                            <td className="px-3 py-2.5 text-right"><Rate value={item.change} /></td>
-                          </tr>
-                        ))}
+                        {WATCHLIST_MOCK.map((item) => {
+                          const isForeign = /[a-zA-Z]/.test(item.id) || item.market.includes('해외')
+                          const stockCurrency = isForeign ? 'USD' : 'KRW'
+                          const numericPrice = parseFloat(item.average.replace(/[^0-9.-]/g, '')) || 0
+                          const exchangeRate = balance?.exchange_rate || 1380
+                          const currentDisplayCurrency = isForeign ? displayCurrency : 'KRW'
+                          return (
+                            <tr key={item.id} className="hover:bg-slate-800/20 transition-colors">
+                              <td className="px-3 py-2.5 font-bold text-white">{item.name}</td>
+                              <td className="px-3 py-2.5 text-slate-400">{item.market}</td>
+                              <td className="px-3 py-2.5 text-right font-mono text-slate-300">
+                                {formatCurrency(numericPrice, stockCurrency, currentDisplayCurrency, exchangeRate)}
+                              </td>
+                              <td className="px-3 py-2.5 text-right"><Rate value={item.change} /></td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -673,31 +848,67 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                       <thead>
                         <tr className="border-b border-slate-800 text-slate-400 bg-[#0c0e15]/30">
                           <th className="py-2 px-3 font-bold">종목명/코드</th>
-                          <th className="py-2 px-3 text-right font-bold">보유수량</th>
+                          <th className="py-2 px-3 font-bold">거래소</th>
+                          <th className="py-2 px-3 text-right font-bold">
+                            보유수량
+                            <button onClick={() => handleHoldingsSort('qty')} className="inline-flex flex-col ml-1 align-middle text-[8px] leading-[6px] text-slate-500 hover:text-white cursor-pointer select-none">
+                              <span className={holdingsSort.key === 'qty' && holdingsSort.direction === 'asc' ? 'text-ai-cyan' : ''}>▲</span>
+                              <span className={holdingsSort.key === 'qty' && holdingsSort.direction === 'desc' ? 'text-ai-cyan' : ''}>▼</span>
+                            </button>
+                          </th>
                           <th className="py-2 px-3 text-right font-bold">평균단가</th>
                           <th className="py-2 px-3 text-right font-bold">현재가</th>
-                          <th className="py-2 px-3 text-right font-bold">평가손익</th>
-                          <th className="py-2 px-3 text-right font-bold">수익률</th>
+                          <th className="py-2 px-3 text-right font-bold">
+                            평가손익
+                            <button onClick={() => handleHoldingsSort('profit')} className="inline-flex flex-col ml-1 align-middle text-[8px] leading-[6px] text-slate-500 hover:text-white cursor-pointer select-none">
+                              <span className={holdingsSort.key === 'profit' && holdingsSort.direction === 'asc' ? 'text-ai-cyan' : ''}>▲</span>
+                              <span className={holdingsSort.key === 'profit' && holdingsSort.direction === 'desc' ? 'text-ai-cyan' : ''}>▼</span>
+                            </button>
+                          </th>
+                          <th className="py-2 px-3 text-right font-bold">
+                            수익률
+                            <button onClick={() => handleHoldingsSort('profit_rate')} className="inline-flex flex-col ml-1 align-middle text-[8px] leading-[6px] text-slate-500 hover:text-white cursor-pointer select-none">
+                              <span className={holdingsSort.key === 'profit_rate' && holdingsSort.direction === 'asc' ? 'text-ai-cyan' : ''}>▲</span>
+                              <span className={holdingsSort.key === 'profit_rate' && holdingsSort.direction === 'desc' ? 'text-ai-cyan' : ''}>▼</span>
+                            </button>
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800 font-mono">
-                        {balance.holdings.map((stock) => (
-                          <tr key={stock.symbol} className="hover:bg-slate-800/40 transition-colors">
-                            <td className="py-3 px-3 font-sans">
-                              <div className="font-semibold text-white">{stock.name}</div>
-                              <div className="text-[10px] text-slate-500 font-mono">{stock.symbol}</div>
-                            </td>
-                            <td className="py-3 px-3 text-right text-slate-300">{stock.qty}</td>
-                            <td className="py-3 px-3 text-right text-slate-300">₩{stock.avg_price.toLocaleString()}</td>
-                            <td className="py-3 px-3 text-right text-slate-100">₩{stock.current_price.toLocaleString()}</td>
-                            <td className={`py-3 px-3 text-right font-semibold ${stock.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                              {stock.profit >= 0 ? '+' : ''}₩{stock.profit.toLocaleString()}
-                            </td>
-                            <td className={`py-3 px-3 text-right font-semibold`}>
-                              <Rate value={(stock.profit_rate >= 0 ? '+' : '') + stock.profit_rate.toFixed(2) + '%'} />
-                            </td>
-                          </tr>
-                        ))}
+                        {getSortedHoldings(balance.holdings).map((stock) => {
+                          const isForeign = /[a-zA-Z]/.test(stock.symbol)
+                          const stockCurrency = stock.currency || (isForeign ? 'USD' : 'KRW')
+                          const exchangeRate = balance.exchange_rate || 1380
+                          const currentDisplayCurrency = isForeign ? displayCurrency : 'KRW'
+                          const exchangeName = stock.exchange || stock.account_type || '-'
+
+                          return (
+                            <tr key={stock.symbol} className="hover:bg-slate-800/40 transition-colors">
+                              <td className="py-3 px-3 font-sans">
+                                <div className="font-semibold text-white">{stock.name}</div>
+                                <div className="text-[10px] text-slate-500 font-mono">{stock.symbol}</div>
+                              </td>
+                              <td className="py-3 px-3 text-left font-sans font-bold text-slate-400">
+                                <span className="rounded bg-slate-800/60 border border-slate-700/60 px-1.5 py-0.5 text-[10px] uppercase">
+                                  {exchangeName}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-right text-slate-300">{stock.qty}</td>
+                              <td className="py-3 px-3 text-right text-slate-300">
+                                {formatCurrency(stock.avg_price, stockCurrency, currentDisplayCurrency, exchangeRate)}
+                              </td>
+                              <td className="py-3 px-3 text-right text-slate-100">
+                                {formatCurrency(stock.current_price, stockCurrency, currentDisplayCurrency, exchangeRate)}
+                              </td>
+                              <td className={`py-3 px-3 text-right font-semibold ${stock.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {stock.profit >= 0 ? '+' : ''}{formatCurrency(stock.profit, stockCurrency, currentDisplayCurrency, exchangeRate)}
+                              </td>
+                              <td className={`py-3 px-3 text-right font-semibold`}>
+                                <Rate value={(stock.profit_rate >= 0 ? '+' : '') + stock.profit_rate.toFixed(2) + '%'} />
+                              </td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -714,8 +925,8 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
             </main>
           )}
 
-          {activeTab === 'watchlist' && <WatchlistTab />}
-          {activeTab === 'assets' && <AssetsTab balance={balance} allocation={allocation} />}
+          {activeTab === 'watchlist' && <WatchlistTab displayCurrency={displayCurrency} exchangeRate={balance?.exchange_rate} />}
+          {activeTab === 'assets' && <AssetsTab balance={balance} allocation={allocation} displayCurrency={displayCurrency} exchangeRate={balance?.exchange_rate} showMockAssets={showMockAssets} />}
           {activeTab === 'history' && <TradeHistoryTab />}
           {activeTab === 'admin' && (
             <AdminMlData

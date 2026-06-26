@@ -100,44 +100,48 @@ app.register_blueprint(ml_bp)
 app.register_blueprint(news_bp)
 app.register_blueprint(trade_bp)
 
+# Flask 디버그 모드 리로더에 의한 스케줄러 이중 기동 방지 및 flask run 환경 지원
+is_scheduler_host = (not app.debug) or (os.environ.get("WERKZEUG_RUN_MAIN") == "true")
+SCHEDULER_RUN_IN_GATEWAY = os.getenv("SCHEDULER_RUN_IN_GATEWAY", "false").lower() == "true"
+
+if is_scheduler_host and SCHEDULER_RUN_IN_GATEWAY:
+    start_news_ingest_scheduler(
+        news_ingest_service=news_ingest_service,
+        news_ingest_enabled=NEWS_INGEST_ENABLED,
+        news_ingest_interval_seconds=NEWS_INGEST_INTERVAL_SECONDS
+    )
+    start_ml_automation_scheduler(
+        ml_automation_enabled=ML_AUTOMATION_ENABLED,
+        supabase_service_role_key=SUPABASE_SERVICE_ROLE_KEY
+    )
+    start_market_snapshot_scheduler(
+        kis_market_universe_service=kis_market_universe_service,
+        enabled=HOME_MARKET_SNAPSHOT_ENABLED,
+        kis_config={
+            "appkey": KIS_APPKEY,
+            "appsecret": KIS_APPSECRET,
+            "cano": KIS_CANO,
+            "acnt_prdt_cd": KIS_ACNT_PRDT_CD,
+            "env": KIS_ENV,
+        },
+        open_interval_seconds=HOME_MARKET_OPEN_INTERVAL_SECONDS,
+        closed_interval_seconds=HOME_MARKET_CLOSED_INTERVAL_SECONDS,
+        quote_limit=HOME_MARKET_SNAPSHOT_LIMIT,
+        max_workers=HOME_MARKET_SNAPSHOT_WORKERS,
+    )
+    start_market_index_scheduler(
+        market_index_repository=market_index_repository,
+        enabled=MARKET_INDEX_SNAPSHOT_ENABLED,
+        open_interval_seconds=MARKET_INDEX_OPEN_INTERVAL_SECONDS,
+        closed_interval_seconds=MARKET_INDEX_CLOSED_INTERVAL_SECONDS,
+    )
+    start_portfolio_snapshot_scheduler(
+        crypto_helper=crypto,
+        enabled=PORTFOLIO_SNAPSHOT_ENABLED,
+        interval_seconds=PORTFOLIO_SNAPSHOT_INTERVAL_SECONDS,
+        run_on_start=PORTFOLIO_SNAPSHOT_RUN_ON_START,
+    )
+
 if __name__ == "__main__":
-    # Flask 디버그 모드 리로더에 의한 스케줄러 이중 기동 방지
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        start_news_ingest_scheduler(
-            news_ingest_service=news_ingest_service,
-            news_ingest_enabled=NEWS_INGEST_ENABLED,
-            news_ingest_interval_seconds=NEWS_INGEST_INTERVAL_SECONDS
-        )
-        start_ml_automation_scheduler(
-            ml_automation_enabled=ML_AUTOMATION_ENABLED,
-            supabase_service_role_key=SUPABASE_SERVICE_ROLE_KEY
-        )
-        start_market_snapshot_scheduler(
-            kis_market_universe_service=kis_market_universe_service,
-            enabled=HOME_MARKET_SNAPSHOT_ENABLED,
-            kis_config={
-                "appkey": KIS_APPKEY,
-                "appsecret": KIS_APPSECRET,
-                "cano": KIS_CANO,
-                "acnt_prdt_cd": KIS_ACNT_PRDT_CD,
-                "env": KIS_ENV,
-            },
-            open_interval_seconds=HOME_MARKET_OPEN_INTERVAL_SECONDS,
-            closed_interval_seconds=HOME_MARKET_CLOSED_INTERVAL_SECONDS,
-            quote_limit=HOME_MARKET_SNAPSHOT_LIMIT,
-            max_workers=HOME_MARKET_SNAPSHOT_WORKERS,
-        )
-        start_market_index_scheduler(
-            market_index_repository=market_index_repository,
-            enabled=MARKET_INDEX_SNAPSHOT_ENABLED,
-            open_interval_seconds=MARKET_INDEX_OPEN_INTERVAL_SECONDS,
-            closed_interval_seconds=MARKET_INDEX_CLOSED_INTERVAL_SECONDS,
-        )
-        start_portfolio_snapshot_scheduler(
-            crypto_helper=crypto,
-            enabled=PORTFOLIO_SNAPSHOT_ENABLED,
-            interval_seconds=PORTFOLIO_SNAPSHOT_INTERVAL_SECONDS,
-            run_on_start=PORTFOLIO_SNAPSHOT_RUN_ON_START,
-        )
-    # Flask 서버 구동
+    # Flask 서버 구동 (python backend/app.py 로 기동할 때만 타며, flask run 시에는 타지 않음)
     app.run(host="0.0.0.0", port=5050, debug=True)

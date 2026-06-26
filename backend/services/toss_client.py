@@ -3,13 +3,11 @@ import json
 import time
 import uuid
 import requests
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from backend.services.exchange_client import ExchangeClient
 
 KST = timezone(timedelta(hours=9))
-
-TOSS_TOKEN_CACHE_FILE = ".toss_token_cache.json"
-
 
 def _floor_kst_bucket_timestamp(timestamp: int, interval_minutes: int) -> int:
     """
@@ -33,67 +31,42 @@ class TossClient(ExchangeClient):
 
     def _clear_token_cache(self):
         """
-        로컬 캐시 파일에서 현재 client_id에 해당하는 토큰 정보를 삭제하여 갱신을 강제합니다.
+        DB 캐시 테이블에서 현재 exchange/env에 해당하는 토큰 정보를 강제 만료시킵니다.
         """
-        cache = {}
-        if os.path.exists(TOSS_TOKEN_CACHE_FILE):
-            try:
-                with open(TOSS_TOKEN_CACHE_FILE, "r") as f:
-                    cache = json.load(f)
-            except Exception:
-                pass
-        if self.client_id in cache:
-            del cache[self.client_id]
-            try:
-                with open(TOSS_TOKEN_CACHE_FILE, "w") as f:
-                    json.dump(cache, f, indent=2)
-            except Exception:
-                pass
+        from backend.services.token_cache_service import clear_db_token
+        try:
+            clear_db_token("TOSS", self.env)
+        except Exception:
+            pass
 
     def _get_cached_token(self) -> str:
         """
-        로컬 캐시 파일에서 토스 Access Token을 가져옵니다.
+        Supabase DB의 token_caches 테이블에서 토스 Access Token을 가져옵니다.
         토큰이 만료되었거나 캐시가 없으면 새로 발급을 요청합니다.
         """
-        cache = {}
-        if os.path.exists(TOSS_TOKEN_CACHE_FILE):
-            try:
-                with open(TOSS_TOKEN_CACHE_FILE, "r") as f:
-                    cache = json.load(f)
-            except Exception:
-                pass
-
-        client_cache = cache.get(self.client_id, {})
-        token = client_cache.get("access_token")
-        expired_at_str = client_cache.get("expired_at")
-
-        if token and expired_at_str:
-            try:
-                expired_at = datetime.strptime(expired_at_str, "%Y-%m-%d %H:%M:%S")
-                # 만료 5분 전(300초) 이상 남아있는 경우에만 기존 토큰 사용
-                if (expired_at - datetime.now()).total_seconds() > 300:
-                    return token
-            except Exception:
-                pass
+        from backend.services.token_cache_service import get_db_token, set_db_token
+        
+        # DB에서 유효한 공용 토큰 획득 시도
+        try:
+            token = get_db_token("TOSS", self.env)
+            if token:
+                return token
+        except Exception:
+            pass
 
         # 토큰 새로 발급
         token_data = self._request_new_token()
         new_token = token_data["access_token"]
         expires_in = int(token_data.get("expires_in", 86400))
 
-        expired_at = datetime.now() + timedelta(seconds=expires_in)
-        cache[self.client_id] = {
-            "access_token": new_token,
-            "expired_at": expired_at.strftime("%Y-%m-%d %H:%M:%S")
-        }
-
+        # DB 캐시 테이블에 신규 토큰 저장 (Upsert)
         try:
-            with open(TOSS_TOKEN_CACHE_FILE, "w") as f:
-                json.dump(cache, f, indent=2)
+            set_db_token("TOSS", self.env, new_token, expires_in)
         except Exception:
             pass
 
         return new_token
+
 
     def _request_new_token(self) -> dict:
         """
@@ -189,39 +162,45 @@ class TossClient(ExchangeClient):
             err = data["error"]
             raise Exception(f"토스 보유자산 조회 에러 [{err.get('code')}]: {err.get('message')}")
 
+        # 실제 Toss API 응답 구조:
+        # result.marketValue.amount.usd  → 총 평가금액 (USD)
+        # result.items[]                 → 보유 종목 목록
+        #   .symbol, .name, .quantity, .lastPrice, .averagePurchasePrice
+        #   .profitLoss.amount, .profitLoss.rate
         result = data.get("result", {})
         holdings_list = []
-        raw_holdings = []
-        if isinstance(result, dict):
-            raw_holdings = result.get("holdings", [])
-        elif isinstance(result, list):
-            raw_holdings = result
 
+        # 총 평가금액: USD 기준 (해외주식은 krw=0이므로 usd 우선)
         total_eval = 0.0
-        available_cash = 0.0
+        usd_val = 0.0
+        try:
+            mv = result.get("marketValue", {}).get("amount", {})
+            usd_val = float(mv.get("usd", 0) or 0)
+            krw_val = float(mv.get("krw", 0) or 0)
+            total_eval = usd_val if usd_val > 0 else krw_val
+        except (ValueError, TypeError):
+            pass
 
-        if isinstance(result, dict):
-            try:
-                total_eval = float(result.get("totalEvaluationAmount", 0.0))
-                available_cash = float(result.get("availableCash", 0.0))
-            except (ValueError, TypeError):
-                pass
+        # 보유 종목: 실제 필드명은 `items` (기존 `holdings` 아님)
+        raw_items = result.get("items", []) if isinstance(result, dict) else []
+        if not raw_items and isinstance(result, list):
+            raw_items = result
 
-        for stock in raw_holdings:
-            symbol = stock.get("symbol", "")
-            name = stock.get("name", "")
+        for item in raw_items:
+            symbol = item.get("symbol", "")
+            name = item.get("name", "")
+            currency = item.get("currency", "USD")
             try:
-                qty = float(stock.get("quantity", 0.0))
-                avg_price = float(stock.get("averageBuyPrice", 0.0))
-                current_price = float(stock.get("currentPrice", 0.0))
-                profit = float(stock.get("evaluationProfitLoss", 0.0))
-                profit_rate = float(stock.get("evaluationProfitLossRate", 0.0))
+                qty = float(item.get("quantity", 0) or 0)
+                avg_price = float(item.get("averagePurchasePrice", 0) or 0)
+                current_price = float(item.get("lastPrice", 0) or 0)
+                pl = item.get("profitLoss", {})
+                profit = float(pl.get("amount", 0) or 0)
+                profit_rate = float(pl.get("rate", 0) or 0) * 100.0
+                mv_item = item.get("marketValue", {})
+                eval_amount = float(mv_item.get("amount", 0) or 0)
             except (ValueError, TypeError):
-                qty = 0.0
-                avg_price = 0.0
-                current_price = 0.0
-                profit = 0.0
-                profit_rate = 0.0
+                qty = avg_price = current_price = profit = profit_rate = eval_amount = 0.0
 
             if qty <= 0:
                 continue
@@ -233,18 +212,19 @@ class TossClient(ExchangeClient):
                 "avg_price": avg_price,
                 "current_price": current_price,
                 "profit": profit,
-                "profit_rate": profit_rate
+                "profit_rate": profit_rate,
+                "eval_amount": eval_amount,
+                "currency": currency,
             })
 
-            if total_eval == 0.0:
-                total_eval += current_price * qty
-
+        # 총 평가금액이 0이면 items 합산으로 보정
         if total_eval == 0.0:
-            total_eval = available_cash
+            total_eval = sum(h["eval_amount"] for h in holdings_list)
 
         return {
             "total_evaluation": total_eval,
-            "available_cash": available_cash,
+            "available_cash": 0.0,  # holdings API에 예수금 미포함
+            "currency": "USD" if usd_val > 0.0 else "KRW",
             "holdings": holdings_list
         }
 
@@ -566,6 +546,42 @@ class TossClient(ExchangeClient):
                     self._clear_token_cache()
                     return self._get_candles_impl(symbol, interval=normalized_interval, count=count)
                 raise e
+
+    def _get_exchange_rate_impl(self) -> float:
+        token = self._get_cached_token()
+        url = f"{self.base_url}/api/v1/exchange-rate"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        params = {
+            "baseCurrency": "USD",
+            "quoteCurrency": "KRW"
+        }
+        res = requests.get(url, headers=headers, params=params)
+        if res.status_code == 200:
+            data = res.json()
+            result = data.get("result", {})
+            rate = result.get("rate") or result.get("basePrice") or result.get("exchangeRate") or result.get("price")
+            if rate:
+                return float(rate)
+        return 1500.0
+
+    def get_exchange_rate(self) -> float:
+        """
+        실시간 환율 정보를 조회합니다. (토큰 만료 시 재시도 포함)
+        """
+        try:
+            return self._get_exchange_rate_impl()
+        except Exception as e:
+            err_str = str(e).lower()
+            if "invalid-token" in err_str or "invalid_token" in err_str or "unauthorized" in err_str or "401" in err_str:
+                self._clear_token_cache()
+                try:
+                    return self._get_exchange_rate_impl()
+                except Exception:
+                    pass
+            return 1500.0
 
         # 2. 토스 미지원 주기인 경우 자체 리샘플링
         # 2-A. 분봉/시간봉 리샘플링 (5m, 15m, 30m, 1h, 60m 등)
