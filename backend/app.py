@@ -40,8 +40,9 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
-KIS_APPKEY = os.getenv("KIS_APPKEY", "")
-KIS_APPSECRET = os.getenv("KIS_APPSECRET", "")
+# Support both legacy and current env key names for KIS credentials.
+KIS_APPKEY = os.getenv("KIS_APPKEY", "") or os.getenv("KIS_APP_KEY", "")
+KIS_APPSECRET = os.getenv("KIS_APPSECRET", "") or os.getenv("KIS_APP_SECRET", "")
 KIS_CANO = os.getenv("KIS_CANO", "")
 KIS_ACNT_PRDT_CD = os.getenv("KIS_ACNT_PRDT_CD", "01")
 KIS_ENV = os.getenv("KIS_ENV", "MOCK")

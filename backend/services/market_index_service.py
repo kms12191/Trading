@@ -4,59 +4,63 @@ from typing import Any
 
 import requests
 
+from backend.services.kis_client import KISClient
+
 
 KST = timezone(timedelta(hours=9))
 MARKET_INDEX_OPEN_STALE_SECONDS = int(os.getenv("MARKET_INDEX_OPEN_STALE_SECONDS", "180"))
 MARKET_INDEX_CLOSED_STALE_SECONDS = int(os.getenv("MARKET_INDEX_CLOSED_STALE_SECONDS", "1800"))
 
-INDEX_DEFINITIONS = [
+KIS_INDEX_DEFINITIONS = [
     {
         "symbol": "USDKRW",
         "label": "USD/KRW",
-        "ticker": "USDKRW=X",
         "currency": "KRW",
         "market_country": "KR",
         "display_order": 10,
+        "kind": "fx",
+        "code": "FX@KRWKFTC",
+        "env": "MOCK",
     },
     {
         "symbol": "KOSPI",
         "label": "KOSPI",
-        "ticker": "^KS11",
         "currency": "KRW",
         "market_country": "KR",
         "display_order": 20,
+        "kind": "domestic",
+        "code": "0001",
+        "env": "REAL",
     },
     {
         "symbol": "KOSDAQ",
         "label": "KOSDAQ",
-        "ticker": "^KQ11",
         "currency": "KRW",
         "market_country": "KR",
         "display_order": 30,
-    },
-    {
-        "symbol": "NASDAQ",
-        "label": "NASDAQ",
-        "ticker": "^IXIC",
-        "currency": "USD",
-        "market_country": "US",
-        "display_order": 40,
+        "kind": "domestic",
+        "code": "1001",
+        "env": "REAL",
     },
     {
         "symbol": "NASDAQ100_F",
         "label": "NASDAQ 100 Futures",
-        "ticker": "NQ=F",
         "currency": "USD",
         "market_country": "US",
         "display_order": 50,
+        "kind": "overseas",
+        "code": "NDX",
+        "env": "REAL",
     },
     {
         "symbol": "SP500",
         "label": "S&P 500",
-        "ticker": "^GSPC",
         "currency": "USD",
         "market_country": "US",
         "display_order": 60,
+        "kind": "overseas",
+        "code": "SPX",
+        "env": "REAL",
     },
 ]
 
@@ -82,74 +86,176 @@ def parse_datetime(value: str | None) -> datetime | None:
         return None
 
 
-def fetch_yahoo_index_snapshot(definition: dict[str, Any]) -> dict[str, Any]:
+def get_kis_market_index_client(env: str) -> KISClient | None:
+    appkey = os.getenv("KIS_APPKEY", "") or os.getenv("KIS_APP_KEY", "")
+    appsecret = os.getenv("KIS_APPSECRET", "") or os.getenv("KIS_APP_SECRET", "")
+    if not appkey or not appsecret:
+        return None
+
+    return KISClient(
+        appkey=appkey,
+        appsecret=appsecret,
+        cano=os.getenv("KIS_CANO", ""),
+        acnt_prdt_cd=os.getenv("KIS_ACNT_PRDT_CD", "01"),
+        env=env,
+    )
+
+
+def fetch_kis_domestic_index_snapshot(client: KISClient, definition: dict[str, Any]) -> dict[str, Any]:
+    token = client._get_cached_token()
     response = requests.get(
-        f"https://query1.finance.yahoo.com/v8/finance/chart/{definition['ticker']}",
-        params={
-            "range": "5d",
-            "interval": "1d",
-            "includePrePost": "true",
-            "events": "div,splits",
-        },
+        f"{client.base_url}/uapi/domestic-stock/v1/quotations/inquire-index-price",
         headers={
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/json",
+            "content-type": "application/json; charset=utf-8",
+            "authorization": f"Bearer {token}",
+            "appkey": client.appkey,
+            "appsecret": client.appsecret,
+            "tr_id": "FHPUP02100000",
         },
-        timeout=20,
+        params={
+            "FID_COND_MRKT_DIV_CODE": "U",
+            "FID_INPUT_ISCD": definition["code"],
+        },
+        timeout=15,
     )
     response.raise_for_status()
     payload = response.json()
-    result = ((payload.get("chart") or {}).get("result") or [None])[0]
-    if not result:
-        raise RuntimeError(f"Yahoo response missing result for {definition['ticker']}")
+    if payload.get("rt_cd") != "0":
+        raise RuntimeError(payload.get("msg1") or f"Domestic index lookup failed for {definition['symbol']}")
 
-    meta = result.get("meta") or {}
-    price = meta.get("regularMarketPrice")
-    previous_close = meta.get("previousClose") or meta.get("chartPreviousClose")
-    market_time = meta.get("regularMarketTime")
-    currency = meta.get("currency") or definition["currency"]
-
-    if price is None or previous_close in (None, 0):
-        closes = (((result.get("indicators") or {}).get("quote") or [{}])[0]).get("close") or []
-        closes = [float(item) for item in closes if item is not None]
-        if len(closes) < 2:
-            raise RuntimeError(f"Not enough close prices for {definition['ticker']}")
-        price = closes[-1]
-        previous_close = closes[-2]
-
-    price = float(price)
-    previous_close = float(previous_close)
-    change_value = price - previous_close
-    change_percent = (change_value / previous_close * 100) if previous_close else 0.0
-    as_of = (
-        datetime.fromtimestamp(int(market_time), tz=timezone.utc).isoformat()
-        if market_time
-        else datetime.now(timezone.utc).isoformat()
-    )
+    output = payload.get("output") or {}
+    current_value = float(output.get("bstp_nmix_prpr") or 0)
+    change_value = float(output.get("bstp_nmix_prdy_vrss") or 0)
+    change_percent = float(output.get("bstp_nmix_prdy_ctrt") or 0)
 
     return {
         "symbol": definition["symbol"],
         "label": definition["label"],
-        "source": "YAHOO_FINANCE",
+        "source": "KIS_OPEN_API",
         "market_country": definition["market_country"],
-        "ticker": definition["ticker"],
-        "current_value": price,
+        "ticker": definition["code"],
+        "current_value": current_value,
         "change_value": change_value,
         "change_percent": change_percent,
-        "currency": currency,
+        "currency": definition["currency"],
         "display_order": definition["display_order"],
-        "as_of": as_of,
+        "as_of": datetime.now(timezone.utc).isoformat(),
         "raw_payload": payload,
     }
+
+
+def fetch_kis_overseas_index_snapshot(client: KISClient, definition: dict[str, Any]) -> dict[str, Any]:
+    token = client._get_cached_token()
+    response = requests.get(
+        f"{client.base_url}/uapi/overseas-price/v1/quotations/inquire-time-indexchartprice",
+        headers={
+            "content-type": "application/json; charset=utf-8",
+            "authorization": f"Bearer {token}",
+            "appkey": client.appkey,
+            "appsecret": client.appsecret,
+            "tr_id": "FHKST03030200",
+        },
+        params={
+            "FID_COND_MRKT_DIV_CODE": "N",
+            "FID_INPUT_ISCD": definition["code"],
+            "FID_HOUR_CLS_CODE": "0",
+            "FID_PW_DATA_INCU_YN": "Y",
+        },
+        timeout=15,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("rt_cd") != "0":
+        raise RuntimeError(payload.get("msg1") or f"Overseas index lookup failed for {definition['symbol']}")
+
+    output = payload.get("output1") or {}
+    current_value = float(output.get("ovrs_nmix_prpr") or 0)
+    change_value = float(output.get("ovrs_nmix_prdy_vrss") or 0)
+    change_percent = float(output.get("prdy_ctrt") or 0)
+    if current_value == 0 and change_value == 0 and change_percent == 0:
+        raise RuntimeError(f"Overseas index returned empty values for {definition['symbol']}")
+
+    return {
+        "symbol": definition["symbol"],
+        "label": definition["label"],
+        "source": "KIS_OPEN_API",
+        "market_country": definition["market_country"],
+        "ticker": definition["code"],
+        "current_value": current_value,
+        "change_value": change_value,
+        "change_percent": change_percent,
+        "currency": definition["currency"],
+        "display_order": definition["display_order"],
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "raw_payload": payload,
+    }
+
+
+def fetch_kis_fx_snapshot(client: KISClient, definition: dict[str, Any]) -> dict[str, Any]:
+    token = client._get_cached_token()
+    response = requests.get(
+        f"{client.base_url}/uapi/overseas-price/v1/quotations/inquire-time-indexchartprice",
+        headers={
+            "content-type": "application/json; charset=utf-8",
+            "authorization": f"Bearer {token}",
+            "appkey": client.appkey,
+            "appsecret": client.appsecret,
+            "tr_id": "FHKST03030200",
+        },
+        params={
+            "FID_COND_MRKT_DIV_CODE": "X",
+            "FID_INPUT_ISCD": definition["code"],
+            "FID_HOUR_CLS_CODE": "0",
+            "FID_PW_DATA_INCU_YN": "Y",
+        },
+        timeout=15,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("rt_cd") != "0":
+        raise RuntimeError(payload.get("msg1") or f"FX lookup failed for {definition['symbol']}")
+
+    output = payload.get("output1") or {}
+    current_value = float(output.get("ovrs_nmix_prpr") or 0)
+    change_value = float(output.get("ovrs_nmix_prdy_vrss") or 0)
+    change_percent = float(output.get("prdy_ctrt") or 0)
+    if current_value == 0 and change_value == 0 and change_percent == 0:
+        raise RuntimeError(f"FX returned empty values for {definition['symbol']}")
+
+    return {
+        "symbol": definition["symbol"],
+        "label": definition["label"],
+        "source": "KIS_OPEN_API",
+        "market_country": definition["market_country"],
+        "ticker": definition["code"],
+        "current_value": current_value,
+        "change_value": change_value,
+        "change_percent": change_percent,
+        "currency": definition["currency"],
+        "display_order": definition["display_order"],
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "raw_payload": payload,
+    }
+
+
+def fetch_kis_index_snapshot(client: KISClient, definition: dict[str, Any]) -> dict[str, Any]:
+    if definition["kind"] == "domestic":
+        return fetch_kis_domestic_index_snapshot(client, definition)
+    if definition["kind"] == "fx":
+        return fetch_kis_fx_snapshot(client, definition)
+    return fetch_kis_overseas_index_snapshot(client, definition)
 
 
 def collect_market_index_rows() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     rows: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
 
-    for definition in INDEX_DEFINITIONS:
+    for definition in KIS_INDEX_DEFINITIONS:
         try:
-            rows.append(fetch_yahoo_index_snapshot(definition))
+            client = get_kis_market_index_client(definition.get("env", "REAL"))
+            if client is None:
+                raise RuntimeError("KIS market index credentials are not configured.")
+            rows.append(fetch_kis_index_snapshot(client, definition))
         except Exception as error:
             errors.append({
                 "symbol": definition["symbol"],
