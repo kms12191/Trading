@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from flask import Blueprint, request, jsonify, current_app
 from backend.services.home_service import build_home_overview, fetch_coinone_overview, split_kis_holdings, to_float
+from backend.services.market_index_service import collect_market_index_rows, serialize_market_index_rows
 from backend.services.kis_client import KISClient
 from backend.services.toss_client import TossClient
 from backend.services.coinone_client import CoinoneClient
@@ -209,6 +210,66 @@ def get_market_rankings():
         return jsonify({
             "success": False,
             "message": f"거래대금 순위 조회 실패: {str(error)}",
+        }), 500
+
+@home_bp.route("/api/market/indices", methods=["GET"])
+def get_market_indices():
+    """전역 하단 지수 바용 최신 지수 스냅샷을 반환합니다."""
+    repository = getattr(current_app, "market_index_repository", None)
+    if repository is None or not repository.is_configured:
+        return jsonify({
+            "success": False,
+            "message": "시장 지수 저장소가 아직 설정되지 않았습니다.",
+        }), 500
+
+    try:
+        rows = repository.list_latest()
+        if not rows:
+            live_rows, live_errors = collect_market_index_rows()
+            if repository.is_configured and live_rows:
+                try:
+                    repository.upsert_latest(live_rows)
+                except Exception:
+                    pass
+            if not live_rows:
+                return jsonify({
+                    "success": False,
+                    "message": "저장된 지수 데이터가 없고 실시간 수집도 실패했습니다.",
+                    "errors": live_errors,
+                }), 503
+
+            payload = serialize_market_index_rows(live_rows)
+            payload["source"] = "live.collector"
+            payload["bootstrap"] = True
+            payload["errors"] = live_errors
+            return jsonify({
+                "success": True,
+                "data": payload,
+            })
+
+        return jsonify({
+            "success": True,
+            "data": serialize_market_index_rows(rows),
+        })
+    except Exception as error:
+        live_rows, live_errors = collect_market_index_rows()
+        if live_rows:
+            if repository.is_configured:
+                try:
+                    repository.upsert_latest(live_rows)
+                except Exception:
+                    pass
+            payload = serialize_market_index_rows(live_rows)
+            payload["source"] = "live.collector"
+            payload["bootstrap"] = True
+            payload["errors"] = [str(error), *[item["message"] for item in live_errors]]
+            return jsonify({
+                "success": True,
+                "data": payload,
+            })
+        return jsonify({
+            "success": False,
+            "message": f"지수 데이터 조회 실패: {str(error)}",
         }), 500
 
 @home_bp.route("/api/dashboard/balance", methods=["POST"])

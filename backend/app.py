@@ -13,6 +13,8 @@ from backend.services.news_repository import NewsRepository
 from backend.services.news_ingest import NewsIngestService
 from backend.services.news_summary_service import NewsSummaryService
 from backend.services.kis_market_universe import KISMarketUniverseService
+from backend.services.market_index_repository import MarketIndexRepository
+from backend.services.market_index_scheduler import start_market_index_scheduler
 from backend.services.market_snapshot_scheduler import start_market_snapshot_scheduler
 from backend.services.ml_scheduler import start_news_ingest_scheduler, start_ml_automation_scheduler
 
@@ -49,6 +51,9 @@ HOME_MARKET_OPEN_INTERVAL_SECONDS = int(os.getenv("HOME_MARKET_OPEN_INTERVAL_SEC
 HOME_MARKET_CLOSED_INTERVAL_SECONDS = int(os.getenv("HOME_MARKET_CLOSED_INTERVAL_SECONDS", "600"))
 HOME_MARKET_SNAPSHOT_LIMIT = int(os.getenv("HOME_MARKET_SNAPSHOT_LIMIT", "300"))
 HOME_MARKET_SNAPSHOT_WORKERS = int(os.getenv("HOME_MARKET_SNAPSHOT_WORKERS", "2"))
+MARKET_INDEX_SNAPSHOT_ENABLED = os.getenv("MARKET_INDEX_SNAPSHOT_ENABLED", "true").lower() == "true"
+MARKET_INDEX_OPEN_INTERVAL_SECONDS = int(os.getenv("MARKET_INDEX_OPEN_INTERVAL_SECONDS", "60"))
+MARKET_INDEX_CLOSED_INTERVAL_SECONDS = int(os.getenv("MARKET_INDEX_CLOSED_INTERVAL_SECONDS", "600"))
 
 # Flask Config에 값 바인딩
 app.config["KIS_APPKEY"] = KIS_APPKEY
@@ -64,12 +69,14 @@ news_repository = NewsRepository()
 news_ingest_service = NewsIngestService()
 news_summary_service = NewsSummaryService()
 kis_market_universe_service = KISMarketUniverseService()
+market_index_repository = MarketIndexRepository()
 
 app.crypto = crypto
 app.news_repository = news_repository
 app.news_ingest_service = news_ingest_service
 app.news_summary_service = news_summary_service
 app.kis_market_universe_service = kis_market_universe_service
+app.market_index_repository = market_index_repository
 
 # Blueprint 등록
 app.register_blueprint(home_bp)
@@ -104,6 +111,12 @@ if __name__ == "__main__":
             closed_interval_seconds=HOME_MARKET_CLOSED_INTERVAL_SECONDS,
             quote_limit=HOME_MARKET_SNAPSHOT_LIMIT,
             max_workers=HOME_MARKET_SNAPSHOT_WORKERS,
+        )
+        start_market_index_scheduler(
+            market_index_repository=market_index_repository,
+            enabled=MARKET_INDEX_SNAPSHOT_ENABLED,
+            open_interval_seconds=MARKET_INDEX_OPEN_INTERVAL_SECONDS,
+            closed_interval_seconds=MARKET_INDEX_CLOSED_INTERVAL_SECONDS,
         )
     # Flask 서버 구동
     app.run(host="0.0.0.0", port=5050, debug=True)
