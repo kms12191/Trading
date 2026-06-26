@@ -5,10 +5,14 @@ export function toDateInputValue(date) {
 }
 
 export function getAssetPeriodRange(periodKey) {
-  const option = ASSET_PERIOD_OPTIONS.find((item) => item.key === periodKey) || ASSET_PERIOD_OPTIONS[1]
+  const option = ASSET_PERIOD_OPTIONS.find((item) => item.key === periodKey) || ASSET_PERIOD_OPTIONS[2]
   const end = new Date()
   const start = new Date(end)
-  start.setDate(end.getDate() - option.days)
+  if (option.hours) {
+    start.setHours(end.getHours() - option.hours)
+  } else {
+    start.setDate(end.getDate() - option.days)
+  }
 
   return {
     start: toDateInputValue(start),

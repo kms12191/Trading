@@ -4,7 +4,7 @@ import { supabase } from '../supabaseClient'
 const SURVEY_QUESTIONS = [
   {
     id: 'q1',
-    question: 'Q1. 주식·ETF·코인 등 투자 경험은?',
+    question: '주식·ETF·코인 등 투자 경험은?',
     options: [
       { text: '없음', score: 1 },
       { text: '1년 미만', score: 2 },
@@ -15,7 +15,7 @@ const SURVEY_QUESTIONS = [
   },
   {
     id: 'q2',
-    question: 'Q2. 투자하는 가장 큰 이유는?',
+    question: '투자하는 가장 큰 이유는?',
     options: [
       { text: '원금 보존', score: 1 },
       { text: '예금보다 높은 수익', score: 2 },
@@ -26,7 +26,7 @@ const SURVEY_QUESTIONS = [
   },
   {
     id: 'q3',
-    question: 'Q3. 투자금을 언제 사용할 예정인가?',
+    question: '투자금을 언제 사용할 예정인가?',
     options: [
       { text: '1년 이내', score: 1 },
       { text: '1~3년', score: 2 },
@@ -37,7 +37,7 @@ const SURVEY_QUESTIONS = [
   },
   {
     id: 'q4',
-    question: 'Q4. 투자금이 일시적으로 손실난다면 어느 정도까지 감수할 수 있나요?',
+    question: '투자금이 일시적으로 손실난다면 어느 정도까지 감수할 수 있나요?',
     options: [
       { text: '손실은 절대 안 됨', score: 1 },
       { text: '-5%', score: 2 },
@@ -48,7 +48,7 @@ const SURVEY_QUESTIONS = [
   },
   {
     id: 'q5',
-    question: 'Q5. 1개월 만에 15% 손실이 발생했다면?',
+    question: '1개월 만에 15% 손실이 발생했다면?',
     options: [
       { text: '즉시 전부 매도한다', score: 1 },
       { text: '일부 매도한다', score: 2 },
@@ -59,7 +59,7 @@ const SURVEY_QUESTIONS = [
   },
   {
     id: 'q6',
-    question: 'Q6. 선호하는 투자 상품은?',
+    question: '선호하는 투자 상품은?',
     options: [
       { text: '예금·적금', score: 1 },
       { text: '채권', score: 2 },
@@ -70,7 +70,7 @@ const SURVEY_QUESTIONS = [
   },
   {
     id: 'q7',
-    question: 'Q7. 연간 기대 수익률은?',
+    question: '연간 기대 수익률은?',
     options: [
       { text: '3% 이하', score: 1 },
       { text: '3~5%', score: 2 },
@@ -81,7 +81,7 @@ const SURVEY_QUESTIONS = [
   },
   {
     id: 'q8',
-    question: 'Q8. 어떤 투자 방식이 가장 마음에 드나요?',
+    question: '어떤 투자 방식이 가장 마음에 드나요?',
     options: [
       { text: '안전이 가장 중요하다', score: 1 },
       { text: '안정성과 수익의 균형', score: 2 },
@@ -92,7 +92,7 @@ const SURVEY_QUESTIONS = [
   },
   {
     id: 'q9',
-    question: 'Q9. 현재 보유 자산 중 투자금이 차지하는 비율은?',
+    question: '현재 보유 자산 중 투자금이 차지하는 비율은?',
     options: [
       { text: '10% 미만', score: 1 },
       { text: '10~30%', score: 2 },
@@ -103,7 +103,7 @@ const SURVEY_QUESTIONS = [
   },
   {
     id: 'q10',
-    question: 'Q10. 보유 종목이 하루 만에 10% 하락했다면?',
+    question: '보유 종목이 하루 만에 10% 하락했다면?',
     options: [
       { text: '잠이 안 온다', score: 1 },
       { text: '매우 불안하다', score: 2 },
@@ -167,6 +167,8 @@ function InvestmentSurveyModal({ onClose, onSuccess, onLogout, isMandatory = fal
       if (error) throw error
 
       alert(`설문 분석 완료! 귀하의 투자 성향은 [${investmentType}] 입니다.`)
+
+      console.log("1. onSuccess 호출 전");
       
       if (onSuccess) {
         onSuccess(investmentType, totalScore, answers)

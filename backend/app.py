@@ -17,6 +17,7 @@ from backend.services.market_index_repository import MarketIndexRepository
 from backend.services.market_index_scheduler import start_market_index_scheduler
 from backend.services.market_snapshot_scheduler import start_market_snapshot_scheduler
 from backend.services.ml_scheduler import start_news_ingest_scheduler, start_ml_automation_scheduler
+from backend.services.portfolio_snapshot_scheduler import start_portfolio_snapshot_scheduler
 
 from backend.routes.home import home_bp
 from backend.routes.keys import keys_bp
@@ -54,6 +55,9 @@ HOME_MARKET_SNAPSHOT_WORKERS = int(os.getenv("HOME_MARKET_SNAPSHOT_WORKERS", "2"
 MARKET_INDEX_SNAPSHOT_ENABLED = os.getenv("MARKET_INDEX_SNAPSHOT_ENABLED", "true").lower() == "true"
 MARKET_INDEX_OPEN_INTERVAL_SECONDS = int(os.getenv("MARKET_INDEX_OPEN_INTERVAL_SECONDS", "60"))
 MARKET_INDEX_CLOSED_INTERVAL_SECONDS = int(os.getenv("MARKET_INDEX_CLOSED_INTERVAL_SECONDS", "600"))
+PORTFOLIO_SNAPSHOT_ENABLED = os.getenv("PORTFOLIO_SNAPSHOT_ENABLED", "true").lower() == "true"
+PORTFOLIO_SNAPSHOT_INTERVAL_SECONDS = int(os.getenv("PORTFOLIO_SNAPSHOT_INTERVAL_SECONDS", "60"))
+PORTFOLIO_SNAPSHOT_RUN_ON_START = os.getenv("PORTFOLIO_SNAPSHOT_RUN_ON_START", "false").lower() == "true"
 
 # Flask Config에 값 바인딩
 app.config["KIS_APPKEY"] = KIS_APPKEY
@@ -117,6 +121,12 @@ if __name__ == "__main__":
             enabled=MARKET_INDEX_SNAPSHOT_ENABLED,
             open_interval_seconds=MARKET_INDEX_OPEN_INTERVAL_SECONDS,
             closed_interval_seconds=MARKET_INDEX_CLOSED_INTERVAL_SECONDS,
+        )
+        start_portfolio_snapshot_scheduler(
+            crypto_helper=crypto,
+            enabled=PORTFOLIO_SNAPSHOT_ENABLED,
+            interval_seconds=PORTFOLIO_SNAPSHOT_INTERVAL_SECONDS,
+            run_on_start=PORTFOLIO_SNAPSHOT_RUN_ON_START,
         )
     # Flask 서버 구동
     app.run(host="0.0.0.0", port=5050, debug=True)

@@ -1,4 +1,4 @@
-import { ASSET_TREND_DATA, DASHBOARD_TABS } from '../dashboardConstants.js'
+import { DASHBOARD_TABS } from '../dashboardConstants.js'
 
 function Rate({ value }) {
   if (!value) return <span className="text-slate-400">0.00%</span>;
@@ -11,30 +11,51 @@ function Rate({ value }) {
   )
 }
 
-function Sparkline({ values = ASSET_TREND_DATA['1m'].values }) {
-  const min = Math.min(...values)
-  const max = Math.max(...values)
+function Sparkline({ values = [], labels = [] }) {
+  const safeValues = values.length ? values : [0, 0]
+  const min = Math.min(...safeValues)
+  const max = Math.max(...safeValues)
   const range = Math.max(max - min, 1)
-  const points = values
+  const points = safeValues
     .map((val, index) => {
-      const x = (index / Math.max(values.length - 1, 1)) * 100
+      const x = (index / Math.max(safeValues.length - 1, 1)) * 100
       const y = 52 - ((val - min) / range) * 46
       return `${x},${y}`
     })
-    .join(' ');
+    .join(' ')
+  const axisLabels = labels.length ? labels : safeValues.map(() => '')
+  const labelIndexes = Array.from(new Set([
+    0,
+    Math.floor((axisLabels.length - 1) / 2),
+    axisLabels.length - 1,
+  ])).filter((index) => axisLabels[index])
 
   return (
-    <svg className="h-32 w-full" viewBox="0 0 100 56" preserveAspectRatio="none" role="img" aria-label="총 자산 가치 그래프">
-      <defs>
-        <linearGradient id="assetFill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="#00f2fe" stopOpacity="0.2" />
-          <stop offset="100%" stopColor="#00f2fe" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <polyline points={`0,56 ${points} 100,56`} fill="url(#assetFill)" stroke="none" />
-      <polyline points={points} fill="none" stroke="#00f2fe" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+    <div>
+      <svg className="h-32 w-full" viewBox="0 0 100 56" preserveAspectRatio="none" role="img" aria-label="? ?? ?? ???">
+        <defs>
+          <linearGradient id="assetFill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="#00f2fe" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="#00f2fe" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <polyline points={`0,56 ${points} 100,56`} fill="url(#assetFill)" stroke="none" />
+        <polyline points={points} fill="none" stroke="#00f2fe" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      {labelIndexes.length > 0 ? (
+        <div className="mt-2 grid text-[10px] font-mono text-slate-500" style={{ gridTemplateColumns: `repeat(${labelIndexes.length}, minmax(0, 1fr))` }}>
+          {labelIndexes.map((index, labelIndex) => (
+            <span
+              key={`${axisLabels[index]}-${index}`}
+              className={labelIndex === 0 ? 'text-left' : labelIndex === labelIndexes.length - 1 ? 'text-right' : 'text-center'}
+            >
+              {axisLabels[index]}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 // 섹션 헤더 컴포넌트

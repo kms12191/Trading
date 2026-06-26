@@ -1,8 +1,8 @@
 export const ASSET_PERIOD_OPTIONS = [
+  { key: '1h', label: '1시간', hours: 1 },
+  { key: '1d', label: '1일', days: 1 },
   { key: '1w', label: '1주', days: 7 },
   { key: '1m', label: '1개월', days: 30 },
-  { key: '3m', label: '3개월', days: 90 },
-  { key: '1y', label: '1년', days: 365 },
 ]
 
 export const ASSET_TREND_DATA = {

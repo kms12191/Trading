@@ -16,6 +16,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState({ text: '', isError: false })
   const [showSurveyModal, setShowSurveyModal] = useState(false)
+  
 
   // Toss 폼 상태
   const [tossForm, setTossForm] = useState({
@@ -730,68 +731,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
             </div>
           )}
         </section>
-
-        {/* ================= 계정 정보 ================= */}
-
-        <section className="ai-glass rounded-lg p-6 flex flex-col gap-6">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2 uppercase tracking-wider border-b border-slate-800 pb-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-ai-cyan" />
-            MY ACCOUNT
-          </h2>          
-
-          <div className="grid md:grid-cols-2 gap-5">
-            <div>
-
-              <label className="text-[11px] text-slate-400 font-bold">
-                EMAIL
-              </label>
-
-              <div className="mt-2 bg-[#0F172A] border border-slate-700 rounded p-3 font-mono">
-                {userEmail}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[11px] text-slate-400 font-bold">
-                USER NAME
-              </label>
-
-              <div className="mt-2 bg-[#0F172A] border border-slate-700 rounded p-3 font-mono">
-                {userProfile?.nickname}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[11px] text-slate-400 font-bold mb-2 block">
-              CHANGE PASSWORD
-            </label>
-
-            <div className="flex gap-4">
-              <input
-                type="password"
-                placeholder="새 비밀번호 입력"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="flex-1 bg-[#0F172A]
-                   border border-slate-700
-                   rounded px-4 py-3
-                   text-white
-                   focus:outline-none
-                   focus:border-ai-cyan"
-              />
-
-              <button
-                onClick={() => { }}
-                className="flex-1 bg-gradient-to-r from-blue-700 to-cyan-400 text-white text-xs font-bold py-2.5 rounded transition-all cursor-pointer disabled:opacity-50"
-                >
-                비밀번호 변경
-              </button>
-            </div>
-          </div>
-        </section>
-
-
+        
         {/* ================= 투자 성향 ================= */}
 
         <section className="ai-glass rounded-lg p-6 flex flex-col gap-6">
@@ -831,14 +771,23 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
             <InvestmentSurveyModal
               onClose={() => setShowSurveyModal(false)}
               onSuccess={(type, score) => {
+                console.log("onSuccess 시작");
+
                 setUserProfile(prev => prev ? {
                   ...prev,
                   invest_type: type,
                   invest_score: score,
                   updated_at: new Date().toISOString()
-                } : null)
-                setShowSurveyModal(false)
+                } : null);
+
+                console.log("setUserProfile 완료");
+
+                setShowSurveyModal(false);
+
+                console.log("모달 닫기 완료");
+
               }}
+                            
             />
           )
         }

@@ -1,15 +1,143 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { supabase } from '../supabaseClient'
 import Header from '../components/Header.jsx'
 import Settings from './Settings'
-import { ASSET_PERIOD_OPTIONS, ASSET_TREND_DATA, WATCHLIST_MOCK } from '../dashboardConstants.js'
+import { ASSET_PERIOD_OPTIONS, WATCHLIST_MOCK } from '../dashboardConstants.js'
 import { Rate, SectionHeader, SidebarNav, Sparkline } from '../components/DashboardComponents.jsx'
-import { getAssetPeriodRange, getCustomTrendValues } from '../dashboardUtils.js'
+import { getAssetPeriodRange } from '../dashboardUtils.js'
 import WatchlistTab from './WatchlistTab.jsx'
 import AssetsTab from './AssetsTab.jsx'
 import TradeHistoryTab from './TradeHistoryTab.jsx'
 
-export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userProfile }) {
+const DASHBOARD_API_BASE_URL = 'http://localhost:5050'
+const BALANCE_EXCHANGE_ORDER = ['TOSS', 'KIS', 'COINONE', 'BINANCE']
+
+const toNumber = (value) => {
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) ? numericValue : 0
+}
+
+const formatKrw = (value) => `₩${Math.round(toNumber(value)).toLocaleString()}`
+
+const formatSignedRate = (value) => {
+  const numericValue = toNumber(value)
+  return `${numericValue >= 0 ? '+' : ''}${numericValue.toFixed(2)}%`
+}
+
+const getTrendPointValue = (item) => toNumber(item?.total_evaluation ?? item?.value)
+
+const getTrendPointTime = (item) => item?.snapshot_at || item?.snapshot_date || item?.date || ''
+
+const buildCurrentBalanceTrend = (currentValue, periodKey) => {
+  const pointCount = periodKey === '1h' ? 6 : periodKey === '1d' ? 8 : periodKey === '1w' ? 7 : 8
+  return Array.from({ length: pointCount }, () => toNumber(currentValue))
+}
+
+const buildFallbackTrendLabels = (periodKey) => {
+  const now = new Date()
+  const count = periodKey === '1h' ? 6 : periodKey === '1d' ? 8 : periodKey === '1w' ? 7 : 8
+  const stepMs = periodKey === '1h'
+    ? 10 * 60 * 1000
+    : periodKey === '1d'
+      ? 3 * 60 * 60 * 1000
+      : periodKey === '1w'
+        ? 24 * 60 * 60 * 1000
+        : 4 * 24 * 60 * 60 * 1000
+
+  return Array.from({ length: count }, (_, index) => {
+    const value = new Date(now.getTime() - (count - 1 - index) * stepMs)
+    return formatTrendAxisLabel(value.toISOString(), periodKey)
+  })
+}
+
+const formatTrendAxisLabel = (value, periodKey) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value).slice(5, 10)
+
+  if (periodKey === '1h' || periodKey === '1d') {
+    return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  return date.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })
+}
+
+const getTrendQueryRange = (periodKey, dateRange) => {
+  const end = new Date()
+  const start = new Date(end)
+
+  if (periodKey === 'custom') {
+    const customStart = dateRange.start ? new Date(`${dateRange.start}T00:00:00`) : start
+    const customEnd = dateRange.end ? new Date(`${dateRange.end}T23:59:59`) : end
+    return { start: customStart.toISOString(), end: customEnd.toISOString() }
+  }
+
+  if (periodKey === '1h') {
+    start.setHours(end.getHours() - 1)
+  } else if (periodKey === '1d') {
+    start.setDate(end.getDate() - 1)
+  } else if (periodKey === '1w') {
+    start.setDate(end.getDate() - 7)
+  } else {
+    start.setMonth(end.getMonth() - 1)
+  }
+
+  return { start: start.toISOString(), end: end.toISOString() }
+}
+
+const formatTrendDelta = (values) => {
+  if (!values.length) return '+0'
+  const delta = values[values.length - 1] - values[0]
+  return `${delta >= 0 ? '+' : '-'}${formatKrw(Math.abs(delta))}`
+}
+
+const getPortfolioProfitRate = (accountBalance) => {
+  if (!accountBalance) return 0
+
+  const directRate = accountBalance.portfolio_profit_rate
+    ?? accountBalance.total_profit_rate
+    ?? accountBalance.profit_rate
+
+  if (directRate !== undefined && directRate !== null) {
+    return toNumber(directRate)
+  }
+
+  const holdings = Array.isArray(accountBalance.holdings) ? accountBalance.holdings : []
+  if (holdings.length === 0) return 0
+
+  const totalProfit = holdings.reduce((sum, item) => sum + toNumber(item.profit), 0)
+  const investedAmount = holdings.reduce((sum, item) => {
+    const qty = toNumber(item.qty)
+    const avgPrice = toNumber(item.avg_price)
+    const currentPrice = toNumber(item.current_price)
+    const profit = toNumber(item.profit)
+    const estimatedCost = avgPrice > 0 ? avgPrice * qty : Math.max(0, currentPrice * qty - profit)
+    return sum + estimatedCost
+  }, 0)
+
+  if (investedAmount <= 0) return 0
+  return (totalProfit / investedAmount) * 100
+}
+
+const mergeAccountBalances = (items) => {
+  const validItems = items.filter(Boolean)
+  const holdings = validItems.flatMap((item) =>
+    (item.holdings || []).map((holding) => ({
+      ...holding,
+      exchange: holding.exchange || item.exchange,
+      account_type: holding.account_type || item.exchange,
+    })),
+  )
+
+  return {
+    total_evaluation: validItems.reduce((sum, item) => sum + toNumber(item.total_evaluation), 0),
+    available_cash: validItems.reduce((sum, item) => sum + toNumber(item.available_cash), 0),
+    holdings,
+    sources: validItems.map((item) => item.exchange),
+  }
+}
+
+export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userProfile, setUserProfile }) {
   const [inputs, setInputs] = useState({
     appkey: '',
     appsecret: '',
@@ -18,63 +146,19 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   })
   const [activeTab, setActiveTab] = useState('dashboard')
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
-  
-  // 퀵 검색 상태 선언
-  const [searchAssetType, setSearchAssetType] = useState('STOCK')
-  const [searchSymbol, setSearchSymbol] = useState('')
-  const [suggestions, setSuggestions] = useState([])
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const navigate = useNavigate()
-
-  const handleSearchGo = async (e) => {
-    e.preventDefault()
-    const query = searchSymbol.trim()
-    if (!query) return
-
-    try {
-      const response = await fetch(`http://localhost:5050/api/symbol/lookup?query=${encodeURIComponent(query)}`)
-      const resData = await response.json()
-      if (resData.success && resData.data) {
-        const { symbol, asset_type } = resData.data
-        navigate(`/asset/${asset_type}/${symbol}`)
-      } else {
-        navigate(`/asset/${searchAssetType}/${query.toUpperCase()}`)
-      }
-    } catch (err) {
-      console.error("종목 검색 매핑 실패:", err)
-      navigate(`/asset/${searchAssetType}/${query.toUpperCase()}`)
-    }
-  }
-
-  // 실시간 추천 검색어 핸들러
-  const handleSearchInputChange = async (e) => {
-    const val = e.target.value
-    setSearchSymbol(val)
-
-    if (val.trim().length > 0) {
-      try {
-        const response = await fetch(`http://localhost:5050/api/symbol/search?query=${encodeURIComponent(val)}`)
-        const resData = await response.json()
-        if (resData.success && resData.data) {
-          setSuggestions(resData.data)
-          setShowSuggestions(true)
-        }
-      } catch (err) {
-        console.error("추천 검색어 로드 실패:", err)
-      }
-    } else {
-      setSuggestions([])
-      setShowSuggestions(false)
-    }
-  }
-  const [selectedAssetPeriod, setSelectedAssetPeriod] = useState('1m')
-  const [assetDateRange, setAssetDateRange] = useState(() => getAssetPeriodRange('1m'))
+  const [selectedAssetPeriod, setSelectedAssetPeriod] = useState('1h')
+  const [assetDateRange, setAssetDateRange] = useState(() => getAssetPeriodRange('1h'))
   const [isAssetCalendarOpen, setIsAssetCalendarOpen] = useState(false)
 
   const [encrypted, setEncrypted] = useState(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState({ text: '', isError: false })
   const [balance, setBalance] = useState(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+  const [balanceError, setBalanceError] = useState('')
+  const [assetTrendRows, setAssetTrendRows] = useState([])
+  const [assetTrendLoading, setAssetTrendLoading] = useState(false)
+  const [assetTrendSource, setAssetTrendSource] = useState('current-balance')
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -114,8 +198,150 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
     }
   }
 
+  const loadAccountBalance = async () => {
+    if (!isLoggedIn) {
+      setBalance(null)
+      setBalanceError('')
+      return
+    }
+
+    setBalanceLoading(true)
+    setBalanceError('')
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        setBalance(null)
+        setBalanceError('로그인 세션을 확인할 수 없습니다.')
+        return
+      }
+
+      const authHeader = `Bearer ${session.access_token}`
+      const statusResponse = await fetch(`${DASHBOARD_API_BASE_URL}/api/keys/status`, {
+        headers: { Authorization: authHeader },
+      })
+      const statusPayload = await statusResponse.json()
+
+      if (!statusResponse.ok || !statusPayload.success) {
+        throw new Error(statusPayload.message || '계정 API 연동 상태를 불러오지 못했습니다.')
+      }
+
+      const keyStatus = statusPayload.data || {}
+      const registeredExchanges = BALANCE_EXCHANGE_ORDER.filter((exchange) => keyStatus[exchange]?.registered)
+
+      if (registeredExchanges.length === 0) {
+        setBalance({ total_evaluation: 0, available_cash: 0, holdings: [], sources: [] })
+        setBalanceError('등록된 거래소 API 키가 없습니다.')
+        return
+      }
+
+      const results = await Promise.all(
+        registeredExchanges.map(async (exchange) => {
+          const env = keyStatus[exchange]?.broker_env || (exchange === 'KIS' ? 'MOCK' : 'REAL')
+          try {
+            const response = await fetch(`${DASHBOARD_API_BASE_URL}/api/dashboard/balance`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: authHeader,
+              },
+              body: JSON.stringify({ exchange, env }),
+            })
+            const payload = await response.json()
+
+            if (!response.ok || !payload.success) {
+              return {
+                exchange,
+                error: payload.message || `${exchange} 잔고 조회 실패`,
+              }
+            }
+
+            return { ...payload.data, exchange }
+          } catch (error) {
+            return {
+              exchange,
+              error: error.message || `${exchange} 잔고 조회 실패`,
+            }
+          }
+        }),
+      )
+
+      const failedResults = results.filter((item) => item?.error)
+      const mergedBalance = mergeAccountBalances(results.filter((item) => !item?.error))
+      setBalance(mergedBalance)
+
+      if (mergedBalance.sources.length === 0) {
+        setBalanceError(
+          failedResults.length > 0
+            ? `잔고 조회 실패: ${failedResults.map((item) => `${item.exchange} - ${item.error}`).join(' / ')}`
+            : '등록된 계정은 있지만 조회 가능한 잔고가 없습니다.'
+        )
+      } else if (failedResults.length > 0) {
+        setBalanceError(`일부 계정 조회 실패: ${failedResults.map((item) => item.exchange).join(', ')}`)
+      }
+    } catch (error) {
+      setBalance(null)
+      setBalanceError(`계정 자산 조회 실패: ${error.message}`)
+    } finally {
+      setBalanceLoading(false)
+    }
+  }
+
+  const loadAssetTrend = async () => {
+    if (!isLoggedIn) {
+      setAssetTrendRows([])
+      setAssetTrendSource('current-balance')
+      return
+    }
+
+    setAssetTrendLoading(true)
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        setAssetTrendRows([])
+        setAssetTrendSource('current-balance')
+        return
+      }
+
+      const trendRange = getTrendQueryRange(selectedAssetPeriod, assetDateRange)
+      const params = new URLSearchParams(trendRange)
+      const response = await fetch(`${DASHBOARD_API_BASE_URL}/api/dashboard/asset-trend?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+      const payload = await response.json()
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.message || 'Asset trend request failed.')
+      }
+
+      const rows = payload.data?.items || []
+      setAssetTrendRows(rows)
+      setAssetTrendSource(rows.length > 0 ? payload.data?.source || 'portfolio_snapshots' : 'current-balance')
+    } catch (error) {
+      setAssetTrendRows([])
+      setAssetTrendSource('current-balance')
+    } finally {
+      setAssetTrendLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadAccountBalance()
+  }, [isLoggedIn])
+
+  useEffect(() => {
+    loadAssetTrend()
+  }, [isLoggedIn, selectedAssetPeriod, assetDateRange.start, assetDateRange.end])
+
   const refreshBalance = async () => {
-    if (!encrypted) return
+    if (!encrypted) {
+      await loadAccountBalance()
+      return
+    }
+
     setLoading(true)
     try {
       const response = await fetch('http://localhost:5050/api/dashboard/balance', {
@@ -139,19 +365,9 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
     }
   }
 
-  // 자산 배분 비중 동적 계산 헬퍼 함수
+  // 자산 배분 데이터
   const getAllocationData = () => {
     if (!balance || !balance.holdings || balance.holdings.length === 0) {
-      return [
-        { id: 'domestic', label: '국내 주식', value: 0, color: 'bg-institutional-blue' },
-        { id: 'overseas', label: '해외 주식', value: 0, color: 'bg-ai-cyan' },
-        { id: 'coin', label: '코인', value: 0, color: 'bg-amber-400' },
-        { id: 'cash', label: '현금', value: 100, color: 'bg-slate-500' }
-      ]
-    }
-
-    const totalEval = balance.total_evaluation || 0
-    if (totalEval === 0) {
       return [
         { id: 'domestic', label: '국내 주식', value: 0, color: 'bg-institutional-blue' },
         { id: 'overseas', label: '해외 주식', value: 0, color: 'bg-ai-cyan' },
@@ -164,12 +380,12 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
     let overseasValue = 0
     let coinValue = 0
 
-    balance.holdings.forEach(stock => {
+    balance.holdings.forEach((stock) => {
       const symbol = String(stock.symbol || '').toUpperCase()
       const accountType = String(stock.account || stock.account_type || stock.asset_type || stock.exchange || '').toUpperCase()
       const isCoin = /BTC|ETH|XRP|SOL|USDT|KRW|COINONE|BINANCE|CRYPTO|코인/.test(`${symbol} ${accountType}`)
-      const isOverseas = /[a-zA-Z]/.test(stock.symbol)
-      const stockEval = stock.current_price * stock.qty
+      const isOverseas = /[A-Z]/.test(symbol) && !isCoin
+      const stockEval = toNumber(stock.current_price) * toNumber(stock.qty)
 
       if (isCoin) {
         coinValue += stockEval
@@ -180,29 +396,58 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
       }
     })
 
-    const domesticPercent = Math.round((domesticValue / totalEval) * 100)
-    const overseasPercent = Math.round((overseasValue / totalEval) * 100)
-    const coinPercent = Math.round((coinValue / totalEval) * 100)
-    const cashPercent = 100 - domesticPercent - overseasPercent - coinPercent
+    const cashValue = Math.max(0, toNumber(balance.available_cash))
+    const allocationTotal = domesticValue + overseasValue + coinValue + cashValue
 
-    return [
-      { id: 'domestic', label: '국내 주식', value: domesticPercent, color: 'bg-blue-600' },
-      { id: 'overseas', label: '해외 주식', value: overseasPercent, color: 'bg-ai-cyan' },
-      { id: 'coin', label: '코인', value: coinPercent, color: 'bg-amber-400' },
-      { id: 'cash', label: '현금', value: Math.max(0, cashPercent), color: 'bg-slate-500' }
-    ]
+    if (allocationTotal <= 0) {
+      return [
+        { id: 'domestic', label: '국내 주식', value: 0, color: 'bg-institutional-blue' },
+        { id: 'overseas', label: '해외 주식', value: 0, color: 'bg-ai-cyan' },
+        { id: 'coin', label: '코인', value: 0, color: 'bg-amber-400' },
+        { id: 'cash', label: '현금', value: 100, color: 'bg-slate-500' }
+      ]
+    }
+
+    const buckets = [
+      { id: 'domestic', label: '국내 주식', amount: domesticValue, color: 'bg-blue-600' },
+      { id: 'overseas', label: '해외 주식', amount: overseasValue, color: 'bg-ai-cyan' },
+      { id: 'coin', label: '코인', amount: coinValue, color: 'bg-amber-400' },
+      { id: 'cash', label: '현금', amount: cashValue, color: 'bg-slate-500' }
+    ].map((item) => {
+      const exactValue = (item.amount / allocationTotal) * 100
+      return {
+        ...item,
+        value: Math.floor(exactValue),
+        remainder: exactValue - Math.floor(exactValue),
+      }
+    })
+
+    let remainingPercent = 100 - buckets.reduce((sum, item) => sum + item.value, 0)
+    buckets
+      .slice()
+      .sort((a, b) => b.remainder - a.remainder)
+      .forEach((item) => {
+        if (remainingPercent <= 0) return
+        item.value += 1
+        remainingPercent -= 1
+      })
+
+    return buckets.map(({ id, label, value, color }) => ({ id, label, value, color }))
   }
 
   const allocation = getAllocationData()
-  const assetTrendValues = selectedAssetPeriod === 'custom'
-    ? getCustomTrendValues(assetDateRange)
-    : ASSET_TREND_DATA[selectedAssetPeriod]?.values || ASSET_TREND_DATA['1m'].values
-  const assetTrendSummary = selectedAssetPeriod === 'custom'
+  const assetTrendPoints = assetTrendRows.filter((item) => getTrendPointValue(item) > 0)
+  const assetTrendDbValues = assetTrendPoints.map(getTrendPointValue)
+  const assetTrendValues = assetTrendDbValues.length > 0
+    ? assetTrendDbValues
+    : buildCurrentBalanceTrend(balance?.total_evaluation, selectedAssetPeriod)
+  const assetTrendLabels = assetTrendDbValues.length > 0
+    ? assetTrendPoints.map((item) => formatTrendAxisLabel(getTrendPointTime(item), selectedAssetPeriod))
+    : buildFallbackTrendLabels(selectedAssetPeriod)
+  const assetTrendSummary = assetTrendSource === 'portfolio_snapshots'
     ? `${assetDateRange.start || '시작일'} ~ ${assetDateRange.end || '종료일'}`
-    : ASSET_TREND_DATA[selectedAssetPeriod]?.description || ASSET_TREND_DATA['1m'].description
-  const assetTrendDelta = selectedAssetPeriod === 'custom'
-    ? '+₩235,400'
-    : ASSET_TREND_DATA[selectedAssetPeriod]?.delta || ASSET_TREND_DATA['1m'].delta
+    : `현재 계정 자산 기준 · ${assetDateRange.start || '시작일'} ~ ${assetDateRange.end || '종료일'}`
+  const assetTrendDelta = formatTrendDelta(assetTrendValues)
 
   const handleAssetPeriodChange = (periodKey) => {
     setSelectedAssetPeriod(periodKey)
@@ -212,18 +457,6 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   const handleAssetDateChange = (field, value) => {
     setSelectedAssetPeriod('custom')
     setAssetDateRange((prev) => ({ ...prev, [field]: value }))
-  }
-
-  // 투자 성향 가이드 텍스트 매퍼
-  const getProfileDescription = (profile) => {
-    switch (profile) {
-      case '안정형': return '원금 보존이 최우선이며 안전 자산 위주로 포트폴리오를 구성합니다.'
-      case '안정추구형': return '원금 손실을 최소화하면서 예적금보다 약간 높은 수익을 기대합니다.'
-      case '위험중립형': return '안정성과 수익성을 균형 있게 추구하며 적절한 위험을 감수합니다.'
-      case '적극투자형': return '높은 수익을 위해 상당한 위험을 감수하며 투자 자산 비중이 높습니다.'
-      case '공격투자형': return '매우 높은 수익을 기대하며 자산 손실 위험을 적극적으로 감수합니다.'
-      default: return '설문 조사를 통해 본인의 상세 투자 성향을 측정할 수 있습니다.'
-    }
   }
 
   return (
@@ -250,102 +483,38 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                 <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-5">
                   <span className="text-xs font-bold text-slate-400">총 평가 자산 (KRW)</span>
                   <div className="text-xl font-bold font-mono text-white mt-1">
-                    {balance ? `₩${balance.total_evaluation.toLocaleString()}` : '₩0'}
+                    {balanceLoading ? '조회 중' : formatKrw(balance?.total_evaluation)}
                   </div>
                 </div>
 
                 <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-5">
                   <span className="text-xs font-bold text-slate-400">가용 예수금 (Cash)</span>
                   <div className="text-xl font-bold font-mono text-white mt-1">
-                    {balance ? `₩${balance.available_cash.toLocaleString()}` : '₩0'}
+                    {balanceLoading ? '조회 중' : formatKrw(balance?.available_cash)}
                   </div>
                 </div>
 
                 <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-5">
                   <span className="text-xs font-bold text-slate-400">포트폴리오 수익률</span>
                   <div className="mt-1">
-                    <Rate value={balance && balance.holdings.length > 0 ? '+1.45%' : '0.00%'} />
+                    <Rate value={formatSignedRate(getPortfolioProfitRate(balance))} />
                   </div>
                 </div>
               </div>
 
-              {/* 종목 퀵 검색 이동 터미널 */}
-              <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div>
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">종목 퀵 이동 터미널</h3>
-                  <p className="text-[11px] text-slate-400 mt-1">원하는 주식코드나 가상자산 심볼을 입력하여 상세 차트와 수동 매매 창으로 즉시 이동합니다.</p>
+              {balanceError ? (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs font-semibold text-amber-200">
+                  {balanceError}
                 </div>
-                <form onSubmit={handleSearchGo} className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                  <div className="flex bg-slate-800 p-0.5 rounded border border-slate-700 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setSearchAssetType('STOCK')}
-                      className={`px-3 py-1.5 rounded transition-all cursor-pointer font-bold ${searchAssetType === 'STOCK' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
-                    >
-                      주식
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSearchAssetType('CRYPTO')}
-                      className={`px-3 py-1.5 rounded transition-all cursor-pointer font-bold ${searchAssetType === 'CRYPTO' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
-                    >
-                      코인
-                    </button>
-                  </div>
-                  <div className="relative w-full sm:w-48">
-                    <input
-                      type="text"
-                      value={searchSymbol}
-                      onChange={handleSearchInputChange}
-                      onFocus={() => { if (searchSymbol.trim()) setShowSuggestions(true) }}
-                      onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                      placeholder={searchAssetType === 'STOCK' ? '예: 005930 또는 AAPL' : '예: BTC 또는 ETH'}
-                      className="bg-[#0f172a] border border-slate-700 text-[#e2e2ec] font-mono text-xs rounded px-3 py-2 w-full focus:outline-none focus:border-blue-600"
-                      required
-                      autoComplete="off"
-                    />
+              ) : null}
 
-                    {showSuggestions && suggestions.length > 0 && (
-                      <div className="absolute left-0 right-0 mt-1 bg-[#090d1a]/95 border border-[#1f2945] rounded-lg shadow-2xl z-50 max-h-60 overflow-y-auto backdrop-blur-md">
-                        {suggestions.map((item) => (
-                          <div
-                            key={item.symbol}
-                            onClick={() => {
-                              navigate(`/asset/${item.asset_type}/${item.symbol}`)
-                              setSearchSymbol('')
-                              setSuggestions([])
-                              setShowSuggestions(false)
-                            }}
-                            className="flex justify-between items-center px-3 py-2.5 hover:bg-blue-950/40 cursor-pointer border-b border-[#1f2945]/30 last:border-none transition-all"
-                          >
-                            <div className="flex flex-col">
-                              <span className="text-xs font-bold text-white">{item.display_name}</span>
-                              <span className="text-[9px] text-slate-500 font-mono">{item.symbol}</span>
-                            </div>
-                            <span className="text-[9px] font-bold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-900/60 uppercase tracking-widest font-mono">
-                              {item.asset_type === 'STOCK' ? '주식' : '코인'}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    type="submit"
-                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded transition-all cursor-pointer w-full sm:w-auto active:scale-[0.98]"
-                  >
-                    이동
-                  </button>
-                </form>
-              </div>
-
-              <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.55fr)]">
+              <section className="grid grid-cols-1 gap-6">
                 {/* 총 자산 가치 그래프 (Sparkline) */}
                 <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-5 flex flex-col gap-3">
                   <div className="mb-1 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Portfolio Trend</p>
-                      <h2 className="text-sm font-bold text-white uppercase tracking-wider">자산 가치 변화 추이 (예시)</h2>
+                      <h2 className="text-sm font-bold text-white uppercase tracking-wider">자산 가치 변화 추이</h2>
                     </div>
                     <button
                       className={`rounded border px-2 py-1 text-[10px] font-bold transition-all ${
@@ -361,7 +530,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                   </div>
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <p className="text-2xl font-bold text-white font-mono">{balance ? `₩${balance.total_evaluation.toLocaleString()}` : '₩5,109,700'}</p>
+                      <p className="text-2xl font-bold text-white font-mono">{balanceLoading ? '조회 중' : formatKrw(balance?.total_evaluation)}</p>
                       <p className="text-[11px] text-slate-400 mt-1">
                         {assetTrendSummary} <span className="text-emerald-400 font-bold font-mono">{assetTrendDelta}</span>
                       </p>
@@ -401,32 +570,20 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                     </div>
                   ) : null}
                   <div className="mt-2 rounded border border-slate-800 bg-[#0f172a]/60 p-4">
-                    <Sparkline values={assetTrendValues} />
+                    <Sparkline values={assetTrendValues} labels={assetTrendLabels} />
+                    <div className="mt-3 flex items-center justify-between text-[10px] font-bold text-slate-500">
+                      <span>
+                        {assetTrendLoading
+                          ? '자산 추이 불러오는 중'
+                          : assetTrendSource === 'portfolio_snapshots'
+                            ? 'DB 자산 스냅샷 기준'
+                            : '현재 계정 자산 기준'}
+                      </span>
+                      <span>{assetTrendValues.length}개 포인트</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* AI Profile (유저 실제 투자 성향 연동) */}
-                <div className="ai-glass rounded-lg p-6 flex flex-col gap-4">
-                  <SectionHeader eyebrow="AI Profile" title="나의 투자 성향 분석" />
-                  {isLoggedIn && userProfile ? (
-                    <div className="rounded-lg border border-ai-cyan/20 bg-[#0c0e15]/60 p-4">
-                      <p className="text-base font-extrabold text-white">
-                        당신은 <span className="text-ai-cyan">{userProfile.invest_type || '미정'}</span> 성향입니다.
-                      </p>
-                      <div className="mt-2 text-xs text-slate-400 flex justify-between">
-                        <span>진단 점수:</span>
-                        <span className="font-bold text-white">{userProfile.invest_score || 0} / 50점</span>
-                      </div>
-                      <p className="mt-3 text-xs leading-5 text-slate-300 border-t border-slate-800/80 pt-3">
-                        {getProfileDescription(userProfile.invest_type)}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="grid min-h-40 place-items-center rounded border border-slate-800 bg-[#0c0e15]/40 p-5 text-center text-xs text-slate-400">
-                      로그인 후 투자 성향 진단을 완료하시면 성향 맞춤형 포트폴리오 관리가 제공됩니다.
-                    </div>
-                  )}
-                </div>
               </section>
 
               {/* 자산 배분 상태 및 관심 종목 그리드 */}
@@ -476,21 +633,14 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/40">
-                        {WATCHLIST_MOCK.map((item) => {
-                          const itemAssetType = item.account?.includes('주식') ? 'STOCK' : 'CRYPTO'
-                          return (
-                            <tr key={item.id} className="hover:bg-slate-800/20 transition-colors">
-                              <td className="px-3 py-2.5 font-bold text-white">
-                                <Link to={`/asset/${itemAssetType}/${item.id}`} className="text-blue-400 hover:text-blue-300 hover:underline">
-                                  {item.name}
-                                </Link>
-                              </td>
-                              <td className="px-3 py-2.5 text-slate-400">{item.market}</td>
-                              <td className="px-3 py-2.5 text-right font-mono text-slate-300">{item.average}</td>
-                              <td className="px-3 py-2.5 text-right"><Rate value={item.change} /></td>
-                            </tr>
-                          )
-                        })}
+                        {WATCHLIST_MOCK.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-800/20 transition-colors">
+                            <td className="px-3 py-2.5 font-bold text-white">{item.name}</td>
+                            <td className="px-3 py-2.5 text-slate-400">{item.market}</td>
+                            <td className="px-3 py-2.5 text-right font-mono text-slate-300">{item.average}</td>
+                            <td className="px-3 py-2.5 text-right"><Rate value={item.change} /></td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -533,9 +683,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                         {balance.holdings.map((stock) => (
                           <tr key={stock.symbol} className="hover:bg-slate-800/40 transition-colors">
                             <td className="py-3 px-3 font-sans">
-                              <Link to={`/asset/STOCK/${stock.symbol}`} className="font-semibold text-blue-400 hover:text-blue-300 hover:underline block">
-                                {stock.name}
-                              </Link>
+                              <div className="font-semibold text-white">{stock.name}</div>
                               <div className="text-[10px] text-slate-500 font-mono">{stock.symbol}</div>
                             </td>
                             <td className="py-3 px-3 text-right text-slate-300">{stock.qty}</td>
@@ -574,6 +722,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
               userEmail={userEmail}
               handleLogout={handleLogout}
               userProfile={userProfile}
+              setUserProfile={setUserProfile}
               hideHeader={true}
             />
           )}
