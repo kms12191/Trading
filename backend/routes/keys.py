@@ -18,7 +18,9 @@ def get_keys_status():
         return jsonify({"success": False, "message": "인증 헤더가 누락되었습니다."}), 401
     
     try:
-        records = query_supabase(auth_header, "user_api_keys", "GET")
+        user_id, token = get_user_id_from_header(auth_header)
+        params = {"user_id": f"eq.{user_id}"}
+        records = query_supabase(auth_header, "user_api_keys", "GET", params=params)
         
         result = {
             "TOSS": {"registered": False},
