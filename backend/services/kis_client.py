@@ -94,7 +94,7 @@ class KISClient(ExchangeClient):
             "authorization": f"Bearer {token}",
             "appkey": self.appkey,
             "appsecret": self.appsecret,
-            "tr_id": "FNSW1111"
+            "tr_id": "FHKST01010100"
         }
         params = {
             "FID_COND_MRKT_DIV_CODE": "J",
@@ -112,15 +112,100 @@ class KISClient(ExchangeClient):
         try:
             current_price = float(output.get("stck_prpr", 0))
             change_rate = float(output.get("prdy_ctrt", 0))
+            trading_volume = float(output.get("acml_vol", 0))
+            trading_value = float(output.get("acml_tr_pbmn", 0))
         except (ValueError, TypeError):
             current_price = 0.0
             change_rate = 0.0
+            trading_volume = 0.0
+            trading_value = 0.0
+
+        if not trading_value and current_price and trading_volume:
+            trading_value = current_price * trading_volume
             
         return {
             "current_price": current_price,
             "change_rate": change_rate,
+            "trading_volume": trading_volume,
+            "trading_value": trading_value,
             "raw": data
         }
+
+    def get_turnover_rankings(self, limit: int = 10) -> list[dict]:
+        """
+        국내주식 순위 API를 조회한 뒤 누적 거래대금을 기준으로 정렬해 반환합니다.
+        홈페이지 랭킹 표 전용 보조 데이터이며, 주문/거래 실행에는 사용하지 않습니다.
+        """
+        url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/volume-rank"
+        token = self._get_cached_token()
+        headers = {
+            "content-type": "application/json; charset=utf-8",
+            "authorization": f"Bearer {token}",
+            "appkey": self.appkey,
+            "appsecret": self.appsecret,
+            "tr_id": "FHPST01710000",
+        }
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "J",
+            "FID_COND_SCR_DIV_CODE": "20171",
+            "FID_INPUT_ISCD": "0000",
+            "FID_DIV_CLS_CODE": "0",
+            "FID_BLNG_CLS_CODE": "0",
+            "FID_TRGT_CLS_CODE": "111111111",
+            "FID_TRGT_EXLS_CLS_CODE": "000000",
+            "FID_INPUT_PRICE_1": "",
+            "FID_INPUT_PRICE_2": "",
+            "FID_VOL_CNT": "",
+            "FID_INPUT_DATE_1": "",
+        }
+        res = requests.get(url, headers=headers, params=params)
+        if res.status_code != 200:
+            raise Exception(f"KIS turnover ranking failed: {res.text}")
+
+        data = res.json()
+        if data.get("rt_cd") != "0":
+            raise Exception(f"KIS turnover ranking error: {data.get('msg1')}")
+
+        rankings = []
+        for item in data.get("output", []) or []:
+            try:
+                current_price = float(item.get("stck_prpr") or 0)
+                change_rate = float(item.get("prdy_ctrt") or 0)
+                trading_volume = float(item.get("acml_vol") or 0)
+                trading_value = float(
+                    item.get("acml_tr_pbmn")
+                    or item.get("acc_trdval")
+                    or 0
+                )
+            except (TypeError, ValueError):
+                current_price = 0.0
+                change_rate = 0.0
+                trading_volume = 0.0
+                trading_value = 0.0
+
+            if not trading_value and current_price and trading_volume:
+                trading_value = current_price * trading_volume
+
+            symbol = str(item.get("stck_shrn_iscd") or item.get("mksc_shrn_iscd") or "").strip()
+            name = str(item.get("hts_kor_isnm") or item.get("data_rank_name") or symbol).strip()
+            if not symbol:
+                continue
+
+            rankings.append({
+                "symbol": symbol,
+                "name": name,
+                "market_segment": "OTHER" if not symbol.isdigit() else "KOSPI",
+                "market_country": "KR",
+                "current_price": current_price,
+                "change_rate": change_rate,
+                "trading_volume": trading_volume,
+                "trading_value": trading_value,
+                "as_of": datetime.utcnow().isoformat() + "Z",
+                "raw": item,
+            })
+
+        rankings.sort(key=lambda row: row["trading_value"], reverse=True)
+        return rankings[:limit]
 
     def get_balance(self) -> dict:
         url = f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-balance"

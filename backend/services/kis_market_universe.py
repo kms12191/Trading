@@ -19,6 +19,18 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def clean_stock_name(value: Any) -> str:
+    name = str(value or "").strip()
+    name = re.sub(r"^KR\d{10}", "", name).strip()
+    name = re.sub(r"\s+", " ", name)
+    return name
+
+
+def is_rankable_market_row(row: dict[str, Any]) -> bool:
+    symbol = str(row.get("symbol") or "").strip().upper()
+    return bool(re.fullmatch(r"\d{6}|[0-9A-Z]{6}", symbol))
+
+
 def _read_text_with_fallback(path: Path) -> str:
     raw = path.read_bytes()
     for encoding in ("utf-8-sig", "utf-8", "cp949", "euc-kr"):
@@ -53,8 +65,9 @@ def _normalize_fixed_width_mst_line(line: str, market_segment: str) -> dict[str,
         return None
 
     name_part = raw.split(symbol, 1)[-1].strip()
+    name_part = re.sub(r"^KR\d{10}", "", name_part).strip()
     match = re.search(r"([^\s]{2,}.*?)(?:\s{2,}|$)", name_part)
-    name = (match.group(1) if match else name_part).strip()
+    name = clean_stock_name(match.group(1) if match else name_part)
     if not name:
         return None
 
@@ -121,7 +134,7 @@ def normalize_universe_rows(records: list[dict[str, Any]]) -> list[dict[str, Any
             or row.get("종목번호")
             or ""
         ).strip()
-        name = str(
+        name = clean_stock_name(
             row.get("name")
             or row.get("hname")
             or row.get("stock_name")
@@ -129,7 +142,7 @@ def normalize_universe_rows(records: list[dict[str, Any]]) -> list[dict[str, Any
             or row.get("종목명")
             or row.get("한글명")
             or ""
-        ).strip()
+        )
 
         if not symbol or not name:
             continue
@@ -151,7 +164,7 @@ def normalize_universe_rows(records: list[dict[str, Any]]) -> list[dict[str, Any
 
         normalized.append({
             "symbol": symbol.replace(" ", "").replace(".", "").upper(),
-            "name": name,
+            "name": clean_stock_name(name),
             "market_segment": market_segment,
             "market_country": "KR",
             "asset_type": "STOCK",
@@ -179,12 +192,16 @@ def build_turnover_snapshot_rows(
         current_price = _to_float(price_data.get("current_price"))
         change_rate = _to_float(price_data.get("change_rate"))
         trading_volume = _to_float(
+            price_data.get("trading_volume")
+            or
             raw_output.get("acml_vol")
             or raw_output.get("acc_trdvol")
             or raw_output.get("stck_vol")
             or raw_output.get("volume")
         )
         trading_value = _to_float(
+            price_data.get("trading_value")
+            or
             raw_output.get("acml_tr_pbmn")
             or raw_output.get("acc_trdprc")
             or raw_output.get("stck_tr_pbmn")
@@ -194,7 +211,7 @@ def build_turnover_snapshot_rows(
 
         return {
             "symbol": symbol,
-            "name": row["name"],
+            "name": clean_stock_name(row["name"]),
             "market_segment": row["market_segment"],
             "market_country": row["market_country"],
             "current_price": current_price,
@@ -273,6 +290,33 @@ class KISMarketUniverseService:
             "quote_error_count": len(quote_errors),
             "quote_errors": quote_errors[:20],
             "sample": master_rows[:5],
+        }
+
+    def refresh_turnover_snapshots(
+        self,
+        kis_client: KISClient,
+        market_segment: str = "ALL",
+        quote_limit: int = 300,
+        max_workers: int = 2,
+    ) -> dict[str, Any]:
+        master_rows = self.repository.list_universe(
+            market_segment=market_segment,
+            limit=quote_limit,
+        )
+        common_stock_rows = [row for row in master_rows if is_rankable_market_row(row)]
+        quote_rows, quote_errors = build_turnover_snapshot_rows(
+            common_stock_rows,
+            kis_client,
+            max_workers=max_workers,
+        )
+        self.repository.upsert_turnover_latest(quote_rows)
+
+        return {
+            "target_count": len(common_stock_rows),
+            "quote_count": len(quote_rows),
+            "quote_error_count": len(quote_errors),
+            "quote_errors": quote_errors[:20],
+            "top": quote_rows[:10],
         }
 
     def sync_from_file(

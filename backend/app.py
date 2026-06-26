@@ -13,6 +13,7 @@ from backend.services.news_repository import NewsRepository
 from backend.services.news_ingest import NewsIngestService
 from backend.services.news_summary_service import NewsSummaryService
 from backend.services.kis_market_universe import KISMarketUniverseService
+from backend.services.market_snapshot_scheduler import start_market_snapshot_scheduler
 from backend.services.ml_scheduler import start_news_ingest_scheduler, start_ml_automation_scheduler
 
 from backend.routes.home import home_bp
@@ -43,6 +44,11 @@ KIS_ENV = os.getenv("KIS_ENV", "MOCK")
 NEWS_INGEST_ENABLED = os.getenv("NEWS_INGEST_ENABLED", "false").lower() == "true"
 NEWS_INGEST_INTERVAL_SECONDS = int(os.getenv("NEWS_INGEST_INTERVAL_SECONDS", "600"))
 ML_AUTOMATION_ENABLED = os.getenv("ML_AUTOMATION_ENABLED", "true").lower() == "true"
+HOME_MARKET_SNAPSHOT_ENABLED = os.getenv("HOME_MARKET_SNAPSHOT_ENABLED", "true").lower() == "true"
+HOME_MARKET_OPEN_INTERVAL_SECONDS = int(os.getenv("HOME_MARKET_OPEN_INTERVAL_SECONDS", "60"))
+HOME_MARKET_CLOSED_INTERVAL_SECONDS = int(os.getenv("HOME_MARKET_CLOSED_INTERVAL_SECONDS", "600"))
+HOME_MARKET_SNAPSHOT_LIMIT = int(os.getenv("HOME_MARKET_SNAPSHOT_LIMIT", "300"))
+HOME_MARKET_SNAPSHOT_WORKERS = int(os.getenv("HOME_MARKET_SNAPSHOT_WORKERS", "2"))
 
 # Flask Config에 값 바인딩
 app.config["KIS_APPKEY"] = KIS_APPKEY
@@ -83,6 +89,21 @@ if __name__ == "__main__":
         start_ml_automation_scheduler(
             ml_automation_enabled=ML_AUTOMATION_ENABLED,
             supabase_service_role_key=SUPABASE_SERVICE_ROLE_KEY
+        )
+        start_market_snapshot_scheduler(
+            kis_market_universe_service=kis_market_universe_service,
+            enabled=HOME_MARKET_SNAPSHOT_ENABLED,
+            kis_config={
+                "appkey": KIS_APPKEY,
+                "appsecret": KIS_APPSECRET,
+                "cano": KIS_CANO,
+                "acnt_prdt_cd": KIS_ACNT_PRDT_CD,
+                "env": KIS_ENV,
+            },
+            open_interval_seconds=HOME_MARKET_OPEN_INTERVAL_SECONDS,
+            closed_interval_seconds=HOME_MARKET_CLOSED_INTERVAL_SECONDS,
+            quote_limit=HOME_MARKET_SNAPSHOT_LIMIT,
+            max_workers=HOME_MARKET_SNAPSHOT_WORKERS,
         )
     # Flask 서버 구동
     app.run(host="0.0.0.0", port=5050, debug=True)

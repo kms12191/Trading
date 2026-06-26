@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from pathlib import Path
 from flask import Blueprint, request, jsonify, current_app
 from backend.services.home_service import build_home_overview, fetch_coinone_overview, split_kis_holdings, to_float
 from backend.services.kis_client import KISClient
@@ -12,6 +13,17 @@ from backend.services.supabase_client import query_supabase
 home_bp = Blueprint("home", __name__)
 
 KIS_MARKET_MASTER_FILE_PATH = os.getenv("KIS_MARKET_MASTER_FILE_PATH", "")
+MARKET_SYNC_ADMIN_TOKEN = os.getenv("MARKET_SYNC_ADMIN_TOKEN", "")
+
+
+def require_market_sync_admin():
+    token = request.headers.get("X-Admin-Token", "")
+    if not MARKET_SYNC_ADMIN_TOKEN or token != MARKET_SYNC_ADMIN_TOKEN:
+        return jsonify({
+            "success": False,
+            "message": "관리자 전용 작업입니다.",
+        }), 403
+    return None
 
 @home_bp.route("/api/home/market", methods=["POST"])
 def get_home_market():
@@ -96,13 +108,19 @@ def get_home_overview():
 @home_bp.route("/api/market/kis/sync", methods=["POST"])
 def sync_kis_market_universe():
     """KIS 종목 마스터 파일로부터 DB의 종목 유니버스를 동기화합니다."""
+    admin_error = require_market_sync_admin()
+    if admin_error:
+        return admin_error
+
     data = request.json or {}
     file_paths = data.get("file_paths")
     file_path = data.get("file_path") or KIS_MARKET_MASTER_FILE_PATH
     refresh_quotes = bool(data.get("refresh_quotes", True))
-    max_workers = int(data.get("max_workers") or 4)
+    max_workers = min(max(int(data.get("max_workers") or 4), 1), 4)
     quote_limit_raw = data.get("quote_limit", 300)
     quote_limit = None if quote_limit_raw in (None, "", "all", "ALL") else int(quote_limit_raw)
+    if quote_limit is not None:
+        quote_limit = min(max(quote_limit, 1), 1000)
 
     if isinstance(file_paths, str):
         file_paths = [part.strip() for part in file_paths.split(",") if part.strip()]
@@ -119,6 +137,17 @@ def sync_kis_market_universe():
             "success": False,
             "message": "KIS 종목 정보 파일 경로가 필요합니다. body.file_path, body.file_paths 또는 KIS_MARKET_MASTER_FILE_PATH를 설정해주세요.",
         }), 400
+
+    project_root = current_app.config.get("PROJECT_ROOT_PATH")
+    if project_root:
+        root_path = Path(project_root).resolve()
+        for item in file_paths:
+            resolved_path = Path(item).resolve()
+            if root_path not in resolved_path.parents and resolved_path != root_path:
+                return jsonify({
+                    "success": False,
+                    "message": "프로젝트 폴더 밖의 파일 경로는 사용할 수 없습니다.",
+                }), 400
 
     kis_market_universe_service = current_app.kis_market_universe_service
     if not kis_market_universe_service.repository.is_configured:

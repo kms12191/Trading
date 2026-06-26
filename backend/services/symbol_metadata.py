@@ -59,6 +59,12 @@ SYMBOL_METADATA = {
         "market": "KR",
         "sector": "배터리",
     },
+    "009150": {
+        "display_name": "삼성전기",
+        "asset_type": "STOCK",
+        "market": "KR",
+        "sector": "전자부품",
+    },
     "207940": {
         "display_name": "삼성바이오로직스",
         "asset_type": "STOCK",

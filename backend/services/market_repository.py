@@ -29,10 +29,32 @@ class MarketRepository:
         if not self.is_configured or not rows:
             return
 
+        payload = []
+        for row in rows:
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            item = {
+                "symbol": symbol,
+                "name": row.get("name") or symbol,
+                "market_segment": row.get("market_segment") or "OTHER",
+                "market_country": row.get("market_country") or "KR",
+                "current_price": row.get("current_price") or 0,
+                "change_rate": row.get("change_rate") or 0,
+                "trading_volume": row.get("trading_volume") or 0,
+                "trading_value": row.get("trading_value") or 0,
+                "raw_payload": row.get("raw_payload") or row.get("raw"),
+            }
+            if row.get("as_of"):
+                item["as_of"] = row.get("as_of")
+            payload.append(item)
+        if not payload:
+            return
+
         response = requests.post(
             f"{self.supabase_url}/rest/v1/kis_stock_turnover_latest?on_conflict=symbol",
             headers=self._service_write_headers(),
-            json=rows,
+            json=payload,
             timeout=60,
         )
         response.raise_for_status()
@@ -94,6 +116,34 @@ class MarketRepository:
         }
         if market_segment and market_segment.upper() != "ALL":
             params["market_segment"] = f"eq.{market_segment.upper()}"
+
+        response = requests.get(
+            f"{self.supabase_url}/rest/v1/kis_stock_master",
+            headers=self._service_read_headers(),
+            params=params,
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def list_symbols(self, symbols: list[str]) -> list[dict[str, Any]]:
+        if not self.is_configured or not symbols:
+            return []
+
+        unique_symbols = []
+        seen = set()
+        for symbol in symbols:
+            value = str(symbol or "").strip().upper()
+            if value and value not in seen:
+                seen.add(value)
+                unique_symbols.append(value)
+        if not unique_symbols:
+            return []
+
+        params = {
+            "select": "symbol,name,market_segment,market_country,asset_type,source,is_active,listed_at,source_file_row",
+            "symbol": f"in.({','.join(unique_symbols)})",
+        }
 
         response = requests.get(
             f"{self.supabase_url}/rest/v1/kis_stock_master",
