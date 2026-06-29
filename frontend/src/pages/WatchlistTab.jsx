@@ -1,9 +1,309 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { createChart, CandlestickSeries } from 'lightweight-charts'
 import { fetchNewsArticles, ensureNewsSummaries } from '../lib/supabaseClient.js'
-import { WATCHLIST_MOCK, WATCH_CHARTS_MOCK } from '../dashboardConstants.js'
-import { MiniSparkline, Rate, SectionHeader } from '../components/DashboardComponents.jsx'
+import { fetchUserWatchlist, supabase } from '../supabaseClient'
+import { SectionHeader } from '../components/DashboardComponents.jsx'
 import { formatNewsDate, getWatchlistNewsMarket, mergeLatestNews } from '../dashboardUtils.js'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
+
+const STOCK_INTERVALS = [
+  { label: '1분', value: '1m' },
+  { label: '5분', value: '5m' },
+  { label: '15분', value: '15m' },
+  { label: '30분', value: '30m' },
+  { label: '1시간', value: '1h' },
+  { label: '일봉', value: '1d' },
+  { label: '주봉', value: '1w' },
+  { label: '월봉', value: '1M' },
+]
+
+const CRYPTO_INTERVALS = [
+  { label: '1분', value: '1m' },
+  { label: '5분', value: '5m' },
+  { label: '15분', value: '15m' },
+  { label: '30분', value: '30m' },
+  { label: '1시간', value: '1h' },
+  { label: '4시간', value: '4h' },
+  { label: '일봉', value: '1d' },
+  { label: '주봉', value: '1w' },
+  { label: '월봉', value: '1M' },
+]
+
+function normalizeCandleTime(rawTime) {
+  if (typeof rawTime === 'number' && !Number.isNaN(rawTime)) return rawTime
+  if (typeof rawTime !== 'string' || !rawTime.trim()) return null
+
+  const value = rawTime.trim()
+  if (/^\d+$/.test(value)) return Number.parseInt(value, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+
+  const parsed = new Date(value.replace(' ', 'T'))
+  return Number.isNaN(parsed.getTime()) ? null : Math.floor(parsed.getTime() / 1000)
+}
+
+function formatChartDateTime(unixSeconds) {
+  const date = new Date(unixSeconds * 1000)
+  return new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date)
+}
+
+function formatChartTick(time) {
+  if (typeof time === 'number') return formatChartDateTime(time)
+  if (typeof time === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(time)) {
+    const [, month, day] = time.split('-')
+    return `${month}.${day}`
+  }
+  return String(time)
+}
+
+async function getAuthHeader() {
+  const { data: { session } } = await supabase.auth.getSession()
+  return session?.access_token ? `Bearer ${session.access_token}` : null
+}
+
+function getChartConfig(item, assetType) {
+  const sourcePayload = item?.sourcePayload || {}
+  const exchange = String(item?.exchange || item?.account || sourcePayload.exchange || (assetType === 'CRYPTO' ? 'COINONE' : 'TOSS')).toUpperCase()
+  const brokerEnv = String(sourcePayload.broker_env || sourcePayload.env || (exchange === 'KIS' ? 'REAL' : 'REAL')).toUpperCase()
+  return { exchange, brokerEnv }
+}
+
+function WatchlistCandlestickChart({ item, assetType, onLatestPriceChange }) {
+  const defaultInterval = assetType === 'CRYPTO' ? '1h' : '1d'
+  const [chartInterval, setChartInterval] = useState(defaultInterval)
+  const [candleData, setCandleData] = useState([])
+  const [loadingChart, setLoadingChart] = useState(false)
+  const [chartError, setChartError] = useState('')
+  const chartContainerRef = useRef(null)
+  const chartRef = useRef(null)
+  const candleSeriesRef = useRef(null)
+  const hasAppliedInitialFitRef = useRef(false)
+  const abortControllerRef = useRef(null)
+
+  useEffect(() => {
+    setChartInterval(defaultInterval)
+    setCandleData([])
+    setChartError('')
+    onLatestPriceChange?.(null)
+    hasAppliedInitialFitRef.current = false
+  }, [item?.id, defaultInterval, onLatestPriceChange])
+
+  useEffect(() => {
+    if (!chartContainerRef.current || chartRef.current) return
+
+    const containerWidth = chartContainerRef.current.clientWidth || chartContainerRef.current.parentElement?.clientWidth || 800
+    const chart = createChart(chartContainerRef.current, {
+      layout: {
+        background: { type: 'solid', color: '#0e1529' },
+        textColor: '#94a3b8',
+        fontSize: 11,
+      },
+      localization: {
+        locale: 'ko-KR',
+        timeFormatter: (time) => {
+          if (typeof time === 'number') return formatChartDateTime(time)
+          if (typeof time === 'string') return time
+          return ''
+        },
+      },
+      grid: {
+        vertLines: { color: 'rgba(31, 41, 69, 0.4)' },
+        horzLines: { color: 'rgba(31, 41, 69, 0.4)' },
+      },
+      rightPriceScale: {
+        borderColor: '#1f2945',
+        autoScale: true,
+      },
+      timeScale: {
+        borderColor: '#1f2945',
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (time) => formatChartTick(time),
+      },
+      width: containerWidth,
+      height: 360,
+    })
+
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#ef4444',
+      downColor: '#3b82f6',
+      borderVisible: false,
+      wickUpColor: '#ef4444',
+      wickDownColor: '#3b82f6',
+    })
+
+    chartRef.current = chart
+    candleSeriesRef.current = candleSeries
+
+    const handleResize = () => {
+      if (!chartRef.current || !chartContainerRef.current) return
+      const nextWidth = chartContainerRef.current.clientWidth || 800
+      chartRef.current.applyOptions({ width: nextWidth })
+    }
+
+    window.addEventListener('resize', handleResize)
+    window.setTimeout(handleResize, 50)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      chart.remove()
+      chartRef.current = null
+      candleSeriesRef.current = null
+      hasAppliedInitialFitRef.current = false
+      if (chartContainerRef.current) chartContainerRef.current.innerHTML = ''
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!item?.id) return
+
+    let isMounted = true
+
+    async function loadCandles() {
+      if (abortControllerRef.current) abortControllerRef.current.abort()
+      const controller = new AbortController()
+      abortControllerRef.current = controller
+      setLoadingChart(true)
+      setChartError('')
+
+      try {
+        const { exchange, brokerEnv } = getChartConfig(item, assetType)
+        const authHeader = await getAuthHeader()
+        const params = new URLSearchParams({
+          exchange,
+          symbol: item.id,
+          interval: chartInterval,
+          broker_env: brokerEnv,
+          count: '300',
+        })
+        const headers = authHeader ? { Authorization: authHeader } : {}
+        const response = await fetch(`${API_BASE_URL}/api/chart/candles?${params.toString()}`, {
+          headers,
+          signal: controller.signal,
+        })
+        const payload = await response.json()
+
+        if (!response.ok || !payload.success || !Array.isArray(payload.data) || payload.data.length === 0) {
+          throw new Error(payload.message || '차트 데이터를 불러오지 못했습니다.')
+        }
+
+        const formatted = payload.data
+          .map((candle) => ({
+            time: normalizeCandleTime(candle.time),
+            open: Number.parseFloat(candle.open),
+            high: Number.parseFloat(candle.high),
+            low: Number.parseFloat(candle.low),
+            close: Number.parseFloat(candle.close),
+            volume: Number.parseFloat(candle.volume || 0),
+          }))
+          .filter((candle) => {
+            const validTime = (typeof candle.time === 'number' && !Number.isNaN(candle.time))
+              || (typeof candle.time === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(candle.time))
+            return validTime
+              && !Number.isNaN(candle.open)
+              && !Number.isNaN(candle.high)
+              && !Number.isNaN(candle.low)
+              && !Number.isNaN(candle.close)
+          })
+          .sort((a, b) => {
+            if (typeof a.time === 'number' && typeof b.time === 'number') return a.time - b.time
+            return String(a.time).localeCompare(String(b.time))
+          })
+
+        const seenTimes = new Set()
+        const unique = []
+        for (let index = formatted.length - 1; index >= 0; index -= 1) {
+          const candle = formatted[index]
+          if (!seenTimes.has(candle.time)) {
+            seenTimes.add(candle.time)
+            unique.push(candle)
+          }
+        }
+        unique.reverse()
+
+        if (!unique.length) throw new Error('표시 가능한 차트 데이터가 없습니다.')
+        if (isMounted) {
+          setCandleData(unique)
+          const latestClose = unique[unique.length - 1]?.close
+          onLatestPriceChange?.(Number.isFinite(latestClose) ? latestClose : null)
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') return
+        if (isMounted) {
+          setCandleData([])
+          setChartError(error.message || '차트 데이터를 불러오지 못했습니다.')
+          onLatestPriceChange?.(null)
+        }
+      } finally {
+        if (isMounted) setLoadingChart(false)
+      }
+    }
+
+    loadCandles()
+
+    return () => {
+      isMounted = false
+      if (abortControllerRef.current) abortControllerRef.current.abort()
+    }
+  }, [item?.id, item?.exchange, item?.account, assetType, chartInterval, onLatestPriceChange])
+
+  useEffect(() => {
+    if (!chartRef.current || !candleSeriesRef.current) return
+    candleSeriesRef.current.setData(candleData)
+    if (candleData.length && !hasAppliedInitialFitRef.current) {
+      chartRef.current.timeScale().fitContent()
+      hasAppliedInitialFitRef.current = true
+    }
+  }, [candleData])
+
+  const intervalOptions = assetType === 'CRYPTO' ? CRYPTO_INTERVALS : STOCK_INTERVALS
+
+  return (
+    <div className="rounded-lg border border-[#1f2945]/60 bg-[#0e1529] p-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-bold text-white">{item?.name || item?.id}</p>
+          <p className="mt-0.5 font-mono text-[10px] text-slate-500">
+            {getChartConfig(item, assetType).exchange} · {item?.id}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1 rounded border border-[#2b395b] bg-[#1b253b] p-0.5">
+          {intervalOptions.map((option) => (
+            <button
+              key={option.value}
+              className={`rounded px-2 py-1 text-[10px] font-bold transition ${chartInterval === option.value ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+              type="button"
+              onClick={() => setChartInterval(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="relative min-h-[360px] overflow-hidden rounded bg-[#0e1529]">
+        {loadingChart ? (
+          <div className="absolute inset-0 z-10 grid place-items-center bg-[#0e1529]/90">
+            <span className="font-mono text-xs text-cyan-400 animate-pulse">시세 차트 로드 중...</span>
+          </div>
+        ) : null}
+        {chartError ? (
+          <div className="absolute inset-0 z-10 grid place-items-center bg-[#0e1529]/95 px-4 text-center text-xs text-red-300">
+            {chartError}
+          </div>
+        ) : null}
+        <div ref={chartContainerRef} className="w-full" />
+      </div>
+    </div>
+  )
+}
 
 export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1380 }) {
   const formatCurrency = (value, currency, targetDisplayCurrency = displayCurrency) => {
@@ -30,17 +330,77 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
     }
     return `₩${Math.round(val).toLocaleString()}`
   }
-  const [selectedId, setSelectedId] = useState(WATCHLIST_MOCK[0]?.id || '')
+  const [selectedId, setSelectedId] = useState('')
+  const [watchlistItems, setWatchlistItems] = useState([])
+  const [watchlistLoading, setWatchlistLoading] = useState(false)
+  const [watchlistError, setWatchlistError] = useState('')
   const [newsItems, setNewsItems] = useState([])
   const [newsLoading, setNewsLoading] = useState(false)
   const [newsError, setNewsError] = useState('')
   const [expandedNewsId, setExpandedNewsId] = useState('')
   const [summaryLoadingId, setSummaryLoadingId] = useState('')
+  const [chartCurrentPrice, setChartCurrentPrice] = useState(null)
 
-  const selectedItem = WATCHLIST_MOCK.find((item) => item.id === selectedId) || WATCHLIST_MOCK[0]
-  const useSlider = WATCHLIST_MOCK.length >= 5
+  const selectedItem = watchlistItems.find((item) => item.id === selectedId) || watchlistItems[0]
+  const useSlider = watchlistItems.length >= 5
 
-  const assetType = selectedItem?.account?.includes('주식') ? 'STOCK' : 'CRYPTO'
+  const assetType = selectedItem?.assetType || (selectedItem?.market === '코인' ? 'CRYPTO' : 'STOCK')
+  const selectedCurrency = selectedItem?.currency || (assetType === 'CRYPTO' ? 'KRW' : selectedItem?.marketCountry === 'US' ? 'USD' : 'KRW')
+  const currentDisplayCurrency = selectedCurrency === 'USD' || selectedCurrency === 'USDT' ? displayCurrency : 'KRW'
+  const baselinePrice = Number(selectedItem?.latestPrice)
+  const fallbackCurrentPrice = Number(selectedItem?.latestPrice ?? selectedItem?.average)
+  const currentPrice = Number.isFinite(Number(chartCurrentPrice)) ? Number(chartCurrentPrice) : fallbackCurrentPrice
+  const hasBaselinePrice = Number.isFinite(baselinePrice) && baselinePrice > 0
+  const hasCurrentPrice = Number.isFinite(currentPrice)
+  const priceDelta = hasBaselinePrice && hasCurrentPrice ? currentPrice - baselinePrice : 0
+  const priceDeltaRate = hasBaselinePrice ? (priceDelta / baselinePrice) * 100 : 0
+  const priceDeltaTone = priceDelta > 0 ? 'text-red-400' : priceDelta < 0 ? 'text-blue-400' : 'text-white'
+  const signedDeltaAmount = `${priceDelta > 0 ? '+' : priceDelta < 0 ? '-' : ''}${formatCurrency(Math.abs(priceDelta), selectedCurrency, currentDisplayCurrency)}`
+  const signedDeltaRate = `${priceDeltaRate > 0 ? '+' : ''}${priceDeltaRate.toFixed(2)}%`
+  const chartDetailCards = [
+    { label: '종목명', value: selectedItem?.name || '-' },
+    {
+      label: '저장 당시 가격',
+      value: hasBaselinePrice ? formatCurrency(baselinePrice, selectedCurrency, currentDisplayCurrency) : '-',
+    },
+    {
+      label: '현재가',
+      value: hasCurrentPrice ? formatCurrency(currentPrice, selectedCurrency, currentDisplayCurrency) : '-',
+    },
+    {
+      label: '현재가 변동',
+      value: hasBaselinePrice && hasCurrentPrice ? `${signedDeltaAmount} (${signedDeltaRate})` : '-',
+      tone: priceDeltaTone,
+    },
+  ]
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadWatchlist() {
+      setWatchlistLoading(true)
+      setWatchlistError('')
+      try {
+        const items = await fetchUserWatchlist()
+        if (!isMounted) return
+        setWatchlistItems(items)
+        setSelectedId((current) => current && items.some((item) => item.id === current) ? current : items[0]?.id || '')
+      } catch (error) {
+        if (!isMounted) return
+        setWatchlistItems([])
+        setSelectedId('')
+        setWatchlistError(error.message || '관심종목을 불러오지 못했습니다.')
+      } finally {
+        if (isMounted) setWatchlistLoading(false)
+      }
+    }
+
+    loadWatchlist()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!selectedItem) return
@@ -133,7 +493,7 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
       <section className="bg-slate-surface border border-slate-700/80 rounded-lg p-5">
         <SectionHeader title="관심종목 명단" />
         <div className={useSlider ? 'flex snap-x gap-2 overflow-x-auto pb-2' : 'grid gap-2 md:grid-cols-2 xl:grid-cols-4'}>
-          {WATCHLIST_MOCK.map((item) => (
+          {watchlistItems.map((item) => (
             <button
               key={item.id}
               className={`${useSlider ? 'min-w-60 snap-start' : 'w-full'} rounded-lg px-4 py-3 text-left transition ${selectedItem?.id === item.id ? 'bg-institutional-blue text-white' : 'bg-[#0f172a] text-slate-300 hover:bg-white/5'
@@ -145,7 +505,14 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
               <span className="mt-1 block text-xs opacity-70 font-mono">{item.market} · {item.account}</span>
             </button>
           ))}
+          {!watchlistLoading && watchlistItems.length === 0 ? (
+            <div className="rounded-lg border border-slate-800 bg-[#0f172a] p-4 text-sm text-slate-400">
+              관심종목이 없습니다. 하트를 눌러 관심 종목을 추가해주세요.
+            </div>
+          ) : null}
         </div>
+        {watchlistLoading ? <p className="mt-3 text-xs text-slate-500">관심종목을 불러오는 중입니다...</p> : null}
+        {watchlistError ? <p className="mt-3 text-xs text-red-300">{watchlistError}</p> : null}
       </section>
 
       <section className="bg-slate-surface border border-slate-700/80 rounded-lg p-5">
@@ -160,27 +527,22 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
             </Link>
           )}
         </div>
-        <div className="rounded-lg border border-slate-800 bg-[#0f172a]/70 p-4">
-          <MiniSparkline values={WATCH_CHARTS_MOCK[selectedItem?.id]} />
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-5">
-          {[
-            ['종목명', selectedItem?.name],
-            ['계좌종류', selectedItem?.account],
-            ['수량', selectedItem?.quantity],
-            ['평균 단가', (() => {
-              if (!selectedItem) return '-'
-              const isForeign = /[a-zA-Z]/.test(selectedItem.id) || selectedItem.market.includes('해외')
-              const stockCurrency = isForeign ? 'USD' : 'KRW'
-              const rawAvg = parseFloat(selectedItem.average.replace(/[^0-9.-]/g, '')) || 0
-              const currentDisplayCurrency = isForeign ? displayCurrency : 'KRW'
-              return formatCurrency(rawAvg, stockCurrency, currentDisplayCurrency)
-            })()],
-            ['등락율', selectedItem?.change],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-lg bg-[#0f172a] p-4">
-              <p className="text-xs font-bold text-slate-500">{label}</p>
-              <p className="mt-2 font-bold text-white font-mono">{label === '등락율' || label.startsWith('등락율') ? <Rate value={value} /> : value}</p>
+        {selectedItem ? (
+          <WatchlistCandlestickChart
+            item={selectedItem}
+            assetType={assetType}
+            onLatestPriceChange={setChartCurrentPrice}
+          />
+        ) : (
+          <div className="rounded-lg border border-slate-800 bg-[#0f172a]/70 p-8 text-center text-sm text-slate-500">
+            차트를 표시할 관심종목이 없습니다.
+          </div>
+        )}
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          {chartDetailCards.map((card) => (
+            <div key={card.label} className="rounded-lg bg-[#0f172a] p-4">
+              <p className="text-xs font-bold text-slate-500">{card.label}</p>
+              <p className={`mt-2 font-mono font-bold ${card.tone || 'text-white'}`}>{card.value}</p>
             </div>
           ))}
         </div>

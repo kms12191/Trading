@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import Header from "../components/Header.jsx";
+import { deleteUserWatchlistItem, fetchUserWatchlist, normalizeWatchlistItem, upsertUserWatchlistItem } from "../supabaseClient";
 
 const filters = {
   region: ["전체", "국내", "해외"],
@@ -92,6 +94,11 @@ function numericMetric(row, metric) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function getWatchlistKey(row = {}, assetType = "STOCK") {
+  const item = normalizeWatchlistItem({ ...row, asset_type: assetType });
+  return `${item.asset_type}:${item.exchange}:${item.symbol}`;
+}
+
 function applyClientMarketFilters(rows, activeFilters) {
   const filtered = [...rows];
   const ranking = activeFilters.ranking || activeFilters.metric || "거래대금";
@@ -142,7 +149,7 @@ function FilterBar({ title, children }) {
   );
 }
 
-function MarketTable({ rows, titleType = "stock", ranking = "거래대금" }) {
+function MarketTable({ rows, titleType = "stock", ranking = "거래대금", favoriteKeys = new Set(), onToggleFavorite }) {
   const isStock = titleType === "stock";
   const nameHeader = isStock ? "종목명" : "코인명";
   const showVolume = ranking === "거래량";
@@ -171,7 +178,9 @@ function MarketTable({ rows, titleType = "stock", ranking = "거래대금" }) {
           </div>
         ) : rows.map((row) => {
           const symbol = row.code || row.symbol;
-          const assetPath = `/asset/${isStock ? "STOCK" : "CRYPTO"}/${symbol}`;
+          const assetType = isStock ? "STOCK" : "CRYPTO";
+          const assetPath = `/asset/${assetType}/${symbol}`;
+          const isFavorite = favoriteKeys.has(getWatchlistKey(row, assetType));
           return (
             <Link
               key={`${row.rank}-${row.name}`}
@@ -183,11 +192,13 @@ function MarketTable({ rows, titleType = "stock", ranking = "거래대금" }) {
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  onToggleFavorite?.(row, assetType);
                 }}
-                className="text-[24px] leading-none text-slate-400 hover:text-ai-cyan"
+                className={`text-[24px] leading-none transition ${isFavorite ? 'text-red-400 hover:text-red-300' : 'text-slate-400 hover:text-ai-cyan'}`}
                 aria-label="관심 종목"
+                aria-pressed={isFavorite}
               >
-                ♡
+                {isFavorite ? '♥' : '♡'}
               </button>
               <div className="text-center text-[16px] text-slate-100 tabular-nums">{row.rank}</div>
               <div className="flex min-w-0 items-center gap-3">
@@ -213,7 +224,7 @@ function MarketTable({ rows, titleType = "stock", ranking = "거래대금" }) {
   );
 }
 
-function MobileMarketTable({ rows, titleType = "stock", ranking = "거래대금" }) {
+function MobileMarketTable({ rows, titleType = "stock", ranking = "거래대금", favoriteKeys = new Set(), onToggleFavorite }) {
   const showVolume = ranking === "거래량";
   const valueKey = showVolume ? "volume" : "value";
   const valueLabel = titleType === "stock"
@@ -225,7 +236,9 @@ function MobileMarketTable({ rows, titleType = "stock", ranking = "거래대금"
         <div className="px-4 py-8 text-center text-sm text-slate-500">표시할 데이터가 없습니다.</div>
       ) : rows.map((row) => {
         const symbol = row.code || row.symbol;
-        const assetPath = `/asset/${titleType === "stock" ? "STOCK" : "CRYPTO"}/${symbol}`;
+        const assetType = titleType === "stock" ? "STOCK" : "CRYPTO";
+        const assetPath = `/asset/${assetType}/${symbol}`;
+        const isFavorite = favoriteKeys.has(getWatchlistKey(row, assetType));
         return (
           <Link
             key={`${titleType}-${row.rank}-${row.name}`}
@@ -244,11 +257,13 @@ function MobileMarketTable({ rows, titleType = "stock", ranking = "거래대금"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  onToggleFavorite?.(row, assetType);
                 }}
-                className="text-[22px] text-slate-400 hover:text-ai-cyan"
+                className={`text-[22px] transition ${isFavorite ? 'text-red-400 hover:text-red-300' : 'text-slate-400 hover:text-ai-cyan'}`}
                 aria-label="관심 종목"
+                aria-pressed={isFavorite}
               >
-                ♡
+                {isFavorite ? '♥' : '♡'}
               </button>
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-right text-[13px]">
@@ -273,10 +288,12 @@ function MobileMarketTable({ rows, titleType = "stock", ranking = "거래대금"
 }
 
 export default function Home({ isLoggedIn, userEmail, handleLogout }) {
+  const navigate = useNavigate();
   const [stockCandidates, setStockCandidates] = useState([]);
   const [coins, setCoins] = useState([]);
   const [status, setStatus] = useState("loading");
   const [message, setMessage] = useState("");
+  const [favoriteKeys, setFavoriteKeys] = useState(new Set());
   const [marketState, setMarketState] = useState(getKoreanMarketState());
   const [snapshotMeta, setSnapshotMeta] = useState({});
   const [updatedAt, setUpdatedAt] = useState("");
@@ -296,6 +313,48 @@ export default function Home({ isLoggedIn, userEmail, handleLogout }) {
     () => applyClientMarketFilters(coins, coinFilters).slice(0, 10),
     [coins, coinFilters.ranking],
   );
+
+  const loadFavorites = async () => {
+    if (!isLoggedIn) {
+      setFavoriteKeys(new Set());
+      return;
+    }
+
+    try {
+      const items = await fetchUserWatchlist();
+      setFavoriteKeys(new Set(items.map((item) => getWatchlistKey(item, item.assetType))));
+    } catch (error) {
+      console.warn('Failed to load watchlist.', error);
+      setFavoriteKeys(new Set());
+    }
+  };
+
+  const handleToggleFavorite = async (row, assetType) => {
+    if (!isLoggedIn) {
+      alert('로그인이 필요한 서비스입니다.');
+      navigate('/login');
+      return;
+    }
+
+    const key = getWatchlistKey(row, assetType);
+    const nextKeys = new Set(favoriteKeys);
+    const isFavorite = nextKeys.has(key);
+
+    try {
+      if (isFavorite) {
+        nextKeys.delete(key);
+        setFavoriteKeys(nextKeys);
+        await deleteUserWatchlistItem({ ...row, asset_type: assetType });
+      } else {
+        nextKeys.add(key);
+        setFavoriteKeys(nextKeys);
+        await upsertUserWatchlistItem({ ...row, asset_type: assetType });
+      }
+    } catch (error) {
+      await loadFavorites();
+      alert(error.message || '관심종목 저장 중 문제가 발생했습니다.');
+    }
+  };
 
   const loadOverview = async (requestFilters = stockFilters) => {
       try {
@@ -344,6 +403,10 @@ export default function Home({ isLoggedIn, userEmail, handleLogout }) {
     || (status === "loading"
       ? "시장 데이터를 불러오는 중입니다."
       : `시장 데이터 정상 표시 중${snapshotMeta.as_of ? ` · 기준 ${formatSnapshotTime(snapshotMeta.as_of)}` : updatedAt ? ` · ${updatedAt}` : ""}`);
+
+  useEffect(() => {
+    loadFavorites();
+  }, [isLoggedIn]);
 
   useEffect(() => {
     let timeoutId;
@@ -439,14 +502,14 @@ export default function Home({ isLoggedIn, userEmail, handleLogout }) {
               </button>
             </div>
             <div className="hidden md:block">
-              <MarketTable rows={stocks} titleType="stock" ranking={stockFilters.ranking} />
+              <MarketTable rows={stocks} titleType="stock" ranking={stockFilters.ranking} favoriteKeys={favoriteKeys} onToggleFavorite={handleToggleFavorite} />
             </div>
-            <MobileMarketTable rows={stocks} titleType="stock" ranking={stockFilters.ranking} />
+            <MobileMarketTable rows={stocks} titleType="stock" ranking={stockFilters.ranking} favoriteKeys={favoriteKeys} onToggleFavorite={handleToggleFavorite} />
 
             <div className="hidden md:block">
-              <MarketTable rows={filteredCoins} titleType="coin" ranking={coinFilters.ranking} />
+              <MarketTable rows={filteredCoins} titleType="coin" ranking={coinFilters.ranking} favoriteKeys={favoriteKeys} onToggleFavorite={handleToggleFavorite} />
             </div>
-            <MobileMarketTable rows={filteredCoins} titleType="coin" ranking={coinFilters.ranking} />
+            <MobileMarketTable rows={filteredCoins} titleType="coin" ranking={coinFilters.ranking} favoriteKeys={favoriteKeys} onToggleFavorite={handleToggleFavorite} />
           </section>
 
         </main>

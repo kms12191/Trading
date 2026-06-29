@@ -157,6 +157,26 @@ def default_summary_path(filename: str) -> Path:
     """요약 JSON 파일의 기본 저장 경로를 반환합니다."""
     return PROJECT_ROOT / "ml" / "data" / "processed" / filename
 
+
+def resolve_summary_path_for_asset(asset_key: str, auth_header: str | None) -> Path:
+    """가장 최신 실험 summary JSON 경로를 우선 반환합니다."""
+    summary_candidates = sorted(
+        (PROJECT_ROOT / "ml" / "data" / "processed").glob(f"{asset_key}_v*_summary.json"),
+        key=extract_version_number,
+    )
+    if summary_candidates:
+        return summary_candidates[-1]
+
+    selection = resolve_active_model_selection(asset_key, auth_header)
+    active_result = (selection or {}).get("active_result") or {}
+    version_number = active_result.get("version_number")
+    if version_number:
+        candidate = default_summary_path(f"{asset_key}_v{version_number}_summary.json")
+        if candidate.exists():
+            return candidate
+
+    return default_summary_path(f"{asset_key}_v6_summary.json")
+
 def list_experiment_reports(limit: int = 20) -> list[dict]:
     """생성된 실험 리포트(.md) 목록을 조회하여 수정 시간 내림차순으로 반환합니다."""
     reports_dir = PROJECT_ROOT / "ml" / "reports"
@@ -186,8 +206,8 @@ def run_experiment_report(
     output: str | None = None,
 ) -> dict:
     """LightGBM 모델들의 훈련 지표 및 백테스트 결과를 기반으로 실험 분석 리포트 마크다운 문서를 작성합니다."""
-    stock_summary = str(stock_summary or default_summary_path("stock_v6_summary.json"))
-    crypto_summary = str(crypto_summary or default_summary_path("crypto_v6_summary.json"))
+    stock_summary = str(stock_summary or resolve_summary_path_for_asset("stock", auth_header))
+    crypto_summary = str(crypto_summary or resolve_summary_path_for_asset("crypto", auth_header))
     reports_dir = PROJECT_ROOT / "ml" / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
 

@@ -1,15 +1,15 @@
 data:
   raw_candles_path: data/raw/stock_candles.csv
-  features_path: data/processed/stock_features_lgbm_v8.csv
-  predictions_path: data/processed/stock_predictions_lgbm_v8.csv
-  backtest_up_only_summary_path: data/processed/stock_backtest_up_only_v8.json
-  backtest_up_only_daily_path: data/processed/stock_backtest_up_only_daily_v8.csv
-  backtest_composite_summary_path: data/processed/stock_backtest_composite_v8.json
-  backtest_composite_daily_path: data/processed/stock_backtest_composite_daily_v8.csv
+  features_path: data/processed/stock_features_lgbm_v10.csv
+  predictions_path: data/processed/stock_predictions_lgbm_v10.csv
+  backtest_up_only_summary_path: data/processed/stock_backtest_up_only_v10.json
+  backtest_up_only_daily_path: data/processed/stock_backtest_up_only_daily_v10.csv
+  backtest_composite_summary_path: data/processed/stock_backtest_composite_v10.json
+  backtest_composite_daily_path: data/processed/stock_backtest_composite_daily_v10.csv
 model:
-  version: lgbm_stock_signal_v8
+  version: lgbm_stock_signal_v10
   asset_type: STOCK
-  output_path: models/lgbm_stock_signal_v8.joblib
+  output_path: models/lgbm_stock_signal_v10.joblib
   horizon_periods: 3
   up_return_threshold: 0.01
   risk_return_threshold: -0.02
@@ -79,6 +79,14 @@ model:
   - stoch_k_14
   - stoch_d_3
   - obv_zscore_20
+  - vcp_contraction_ratio_5_20
+  - vcp_contraction_ratio_10_40
+  - vcp_volatility_ratio_10_40
+  - vcp_volume_dryup_ratio_5_20
+  - vcp_volume_dryup_ratio_10_40
+  - vcp_tight_close_ratio_10
+  - vcp_breakout_proximity_20
+  - vcp_contraction_streak
 prediction:
   risk_model_path: models/lgbm_stock_risk_v8.joblib
   long_threshold: 0.20

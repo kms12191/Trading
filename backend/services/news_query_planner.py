@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from backend.services.symbol_metadata import SYMBOL_METADATA
+
 
 @dataclass(frozen=True)
 class NewsQuery:
@@ -23,6 +25,7 @@ class NewsQueryPlanner:
         self.daily_naver_budget = self._env_int("NEWS_NAVER_DAILY_QUERY_BUDGET", 2000)
         self.max_queries_per_run = self._env_int("NEWS_MAX_QUERIES_PER_RUN", 30)
         self.dynamic_symbols_per_run = self._env_int("NEWS_DYNAMIC_SYMBOLS_PER_RUN", 5)
+        self.static_symbol_queries_per_run = self._env_int("NEWS_STATIC_SYMBOLS_PER_RUN", 8)
         self.query_cooldown_minutes = self._env_int("NEWS_QUERY_COOLDOWN_MINUTES", 30)
 
     def build_plan(self, include_naver: bool, include_finnhub: bool) -> tuple[list[NewsQuery], list[dict[str, Any]]]:
@@ -31,6 +34,7 @@ class NewsQueryPlanner:
 
         if include_naver:
             candidates.extend(self._static_naver_queries())
+            candidates.extend(self._static_symbol_naver_queries())
             candidates.extend(self._dynamic_naver_queries())
 
         if include_finnhub:
@@ -72,7 +76,7 @@ class NewsQueryPlanner:
             ("market", 10, ["코스피", "코스닥", "증시", "환율", "금리"]),
             ("macro", 20, ["인플레이션", "FOMC", "연준", "미국 국채"]),
             ("sentiment", 30, ["외국인 순매수", "기관 순매수", "공매도", "신용융자"]),
-            ("sector", 40, ["반도체", "이차전지", "배터리", "바이오", "인공지능", "AI"]),
+            ("sector", 40, ["반도체", "이차전지", "배터리", "바이오"]),
         ]
         queries: list[NewsQuery] = []
         for category, priority, keywords in groups:
@@ -91,36 +95,83 @@ class NewsQueryPlanner:
                 )
         return queries
 
+    def _static_symbol_naver_queries(self) -> list[NewsQuery]:
+        configured_symbols = [
+            symbol.strip().upper()
+            for symbol in os.getenv(
+                "NEWS_STATIC_SYMBOLS",
+                "005930,000660,035420,068270,AAPL,MSFT,NVDA,AMD,AVGO,TSLA",
+            ).split(",")
+            if symbol.strip()
+        ]
+        variants = [
+            ("headline", ""),
+            ("earnings", "실적"),
+            ("guidance", "전망"),
+            ("contract", "수주"),
+            ("disclosure", "공시"),
+        ]
+        queries: list[NewsQuery] = []
+        added = 0
+        for symbol in configured_symbols:
+            meta = SYMBOL_METADATA.get(symbol, {})
+            if meta.get("asset_type") != "STOCK":
+                continue
+            company_name = str(meta.get("display_name") or symbol).strip()
+            market = "GLOBAL" if str(meta.get("market") or "").upper() == "US" else "DOMESTIC"
+            for variant_index, (variant_key, suffix) in enumerate(variants):
+                query_text = company_name if not suffix else f"{company_name} {suffix}"
+                queries.append(
+                    NewsQuery(
+                        provider="NAVER",
+                        query_key=f"naver:static-symbol:{symbol}:{variant_key}",
+                        query_text=query_text,
+                        category="symbol",
+                        market=market,
+                        priority=45 + added,
+                        symbol=symbol,
+                        company_name=company_name,
+                        reason="static_symbol",
+                    )
+                )
+            added += 1
+            if added >= self.static_symbol_queries_per_run:
+                break
+        return queries
+
     def _dynamic_naver_queries(self) -> list[NewsQuery]:
         symbols = self.repository.list_watchlist_symbols(limit=self.dynamic_symbols_per_run)
         variants = [
-            ("stock", "주식"),
+            ("headline", ""),
             ("earnings", "실적"),
             ("disclosure", "공시"),
-            ("operating_profit", "영업이익"),
+            ("guidance", "전망"),
+            ("contract", "수주"),
         ]
         queries: list[NewsQuery] = []
         for index, item in enumerate(symbols):
             company_name = (item.get("name") or item.get("company_name") or item.get("symbol") or "").strip()
-            symbol = (item.get("symbol") or "").strip()
+            symbol = (item.get("symbol") or "").strip().upper()
             if not company_name:
                 continue
 
-            variant_key, suffix = variants[index % len(variants)]
-            query_text = f"{company_name} {suffix}"
-            queries.append(
-                NewsQuery(
-                    provider="NAVER",
-                    query_key=f"naver:symbol:{symbol or company_name}:{variant_key}",
-                    query_text=query_text,
-                    category="symbol",
-                    market="DOMESTIC",
-                    priority=50 + index,
-                    symbol=symbol,
-                    company_name=company_name,
-                    reason="watchlist_symbol",
+            market = str(item.get("market_country") or item.get("exchange") or "").upper()
+            query_market = "GLOBAL" if market == "US" else "DOMESTIC"
+            for variant_offset, (variant_key, suffix) in enumerate(variants):
+                query_text = company_name if not suffix else f"{company_name} {suffix}"
+                queries.append(
+                    NewsQuery(
+                        provider="NAVER",
+                        query_key=f"naver:symbol:{symbol or company_name}:{variant_key}",
+                        query_text=query_text,
+                        category="symbol",
+                        market=query_market,
+                        priority=60 + (index * 5) + variant_offset,
+                        symbol=symbol,
+                        company_name=company_name,
+                        reason="watchlist_symbol",
+                    )
                 )
-            )
         return queries
 
     def _finnhub_queries(self) -> list[NewsQuery]:

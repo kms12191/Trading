@@ -16,7 +16,7 @@ AUTOMATION_PRESETS = {
             "retry_wait_seconds": 60.0,
             "append": True,
             "include_macro": True,
-            "chunk_size": 10,
+            "chunk_size": 0,
             "chunk_index": 1,
         },
         "training": {
@@ -92,7 +92,7 @@ AUTOMATION_PRESETS = {
             "retry_wait_seconds": 60.0,
             "append": True,
             "include_macro": True,
-            "chunk_size": 10,
+            "chunk_size": 0,
             "chunk_index": 1,
         },
         "training": {

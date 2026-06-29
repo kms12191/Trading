@@ -180,6 +180,27 @@ class NewsRepository:
         response.raise_for_status()
         return response.json()
 
+    def list_recent_articles_for_ml(self, since: datetime, limit: int = 5000, offset: int = 0) -> list[dict[str, Any]]:
+        if not self.is_configured:
+            return []
+
+        params = {
+            "select": "id,market,source,title,summary,url,published_at,company_name,symbol,language,sentiment,raw_payload,ai_summary,ai_summary_model",
+            "published_at": f"gte.{since.isoformat()}",
+            "order": "published_at.asc",
+            "limit": str(limit),
+            "offset": str(offset),
+            "is_active": "eq.true",
+        }
+        response = requests.get(
+            f"{self.supabase_url}/rest/v1/news_articles",
+            headers=self._service_read_headers(),
+            params=params,
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()
+
     def upsert_article_summaries(self, rows: list[dict[str, Any]]) -> None:
         if not self.is_configured or not rows:
             return

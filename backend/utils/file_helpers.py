@@ -42,7 +42,7 @@ def pick_existing_path(paths: list[Path]) -> Path:
 
 def extract_version_number(path: Path) -> int:
     """파일명에서 버전 번호(_v숫자)를 추출합니다."""
-    match = re.search(r"_v(\d+)\.ya?ml$", path.name)
+    match = re.search(r"_v(\d+)(?:_|\.|$)", path.name)
     return int(match.group(1)) if match else 0
 
 def sanitize_nan(data):

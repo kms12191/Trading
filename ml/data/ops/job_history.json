@@ -1,5 +1,2629 @@
 [
   {
+    "id": "c20fb182-5880-48ee-858a-c6b8e96a7024",
+    "type": "training_run",
+    "status": "success",
+    "started_at": "2026-06-29T07:00:37.820810+00:00",
+    "finished_at": "2026-06-29T07:01:22.995523Z",
+    "label": "코인 v8 자동 수집+학습 (30m) (Auto)",
+    "config": "ml/configs/lgbm_crypto_v8.yaml",
+    "risk_config": "ml/configs/lgbm_crypto_risk_v8.yaml",
+    "summary_output": "ml/data/processed/crypto_v8_summary.json",
+    "skip_build_features": false,
+    "dataset_job_id": "1d6eec15-ead6-4d29-8805-6dae5c98a0a6",
+    "command": [
+      "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/.venv/bin/python",
+      "ml/src/run_pipeline_bundle.py",
+      "--config",
+      "ml/configs/lgbm_crypto_v8.yaml",
+      "--risk-config",
+      "ml/configs/lgbm_crypto_risk_v8.yaml",
+      "--summary-output",
+      "ml/data/processed/crypto_v8_summary.json"
+    ],
+    "returncode": 0,
+    "stdout": "eturn_net\": 0.00020278135146013286,\n        \"win_rate\": 0.5555555555555556,\n        \"avg_signal_score\": 75.56705358804787\n      },\n      {\n        \"sector_group\": \"레이어1\",\n        \"selections\": 297,\n        \"avg_future_return\": -0.0020149818541978937,\n        \"avg_future_return_net\": -0.0001671502327129663,\n        \"win_rate\": 0.5252525252525253,\n        \"avg_signal_score\": 37.75143797165698\n      },\n      {\n        \"sector_group\": \"오라클\",\n        \"selections\": 11,\n        \"avg_future_return\": 0.00041527336450645455,\n        \"avg_future_return_net\": -0.0011847266354935457,\n        \"win_rate\": 0.5454545454545454,\n        \"avg_signal_score\": 74.9180561301197\n      },\n      {\n        \"sector_group\": \"가상자산 대장주\",\n        \"selections\": 12,\n        \"avg_future_return\": 0.00025473364425558344,\n        \"avg_future_return_net\": -0.001345266355744417,\n        \"win_rate\": 0.6666666666666666,\n        \"avg_signal_score\": 71.68622955598109\n      },\n      {\n        \"sector_group\": \"UNKNOWN\",\n        \"selections\": 787,\n        \"avg_future_return\": -0.0006705611678052062,\n        \"avg_future_return_net\": -0.001518290449802013,\n        \"win_rate\": 0.5171537484116899,\n        \"avg_signal_score\": 41.36593108543999\n      },\n      {\n        \"sector_group\": \"인터체인\",\n        \"selections\": 15,\n        \"avg_future_return\": -0.0011798825562339267,\n        \"avg_future_return_net\": -0.002486519886633647,\n        \"win_rate\": 0.4,\n        \"avg_signal_score\": 50.99165416578556\n      },\n      {\n        \"sector_group\": \"밈코인\",\n        \"selections\": 24,\n        \"avg_future_return\": -0.002245340951501004,\n        \"avg_future_return_net\": -0.0038453409515010043,\n        \"win_rate\": 0.3333333333333333,\n        \"avg_signal_score\": 76.53331253311008\n      }\n    ],\n    \"strategy\": \"composite\",\n    \"asset_type\": \"CRYPTO\",\n    \"model_version\": \"lgbm_crypto_signal_v8\",\n    \"risk_model_version\": \"lgbm_crypto_risk_v8\",\n    \"top_percent\": null,\n    \"valid_rows\": 9684,\n    \"valid_start_date\": \"2026-06-20 16:00:00\",\n    \"valid_end_date\": \"2026-06-29 04:00:00\"\n  },\n  \"risk_config\": \"/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/configs/lgbm_crypto_risk_v8.yaml\",\n  \"risk_model_version\": \"lgbm_crypto_risk_v8\",\n  \"risk_metrics_path\": \"/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/models/lgbm_crypto_risk_v8.metrics.json\",\n  \"risk_metrics\": {\n    \"accuracy\": 0.8710243700950021,\n    \"average_precision\": 0.15103414984210728,\n    \"precision\": 0.0,\n    \"recall\": 0.0,\n    \"precision_at_top_10pct\": 0.18163054695562436,\n    \"confusion_matrix\": {\n      \"tn\": 8435,\n      \"fp\": 0,\n      \"fn\": 1249,\n      \"tp\": 0\n    },\n    \"roc_auc\": 0.500897600119218,\n    \"model_version\": \"lgbm_crypto_risk_v8\",\n    \"asset_type\": \"CRYPTO\",\n    \"target_column\": \"risk_label\",\n    \"train_rows\": 16094,\n    \"train_rows_before_calibration_split\": 20052,\n    \"calibration_rows\": 3958,\n    \"valid_rows\": 9684,\n    \"train_start_date\": \"2025-08-25 08:30:00\",\n    \"train_end_date\": \"2026-06-17 06:00:00\",\n    \"valid_start_date\": \"2026-06-20 16:00:00\",\n    \"valid_end_date\": \"2026-06-29 04:00:00\",\n    \"feature_columns\": [\n      \"return_1\",\n      \"return_4\",\n      \"return_12\",\n      \"return_24\",\n      \"return_48\",\n      \"ma_4_gap\",\n      \"ma_24_gap\",\n      \"volume_ratio_4\",\n      \"volume_ratio_24\",\n      \"volatility_24\",\n      \"rsi_14\",\n      \"amount_zscore_24\",\n      \"volume_zscore_24\",\n      \"atr_14\",\n      \"bollinger_position_20\",\n      \"body_ratio_1\",\n      \"upper_wick_ratio_1\",\n      \"lower_wick_ratio_1\",\n      \"intraday_return\",\n      \"macd_line\",\n      \"macd_signal\",\n      \"macd_hist\",\n      \"btcusdt_return_1\",\n      \"btcusdt_return_4\",\n      \"btcusdt_return_24\",\n      \"ethusdt_return_1\",\n      \"ethusdt_return_4\",\n      \"ethusdt_return_24\",\n      \"relative_to_btc_return_4\",\n      \"relative_to_eth_return_4\",\n      \"crypto_market_return_4\",\n      \"crypto_market_return_24\",\n      \"relative_to_market_return_4\",\n      \"relative_to_market_return_24\",\n      \"range_ratio_1\",\n      \"close_to_high_20\",\n      \"close_to_low_20\",\n      \"funding_rate\",\n      \"open_interest\",\n      \"open_interest_change_24h\",\n      \"coinone_binance_spread\",\n      \"kimchi_premium\",\n      \"leader_btc_dominance_proxy\",\n      \"hour_of_day\",\n      \"day_of_week\",\n      \"is_weekend\",\n      \"news_sentiment\",\n      \"news_article_count_24h\",\n      \"news_burst_zscore\",\n      \"market_news_sentiment\",\n      \"market_news_article_count_24h\",\n      \"market_news_burst_zscore\",\n      \"stoch_k_14\",\n      \"stoch_d_3\",\n      \"obv_zscore_20\"\n    ],\n    \"class_weight_mode\": \"balanced\",\n    \"balance_symbol_weights\": true,\n    \"used_scale_pos_weight\": true,\n    \"probability_calibration\": true,\n    \"use_ensemble\": false,\n    \"ensemble_lgbm_weight\": null,\n    \"ensemble_ridge_weight\": null,\n    \"ridge_model_trained\": false,\n    \"time_series_cv\": [\n      {\n        \"accuracy\": 0.7794117647058824,\n        \"average_precision\": 0.18492277902853532,\n        \"precision\": 0.06666666666666667,\n        \"recall\": 0.016129032258064516,\n        \"precision_at_top_10pct\": NaN,\n        \"confusion_matrix\": {\n          \"tn\": 264,\n          \"fp\": 14,\n          \"fn\": 61,\n          \"tp\": 1\n        },\n        \"roc_auc\": 0.5004061267115341,\n        \"fold\": 1,\n        \"train_rows\": 340,\n        \"valid_rows\": 340,\n        \"valid_start_date\": \"2025-09-02 19:30:00\",\n        \"valid_end_date\": \"2025-09-10 18:30:00\"\n      },\n      {\n        \"accuracy\": 0.6652701212789416,\n        \"average_precision\": 0.2726131045331147,\n        \"precision\": 0.2910112359550562,\n        \"recall\": 0.22600349040139617,\n        \"precision_at_top_10pct\": 0.1935483870967742,\n        \"confusion_matrix\": {\n          \"tn\": 2758,\n          \"fp\": 631,\n          \"fn\": 887,\n          \"tp\": 259\n        },\n        \"roc_auc\": 0.506029156026298,\n        \"fold\": 2,\n        \"train_rows\": 680,\n        \"valid_rows\": 4535,\n        \"valid_start_date\": \"2025-09-10 19:00:00\",\n        \"valid_end_date\": \"2026-06-07 19:30:00\"\n      },\n      {\n        \"accuracy\": 0.850563449289564,\n        \"average_precision\": 0.1734238572394881,\n        \"precision\": 0.21846153846153846,\n        \"recall\": 0.16627634660421545,\n        \"precision_at_top_10pct\": 0.10300429184549356,\n        \"confusion_matrix\": {\n          \"tn\": 6802,\n          \"fp\": 508,\n          \"fn\": 712,\n          \"tp\": 142\n        },\n        \"roc_auc\": 0.6292206627218176,\n        \"fold\": 3,\n        \"train_rows\": 5215,\n        \"valid_rows\": 8164,\n        \"valid_start_date\": \"2026-06-07 20:00:00\",\n        \"valid_end_date\": \"2026-06-14 21:30:00\"\n      },\n      {\n        \"accuracy\": 0.7845126175160811,\n        \"average_precision\": 0.2775199739369084,\n        \"precision\": 0.26551034022681785,\n        \"recall\": 0.383060635226179,\n        \"precision_at_top_10pct\": 0.09787234042553192,\n        \"confusion_matrix\": {\n          \"tn\": 5944,\n          \"fp\": 1101,\n          \"fn\": 641,\n          \"tp\": 398\n        },\n        \"roc_auc\": 0.7079966474287731,\n        \"fold\": 4,\n        \"train_rows\": 13379,\n        \"valid_rows\": 8084,\n        \"valid_start_date\": \"2026-06-14 22:00:00\",\n        \"valid_end_date\": \"2026-06-21 23:30:00\"\n      },\n      {\n        \"accuracy\": 0.7111246943765281,\n        \"average_precision\": 0.1692792267666601,\n        \"precision\": 0.17544812601846824,\n        \"recall\": 0.276541095890411,\n        \"precision_at_top_10pct\": 0.13664596273291926,\n        \"confusion_matrix\": {\n          \"tn\": 5494,\n          \"fp\": 1518,\n          \"fn\": 845,\n          \"tp\": 323\n        },\n        \"roc_auc\": 0.5455367852761215,\n        \"fold\": 5,\n        \"train_rows\": 21463,\n        \"valid_rows\": 8180,\n        \"valid_start_date\": \"2026-06-22 00:00:00\",\n        \"valid_end_date\": \"2026-06-29 01:30:00\"\n      }\n    ],\n    \"time_series_cv_average\": {\n      \"accuracy\": 0.7581765294333994,\n      \"average_precision\": 0.21555178830094132,\n      \"precision\": 0.20341958146570946,\n      \"recall\": 0.21360212007605323,\n      \"precision_at_top_10pct\": 0.13276774552517975,\n      \"roc_auc\": 0.5778378756329088\n    }\n  }\n}\n",
+    "stderr": "",
+    "training_audit": {
+      "asset_type": "CRYPTO",
+      "asset_key": "crypto",
+      "model_version": "lgbm_crypto_signal_v8",
+      "promotion_guard": {
+        "asset_type": "CRYPTO",
+        "candidate_version": "v8",
+        "candidate_model_version": "lgbm_crypto_signal_v8",
+        "serving_version": null,
+        "serving_model_version": null,
+        "passed": true,
+        "thresholds": {
+          "min_valid_rows": 1500,
+          "min_cv_roc_auc": 0.58,
+          "min_precision_at_top_10pct": 0.24,
+          "min_composite_excess_return_net": 0.0,
+          "min_composite_precision_at_top_n": 0.5,
+          "min_risk_cv_roc_auc": 0.56,
+          "min_max_drawdown_net": -0.6,
+          "max_cv_roc_auc_drop_vs_serving": 0.015,
+          "max_excess_return_drop_vs_serving": 0.001,
+          "max_precision_drop_vs_serving": 0.02,
+          "meaningful_improvement_cv_roc_auc": 0.005,
+          "meaningful_improvement_excess_return_net": 0.001,
+          "meaningful_improvement_precision_at_top_n": 0.01
+        },
+        "dataset_quality": {
+          "asset_type": "CRYPTO",
+          "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+          "exists": true,
+          "row_count": 35771,
+          "unique_symbol_count": 30,
+          "duplicate_symbol_date_count": 0,
+          "missing_required_value_count": 0,
+          "invalid_price_row_count": 0,
+          "invalid_volume_row_count": 0,
+          "oldest_timestamp": "2025-08-25T07:00:00+00:00",
+          "latest_timestamp": "2026-06-29T07:00:00+00:00",
+          "staleness_hours": 0.02,
+          "status": "healthy",
+          "issues": []
+        },
+        "checks": [
+          {
+            "name": "dataset_quality",
+            "passed": true,
+            "actual": "healthy",
+            "threshold": "healthy",
+            "comparator": "==",
+            "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+          },
+          {
+            "name": "valid_rows",
+            "passed": true,
+            "actual": 9684,
+            "threshold": 1500,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "cv_roc_auc",
+            "passed": true,
+            "actual": 0.7525841730718255,
+            "threshold": 0.58,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "precision_at_top_10pct",
+            "passed": true,
+            "actual": 0.31240853518231604,
+            "threshold": 0.24,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "risk_cv_roc_auc",
+            "passed": true,
+            "actual": 0.5778378756329088,
+            "threshold": 0.56,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "composite_excess_return_net",
+            "passed": true,
+            "actual": 0.0014542857897015444,
+            "threshold": 0.0,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "composite_precision_at_top_n",
+            "passed": true,
+            "actual": 0.5175224123879381,
+            "threshold": 0.5,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "max_drawdown_net",
+            "passed": true,
+            "actual": -0.4525554523313251,
+            "threshold": -0.6,
+            "comparator": ">=",
+            "detail": null
+          }
+        ],
+        "failed_checks": []
+      },
+      "serving_audit": {
+        "status": "healthy",
+        "blocking_count": 0,
+        "assets": {
+          "stock": {
+            "asset_type": "STOCK",
+            "status": "healthy",
+            "message": "현재 serving 모델이 기준을 통과합니다.",
+            "serving_version": null,
+            "recommended_version": "v11",
+            "latest_version": "v11",
+            "current_guard": {
+              "asset_type": "STOCK",
+              "candidate_version": "v11",
+              "candidate_model_version": "lgbm_stock_signal_v11",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 800,
+                "min_cv_roc_auc": 0.5,
+                "min_precision_at_top_10pct": 0.4,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.5,
+                "min_max_drawdown_net": -0.55,
+                "max_cv_roc_auc_drop_vs_serving": 0.01,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "STOCK",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/stock_candles.csv",
+                "exists": true,
+                "row_count": 18090,
+                "unique_symbol_count": 90,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-27T00:00:00+09:00",
+                "latest_timestamp": "2026-06-29T13:00:00+09:00",
+                "staleness_hours": 3.02,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 3416,
+                  "threshold": 800,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.7243351732553464,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.4202960222016651,
+                  "threshold": 0.4,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5481994835247039,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.03441676661980866,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5789473684210527,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.28592462895982973,
+                  "threshold": -0.55,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "recommended_guard": {
+              "asset_type": "STOCK",
+              "candidate_version": "v11",
+              "candidate_model_version": "lgbm_stock_signal_v11",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 800,
+                "min_cv_roc_auc": 0.5,
+                "min_precision_at_top_10pct": 0.4,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.5,
+                "min_max_drawdown_net": -0.55,
+                "max_cv_roc_auc_drop_vs_serving": 0.01,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "STOCK",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/stock_candles.csv",
+                "exists": true,
+                "row_count": 18090,
+                "unique_symbol_count": 90,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-27T00:00:00+09:00",
+                "latest_timestamp": "2026-06-29T13:00:00+09:00",
+                "staleness_hours": 3.02,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 3416,
+                  "threshold": 800,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.7243351732553464,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.4202960222016651,
+                  "threshold": 0.4,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5481994835247039,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.03441676661980866,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5789473684210527,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.28592462895982973,
+                  "threshold": -0.55,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "actions": [
+              "추천 후보가 기준을 통과하므로 승격 검토가 가능합니다."
+            ]
+          },
+          "crypto": {
+            "asset_type": "CRYPTO",
+            "status": "healthy",
+            "message": "현재 serving 모델이 기준을 통과합니다.",
+            "serving_version": null,
+            "recommended_version": "v8",
+            "latest_version": "v8",
+            "current_guard": {
+              "asset_type": "CRYPTO",
+              "candidate_version": "v8",
+              "candidate_model_version": "lgbm_crypto_signal_v8",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 1500,
+                "min_cv_roc_auc": 0.58,
+                "min_precision_at_top_10pct": 0.24,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.56,
+                "min_max_drawdown_net": -0.6,
+                "max_cv_roc_auc_drop_vs_serving": 0.015,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "CRYPTO",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+                "exists": true,
+                "row_count": 35771,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-25T07:00:00+00:00",
+                "latest_timestamp": "2026-06-29T07:00:00+00:00",
+                "staleness_hours": 0.02,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 9684,
+                  "threshold": 1500,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.7525841730718255,
+                  "threshold": 0.58,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.31240853518231604,
+                  "threshold": 0.24,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5778378756329088,
+                  "threshold": 0.56,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0014542857897015444,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5175224123879381,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.4525554523313251,
+                  "threshold": -0.6,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "recommended_guard": {
+              "asset_type": "CRYPTO",
+              "candidate_version": "v8",
+              "candidate_model_version": "lgbm_crypto_signal_v8",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 1500,
+                "min_cv_roc_auc": 0.58,
+                "min_precision_at_top_10pct": 0.24,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.56,
+                "min_max_drawdown_net": -0.6,
+                "max_cv_roc_auc_drop_vs_serving": 0.015,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "CRYPTO",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+                "exists": true,
+                "row_count": 35771,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-25T07:00:00+00:00",
+                "latest_timestamp": "2026-06-29T07:00:00+00:00",
+                "staleness_hours": 0.02,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 9684,
+                  "threshold": 1500,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.7525841730718255,
+                  "threshold": 0.58,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.31240853518231604,
+                  "threshold": 0.24,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5778378756329088,
+                  "threshold": 0.56,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0014542857897015444,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5175224123879381,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.4525554523313251,
+                  "threshold": -0.6,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "actions": [
+              "추천 후보가 기준을 통과하므로 승격 검토가 가능합니다."
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "1d6eec15-ead6-4d29-8805-6dae5c98a0a6",
+    "type": "dataset_export",
+    "status": "success",
+    "started_at": "2026-06-29T07:00:25.139239+00:00",
+    "finished_at": "2026-06-29T07:00:37.794739Z",
+    "label": "코인 v8 자동 수집+학습 (30m) (Auto)",
+    "asset_type": "CRYPTO",
+    "exchange": "BINANCE",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "XRPUSDT",
+      "BNBUSDT",
+      "DOGEUSDT",
+      "ADAUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "DOTUSDT",
+      "TRXUSDT",
+      "LTCUSDT",
+      "BCHUSDT",
+      "NEARUSDT",
+      "APTUSDT",
+      "SUIUSDT",
+      "TONUSDT",
+      "ETCUSDT",
+      "XLMUSDT",
+      "HBARUSDT",
+      "ATOMUSDT",
+      "ARBUSDT",
+      "OPUSDT",
+      "INJUSDT",
+      "SEIUSDT",
+      "PEPEUSDT",
+      "SHIBUSDT",
+      "FILUSDT",
+      "MKRUSDT",
+      "AAVEUSDT"
+    ],
+    "preset_name": "crypto_core_30",
+    "interval": "30m",
+    "count": 5000,
+    "output": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+    "row_count": 30000,
+    "failure_count": 0,
+    "failures": []
+  },
+  {
+    "id": "8ea18c41-dda4-48d4-ab4b-f849c3544ae3",
+    "type": "training_run",
+    "status": "success",
+    "started_at": "2026-06-29T05:49:37.988210+00:00",
+    "finished_at": "2026-06-29T05:49:54.796759Z",
+    "label": "주식 v8 자동 수집+학습",
+    "config": "ml/configs/lgbm_stock_v8.yaml",
+    "risk_config": "ml/configs/lgbm_stock_risk_v8.yaml",
+    "summary_output": "ml/data/processed/stock_v8_summary.json",
+    "skip_build_features": false,
+    "dataset_job_id": "996b3c63-081d-4418-8fd8-af7084787e3f",
+    "command": [
+      "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/.venv/bin/python",
+      "ml/src/run_pipeline_bundle.py",
+      "--config",
+      "ml/configs/lgbm_stock_v8.yaml",
+      "--risk-config",
+      "ml/configs/lgbm_stock_risk_v8.yaml",
+      "--summary-output",
+      "ml/data/processed/stock_v8_summary.json"
+    ],
+    "returncode": 0,
+    "stdout": "\"avg_future_return\": -0.0524680073126143,\n        \"avg_future_return_net\": -0.0544680073126143,\n        \"win_rate\": 0.0,\n        \"avg_signal_score\": 71.71636609573562\n      },\n      {\n        \"symbol\": 12330,\n        \"selections\": 5,\n        \"avg_future_return\": -0.054357497497236396,\n        \"avg_future_return_net\": -0.0563574974972364,\n        \"win_rate\": 0.4,\n        \"avg_signal_score\": 52.51161962136864\n      },\n      {\n        \"symbol\": \"SOXX\",\n        \"selections\": 1,\n        \"avg_future_return\": -0.067328112556411,\n        \"avg_future_return_net\": -0.069328112556411,\n        \"win_rate\": 0.0,\n        \"avg_signal_score\": 70.02577818633262\n      },\n      {\n        \"symbol\": 361610,\n        \"selections\": 1,\n        \"avg_future_return\": -0.0702732849972114,\n        \"avg_future_return_net\": -0.0722732849972114,\n        \"win_rate\": 0.0,\n        \"avg_signal_score\": 91.53761106533926\n      },\n      {\n        \"symbol\": 66570,\n        \"selections\": 13,\n        \"avg_future_return\": -0.08174797685763988,\n        \"avg_future_return_net\": -0.08374797685763988,\n        \"win_rate\": 0.38461538461538464,\n        \"avg_signal_score\": 62.50973794052884\n      },\n      {\n        \"symbol\": 11200,\n        \"selections\": 1,\n        \"avg_future_return\": -0.0995495495495495,\n        \"avg_future_return_net\": -0.1015495495495495,\n        \"win_rate\": 0.0,\n        \"avg_signal_score\": 25.55798431916062\n      },\n      {\n        \"symbol\": 10950,\n        \"selections\": 1,\n        \"avg_future_return\": -0.1062407132243684,\n        \"avg_future_return_net\": -0.1082407132243684,\n        \"win_rate\": 0.0,\n        \"avg_signal_score\": 48.039046400669406\n      },\n      {\n        \"symbol\": 5380,\n        \"selections\": 2,\n        \"avg_future_return\": -0.13451078007864709,\n        \"avg_future_return_net\": -0.1365107800786471,\n        \"win_rate\": 0.0,\n        \"avg_signal_score\": 53.45018982667331\n      },\n      {\n        \"symbol\": 18880,\n        \"selections\": 2,\n        \"avg_future_return\": -0.15657819750875185,\n        \"avg_future_return_net\": -0.15857819750875185,\n        \"win_rate\": 0.0,\n        \"avg_signal_score\": 24.759196527525763\n      }\n    ],\n    \"market_breakdown\": [\n      {\n        \"market_group\": \"KR\",\n        \"selections\": 6,\n        \"avg_future_return\": 0.017438822489780317,\n        \"avg_future_return_net\": 0.015438822489780317,\n        \"win_rate\": 0.6666666666666666,\n        \"avg_signal_score\": 81.61879825279273\n      },\n      {\n        \"market_group\": \"UNKNOWN\",\n        \"selections\": 211,\n        \"avg_future_return\": 0.00949036787883468,\n        \"avg_future_return_net\": 0.00749036787883468,\n        \"win_rate\": 0.5118483412322274,\n        \"avg_signal_score\": 56.78796588084834\n      },\n      {\n        \"market_group\": \"US\",\n        \"selections\": 23,\n        \"avg_future_return\": 0.008066107055060947,\n        \"avg_future_return_net\": 0.006066107055060946,\n        \"win_rate\": 0.5217391304347826,\n        \"avg_signal_score\": 56.19091507430435\n      }\n    ],\n    \"sector_breakdown\": [\n      {\n        \"sector_group\": \"전기차\",\n        \"selections\": 1,\n        \"avg_future_return\": 0.0491197676492318,\n        \"avg_future_return_net\": 0.0471197676492318,\n        \"win_rate\": 1.0,\n        \"avg_signal_score\": 42.42618339258829\n      },\n      {\n        \"sector_group\": \"바이오\",\n        \"selections\": 3,\n        \"avg_future_return\": 0.03189175757525813,\n        \"avg_future_return_net\": 0.029891757575258134,\n        \"win_rate\": 0.6666666666666666,\n        \"avg_signal_score\": 83.61180850199925\n      },\n      {\n        \"sector_group\": \"헬스케어\",\n        \"selections\": 3,\n        \"avg_future_return\": 0.0286971443453075,\n        \"avg_future_return_net\": 0.026697144345307497,\n        \"win_rate\": 1.0,\n        \"avg_signal_score\": 52.6962756776779\n      },\n      {\n        \"sector_group\": \"금융\",\n        \"selections\": 2,\n        \"avg_future_return\": 0.02718030670236745,\n        \"avg_future_return_net\": 0.02518030670236745,\n        \"win_rate\": 1.0,\n        \"avg_signal_score\": 90.65188993762811\n      },\n      {\n        \"sector_group\": \"반도체\",\n        \"selections\": 9,\n        \"avg_future_return\": 0.02602989402568292,\n        \"avg_future_return_net\": 0.024029894025682917,\n        \"win_rate\": 0.5555555555555556,\n        \"avg_signal_score\": 40.53957590233615\n      },\n      {\n        \"sector_group\": \"UNKNOWN\",\n        \"selections\": 211,\n        \"avg_future_return\": 0.00949036787883468,\n        \"avg_future_return_net\": 0.00749036787883468,\n        \"win_rate\": 0.5118483412322274,\n        \"avg_signal_score\": 56.78796588084834\n      },\n      {\n        \"sector_group\": \"빅테크\",\n        \"selections\": 5,\n        \"avg_future_return\": 0.002460883506983161,\n        \"avg_future_return_net\": 0.00046088350698316046,\n        \"win_rate\": 0.6,\n        \"avg_signal_score\": 79.66530055269195\n      },\n      {\n        \"sector_group\": \"빅테크/소비\",\n        \"selections\": 1,\n        \"avg_future_return\": -0.0248292452424931,\n        \"avg_future_return_net\": -0.026829245242493097,\n        \"win_rate\": 0.0,\n        \"avg_signal_score\": 77.14288778729593\n      },\n      {\n        \"sector_group\": \"AI 반도체\",\n        \"selections\": 4,\n        \"avg_future_return\": -0.042858739235580375,\n        \"avg_future_return_net\": -0.044858739235580376,\n        \"win_rate\": 0.0,\n        \"avg_signal_score\": 62.88761565289922\n      },\n      {\n        \"sector_group\": \"배터리\",\n        \"selections\": 1,\n        \"avg_future_return\": -0.0454029511918274,\n        \"avg_future_return_net\": -0.0474029511918274,\n        \"win_rate\": 0.0,\n        \"avg_signal_score\": 57.57358413550232\n      }\n    ],\n    \"strategy\": \"composite\",\n    \"asset_type\": \"STOCK\",\n    \"model_version\": \"lgbm_stock_signal_v8\",\n    \"risk_model_version\": \"lgbm_stock_risk_v8\",\n    \"top_percent\": null,\n    \"valid_rows\": 3416,\n    \"valid_start_date\": \"2026-04-27 00:00:00\",\n    \"valid_end_date\": \"2026-06-24 13:00:00\"\n  },\n  \"risk_config\": \"/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/configs/lgbm_stock_risk_v8.yaml\",\n  \"risk_model_version\": \"lgbm_stock_risk_v8\",\n  \"risk_metrics_path\": \"/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/models/lgbm_stock_risk_v8.metrics.json\",\n  \"risk_metrics\": {\n    \"accuracy\": 0.6229508196721312,\n    \"average_precision\": 0.41517427838419385,\n    \"precision\": 0.0,\n    \"recall\": 0.0,\n    \"precision_at_top_10pct\": 0.4298245614035088,\n    \"confusion_matrix\": {\n      \"tn\": 2128,\n      \"fp\": 0,\n      \"fn\": 1288,\n      \"tp\": 0\n    },\n    \"roc_auc\": 0.5420695809788447,\n    \"model_version\": \"lgbm_stock_risk_v8\",\n    \"asset_type\": \"STOCK\",\n    \"target_column\": \"risk_label\",\n    \"train_rows\": 11808,\n    \"train_rows_before_calibration_split\": 13140,\n    \"calibration_rows\": 1332,\n    \"valid_rows\": 3416,\n    \"train_start_date\": \"2025-08-27 00:00:00\",\n    \"train_end_date\": \"2026-04-02 00:00:00\",\n    \"valid_start_date\": \"2026-04-27 00:00:00\",\n    \"valid_end_date\": \"2026-06-24 13:00:00\",\n    \"feature_columns\": [\n      \"return_1\",\n      \"return_3\",\n      \"return_5\",\n      \"return_10\",\n      \"return_20\",\n      \"ma_5_gap\",\n      \"ma_20_gap\",\n      \"volume_ratio_5\",\n      \"volatility_20\",\n      \"rsi_14\",\n      \"amount_zscore_20\",\n      \"amount_zscore_24\",\n      \"volume_zscore_20\",\n      \"relative_return_3\",\n      \"relative_return_5\",\n      \"relative_return_10\",\n      \"sector_relative_return_3\",\n      \"sector_relative_return_5\",\n      \"sector_relative_return_10\",\n      \"usdkrw_return_3\",\n      \"usdkrw_return_5\",\n      \"atr_14\",\n      \"bollinger_position_20\",\n      \"sector_return_1_mean\",\n      \"sector_return_3_mean\",\n      \"sector_return_5_mean\",\n      \"sector_return_10_mean\",\n      \"macro_KOSPI_return_3\",\n      \"macro_KOSPI_return_5\",\n      \"macro_KOSDAQ_return_3\",\n      \"macro_KOSDAQ_return_5\",\n      \"macro_NASDAQ_return_3\",\n      \"macro_NASDAQ_return_5\",\n      \"macro_USDKRW_ma_20_gap\",\n      \"range_ratio_1\",\n      \"body_ratio_1\",\n      \"upper_wick_ratio_1\",\n      \"lower_wick_ratio_1\",\n      \"intraday_return\",\n      \"close_to_high_20\",\n      \"close_to_low_20\",\n      \"macd_line\",\n      \"macd_signal\",\n      \"macd_hist\",\n      \"day_of_week\",\n      \"is_us_asset\",\n      \"is_kr_asset\",\n      \"news_sentiment\",\n      \"news_article_count_24h\",\n      \"news_burst_zscore\",\n      \"negative_keyword_ratio\",\n      \"market_news_sentiment\",\n      \"market_news_article_count_24h\",\n      \"market_news_burst_zscore\",\n      \"market_negative_keyword_ratio\",\n      \"warning_flag\",\n      \"price_limit_proximity\",\n      \"turnover_ratio\",\n      \"market_open_flag\",\n      \"stoch_k_14\",\n      \"stoch_d_3\",\n      \"obv_zscore_20\"\n    ],\n    \"class_weight_mode\": \"balanced\",\n    \"balance_symbol_weights\": true,\n    \"used_scale_pos_weight\": true,\n    \"probability_calibration\": true,\n    \"use_ensemble\": false,\n    \"ensemble_lgbm_weight\": null,\n    \"ensemble_ridge_weight\": null,\n    \"ridge_model_trained\": false,\n    \"time_series_cv\": [\n      {\n        \"accuracy\": 0.38391886997464686,\n        \"average_precision\": 0.27043528954213,\n        \"precision\": 0.2988962472406181,\n        \"recall\": 0.8569620253164557,\n        \"precision_at_top_10pct\": 0.3142857142857143,\n        \"confusion_matrix\": {\n          \"tn\": 383,\n          \"fp\": 1588,\n          \"fn\": 113,\n          \"tp\": 677\n        },\n        \"roc_auc\": 0.5017853817056176,\n        \"fold\": 1,\n        \"train_rows\": 2548,\n        \"valid_rows\": 2761,\n        \"valid_start_date\": \"2025-10-21 13:00:00\",\n        \"valid_end_date\": \"2025-12-05 14:00:00\"\n      },\n      {\n        \"accuracy\": 0.340825350036846,\n        \"average_precision\": 0.3183822103898657,\n        \"precision\": 0.26033233915636983,\n        \"recall\": 0.9201807228915663,\n        \"precision_at_top_10pct\": 0.23684210526315788,\n        \"confusion_matrix\": {\n          \"tn\": 314,\n          \"fp\": 1736,\n          \"fn\": 53,\n          \"tp\": 611\n        },\n        \"roc_auc\": 0.6005212312665296,\n        \"fold\": 2,\n        \"train_rows\": 5309,\n        \"valid_rows\": 2714,\n        \"valid_start_date\": \"2025-12-08 00:00:00\",\n        \"valid_end_date\": \"2026-01-26 14:00:00\"\n      },\n      {\n        \"accuracy\": 0.38031723143475127,\n        \"average_precision\": 0.33346062326153414,\n        \"precision\": 0.34415841584158413,\n        \"recall\": 0.9324034334763949,\n        \"precision_at_top_10pct\": 0.24561403508771928,\n        \"confusion_matrix\": {\n          \"tn\": 186,\n          \"fp\": 1656,\n          \"fn\": 63,\n          \"tp\": 869\n        },\n        \"roc_auc\": 0.503653136402399,\n        \"fold\": 3,\n        \"train_rows\": 8023,\n        \"valid_rows\": 2774,\n        \"valid_start_date\": \"2026-01-27 00:00:00\",\n        \"valid_end_date\": \"2026-03-17 00:00:00\"\n      },\n      {\n        \"accuracy\": 0.2936708860759494,\n        \"average_precision\": 0.2847626193786912,\n        \"precision\": 0.26155021000381823,\n        \"recall\": 0.9730113636363636,\n        \"precision_at_top_10pct\": 0.17777777777777778,\n        \"confusion_matrix\": {\n          \"tn\": 127,\n          \"fp\": 1934,\n          \"fn\": 19,\n          \"tp\": 685\n        },\n        \"roc_auc\": 0.5681442564289181,\n        \"fold\": 4,\n        \"train_rows\": 10797,\n        \"valid_rows\": 2765,\n        \"valid_start_date\": \"2026-03-17 13:00:00\",\n        \"valid_end_date\": \"2026-05-04 00:00:00\"\n      },\n      {\n        \"accuracy\": 0.4373229461756374,\n        \"average_precision\": 0.4695741422183452,\n        \"precision\": 0.4153271028037383,\n        \"recall\": 0.9779929577464789,\n        \"precision_at_top_10pct\": 0.4,\n        \"confusion_matrix\": {\n          \"tn\": 124,\n          \"fp\": 1564,\n          \"fn\": 25,\n          \"tp\": 1111\n        },\n        \"roc_auc\": 0.5737634858320539,\n        \"fold\": 5,\n        \"train_rows\": 13562,\n        \"valid_rows\": 2824,\n        \"valid_start_date\": \"2026-05-04 13:00:00\",\n        \"valid_end_date\": \"2026-06-22 13:00:00\"\n      }\n    ],\n    \"time_series_cv_average\": {\n      \"accuracy\": 0.36721105673956617,\n      \"average_precision\": 0.3353229769581133,\n      \"precision\": 0.3160528630092257,\n      \"recall\": 0.9321101006134519,\n      \"precision_at_top_10pct\": 0.2749039264828738,\n      \"roc_auc\": 0.5495734983271037\n    }\n  }\n}\n",
+    "stderr": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/src/train_model.py:49: DtypeWarning: Columns (4) have mixed types. Specify dtype option on import or set low_memory=False.\n  df = pd.read_csv(features_path)\n/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/src/train_model.py:49: DtypeWarning: Columns (4) have mixed types. Specify dtype option on import or set low_memory=False.\n  df = pd.read_csv(features_path)\n/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/src/backtest_signals.py:223: DtypeWarning: Columns (4) have mixed types. Specify dtype option on import or set low_memory=False.\n  features_df = pd.read_csv(features_path)\n/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/src/backtest_signals.py:223: DtypeWarning: Columns (4) have mixed types. Specify dtype option on import or set low_memory=False.\n  features_df = pd.read_csv(features_path)\n",
+    "training_audit": {
+      "asset_type": "STOCK",
+      "asset_key": "stock",
+      "model_version": "lgbm_stock_signal_v8",
+      "promotion_guard": {
+        "asset_type": "STOCK",
+        "candidate_version": "v8",
+        "candidate_model_version": "lgbm_stock_signal_v8",
+        "serving_version": null,
+        "serving_model_version": null,
+        "passed": false,
+        "thresholds": {
+          "min_valid_rows": 800,
+          "min_cv_roc_auc": 0.5,
+          "min_precision_at_top_10pct": 0.4,
+          "min_composite_excess_return_net": 0.0,
+          "min_composite_precision_at_top_n": 0.5,
+          "min_risk_cv_roc_auc": 0.5,
+          "min_max_drawdown_net": -0.55,
+          "max_cv_roc_auc_drop_vs_serving": 0.01,
+          "max_excess_return_drop_vs_serving": 0.001,
+          "max_precision_drop_vs_serving": 0.02,
+          "meaningful_improvement_cv_roc_auc": 0.005,
+          "meaningful_improvement_excess_return_net": 0.001,
+          "meaningful_improvement_precision_at_top_n": 0.01
+        },
+        "dataset_quality": {
+          "asset_type": "STOCK",
+          "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/stock_candles.csv",
+          "exists": true,
+          "row_count": 18090,
+          "unique_symbol_count": 90,
+          "duplicate_symbol_date_count": 0,
+          "missing_required_value_count": 0,
+          "invalid_price_row_count": 0,
+          "invalid_volume_row_count": 0,
+          "oldest_timestamp": "2025-08-27T00:00:00+09:00",
+          "latest_timestamp": "2026-06-29T13:00:00+09:00",
+          "staleness_hours": 1.83,
+          "status": "healthy",
+          "issues": []
+        },
+        "checks": [
+          {
+            "name": "dataset_quality",
+            "passed": true,
+            "actual": "healthy",
+            "threshold": "healthy",
+            "comparator": "==",
+            "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+          },
+          {
+            "name": "valid_rows",
+            "passed": true,
+            "actual": 3416,
+            "threshold": 800,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "cv_roc_auc",
+            "passed": true,
+            "actual": 0.7025420690434999,
+            "threshold": 0.5,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "precision_at_top_10pct",
+            "passed": true,
+            "actual": 0.4196331738437002,
+            "threshold": 0.4,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "risk_cv_roc_auc",
+            "passed": true,
+            "actual": 0.5495734983271037,
+            "threshold": 0.5,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "composite_excess_return_net",
+            "passed": true,
+            "actual": 0.005758393949333058,
+            "threshold": 0.0,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "composite_precision_at_top_n",
+            "passed": true,
+            "actual": 0.5166666666666667,
+            "threshold": 0.5,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "max_drawdown_net",
+            "passed": false,
+            "actual": -0.7536916213836405,
+            "threshold": -0.55,
+            "comparator": ">=",
+            "detail": null
+          }
+        ],
+        "failed_checks": [
+          {
+            "name": "max_drawdown_net",
+            "passed": false,
+            "actual": -0.7536916213836405,
+            "threshold": -0.55,
+            "comparator": ">=",
+            "detail": null
+          }
+        ]
+      },
+      "serving_audit": {
+        "status": "healthy",
+        "blocking_count": 0,
+        "assets": {
+          "stock": {
+            "asset_type": "STOCK",
+            "status": "healthy",
+            "message": "현재 serving 모델이 기준을 통과합니다.",
+            "serving_version": null,
+            "recommended_version": "v6",
+            "latest_version": "v8",
+            "current_guard": {
+              "asset_type": "STOCK",
+              "candidate_version": "v6",
+              "candidate_model_version": "lgbm_stock_signal_v6",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 800,
+                "min_cv_roc_auc": 0.5,
+                "min_precision_at_top_10pct": 0.4,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.5,
+                "min_max_drawdown_net": -0.55,
+                "max_cv_roc_auc_drop_vs_serving": 0.01,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "STOCK",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/stock_candles.csv",
+                "exists": true,
+                "row_count": 18090,
+                "unique_symbol_count": 90,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-27T00:00:00+09:00",
+                "latest_timestamp": "2026-06-29T13:00:00+09:00",
+                "staleness_hours": 1.83,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 1127,
+                  "threshold": 800,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5217886625358475,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.49759759759759753,
+                  "threshold": 0.4,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5169475282000499,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0011609781093499597,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5316455696202531,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.5009260217524534,
+                  "threshold": -0.55,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "recommended_guard": {
+              "asset_type": "STOCK",
+              "candidate_version": "v6",
+              "candidate_model_version": "lgbm_stock_signal_v6",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 800,
+                "min_cv_roc_auc": 0.5,
+                "min_precision_at_top_10pct": 0.4,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.5,
+                "min_max_drawdown_net": -0.55,
+                "max_cv_roc_auc_drop_vs_serving": 0.01,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "STOCK",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/stock_candles.csv",
+                "exists": true,
+                "row_count": 18090,
+                "unique_symbol_count": 90,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-27T00:00:00+09:00",
+                "latest_timestamp": "2026-06-29T13:00:00+09:00",
+                "staleness_hours": 1.83,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 1127,
+                  "threshold": 800,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5217886625358475,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.49759759759759753,
+                  "threshold": 0.4,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5169475282000499,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0011609781093499597,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5316455696202531,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.5009260217524534,
+                  "threshold": -0.55,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "actions": [
+              "추천 후보가 기준을 통과하므로 승격 검토가 가능합니다."
+            ]
+          },
+          "crypto": {
+            "asset_type": "CRYPTO",
+            "status": "healthy",
+            "message": "현재 serving 모델이 기준을 통과합니다.",
+            "serving_version": null,
+            "recommended_version": "v8",
+            "latest_version": "v8",
+            "current_guard": {
+              "asset_type": "CRYPTO",
+              "candidate_version": "v8",
+              "candidate_model_version": "lgbm_crypto_signal_v8",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 1500,
+                "min_cv_roc_auc": 0.58,
+                "min_precision_at_top_10pct": 0.24,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.56,
+                "min_max_drawdown_net": -0.6,
+                "max_cv_roc_auc_drop_vs_serving": 0.015,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "CRYPTO",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+                "exists": true,
+                "row_count": 35684,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-25T07:00:00+00:00",
+                "latest_timestamp": "2026-06-29T05:30:00+00:00",
+                "staleness_hours": 0.33,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 9702,
+                  "threshold": 1500,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.7524764212918187,
+                  "threshold": 0.58,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.310864658035667,
+                  "threshold": 0.24,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5782998449783154,
+                  "threshold": 0.56,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0011742773811713387,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.515077424612877,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.5330514823751169,
+                  "threshold": -0.6,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "recommended_guard": {
+              "asset_type": "CRYPTO",
+              "candidate_version": "v8",
+              "candidate_model_version": "lgbm_crypto_signal_v8",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 1500,
+                "min_cv_roc_auc": 0.58,
+                "min_precision_at_top_10pct": 0.24,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.56,
+                "min_max_drawdown_net": -0.6,
+                "max_cv_roc_auc_drop_vs_serving": 0.015,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "CRYPTO",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+                "exists": true,
+                "row_count": 35684,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-25T07:00:00+00:00",
+                "latest_timestamp": "2026-06-29T05:30:00+00:00",
+                "staleness_hours": 0.33,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 9702,
+                  "threshold": 1500,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.7524764212918187,
+                  "threshold": 0.58,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.310864658035667,
+                  "threshold": 0.24,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5782998449783154,
+                  "threshold": 0.56,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0011742773811713387,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.515077424612877,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.5330514823751169,
+                  "threshold": -0.6,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "actions": [
+              "추천 후보가 기준을 통과하므로 승격 검토가 가능합니다."
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "a0e46231-f5dc-4516-bfa6-1ad6f88a35e0",
+    "type": "training_run",
+    "status": "success",
+    "started_at": "2026-06-29T05:46:35.602682+00:00",
+    "finished_at": "2026-06-29T05:47:24.364851Z",
+    "label": "코인 v8 자동 수집+학습 (30m) (Auto)",
+    "config": "ml/configs/lgbm_crypto_v8.yaml",
+    "risk_config": "ml/configs/lgbm_crypto_risk_v8.yaml",
+    "summary_output": "ml/data/processed/crypto_v8_summary.json",
+    "skip_build_features": false,
+    "dataset_job_id": "bb50be14-c577-4b51-906b-3d4f00de0a9d",
+    "command": [
+      "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/.venv/bin/python",
+      "ml/src/run_pipeline_bundle.py",
+      "--config",
+      "ml/configs/lgbm_crypto_v8.yaml",
+      "--risk-config",
+      "ml/configs/lgbm_crypto_risk_v8.yaml",
+      "--summary-output",
+      "ml/data/processed/crypto_v8_summary.json"
+    ],
+    "returncode": 0,
+    "stdout": "_net\": -0.0004895876164811155,\n        \"win_rate\": 0.6153846153846154,\n        \"avg_signal_score\": 80.44727796396721\n      },\n      {\n        \"sector_group\": \"레이어1\",\n        \"selections\": 304,\n        \"avg_future_return\": -0.001894716224426856,\n        \"avg_future_return_net\": -0.0009451791350254036,\n        \"win_rate\": 0.5098684210526315,\n        \"avg_signal_score\": 38.16611609412388\n      },\n      {\n        \"sector_group\": \"가상자산 대장주\",\n        \"selections\": 16,\n        \"avg_future_return\": 0.0004929208708547375,\n        \"avg_future_return_net\": -0.0011070791291452626,\n        \"win_rate\": 0.5625,\n        \"avg_signal_score\": 73.18603582574673\n      },\n      {\n        \"sector_group\": \"UNKNOWN\",\n        \"selections\": 774,\n        \"avg_future_return\": -0.0007425788782366513,\n        \"avg_future_return_net\": -0.001684430848313955,\n        \"win_rate\": 0.520671834625323,\n        \"avg_signal_score\": 41.32475903197204\n      },\n      {\n        \"sector_group\": \"인터체인\",\n        \"selections\": 18,\n        \"avg_future_return\": -0.0023735611457142997,\n        \"avg_future_return_net\": -0.002419559591712756,\n        \"win_rate\": 0.3888888888888889,\n        \"avg_signal_score\": 55.007459148719704\n      },\n      {\n        \"sector_group\": \"오라클\",\n        \"selections\": 12,\n        \"avg_future_return\": -0.0011728634258118414,\n        \"avg_future_return_net\": -0.0027728634258118424,\n        \"win_rate\": 0.5,\n        \"avg_signal_score\": 76.88818303443772\n      },\n      {\n        \"sector_group\": \"밈코인\",\n        \"selections\": 19,\n        \"avg_future_return\": -0.0037165507751477527,\n        \"avg_future_return_net\": -0.005545259428911458,\n        \"win_rate\": 0.3157894736842105,\n        \"avg_signal_score\": 76.93695406568106\n      }\n    ],\n    \"strategy\": \"composite\",\n    \"asset_type\": \"CRYPTO\",\n    \"model_version\": \"lgbm_crypto_signal_v8\",\n    \"risk_model_version\": \"lgbm_crypto_risk_v8\",\n    \"top_percent\": null,\n    \"valid_rows\": 9702,\n    \"valid_start_date\": \"2026-06-20 14:30:00\",\n    \"valid_end_date\": \"2026-06-29 02:30:00\"\n  },\n  \"risk_config\": \"/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/configs/lgbm_crypto_risk_v8.yaml\",\n  \"risk_model_version\": \"lgbm_crypto_risk_v8\",\n  \"risk_metrics_path\": \"/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/models/lgbm_crypto_risk_v8.metrics.json\",\n  \"risk_metrics\": {\n    \"accuracy\": 0.8700267985982272,\n    \"average_precision\": 0.15691291335829885,\n    \"precision\": 0.32,\n    \"recall\": 0.006389776357827476,\n    \"precision_at_top_10pct\": 0.19773429454170957,\n    \"confusion_matrix\": {\n      \"tn\": 8433,\n      \"fp\": 17,\n      \"fn\": 1244,\n      \"tp\": 8\n    },\n    \"roc_auc\": 0.516555475735864,\n    \"model_version\": \"lgbm_crypto_risk_v8\",\n    \"asset_type\": \"CRYPTO\",\n    \"target_column\": \"risk_label\",\n    \"train_rows\": 16008,\n    \"train_rows_before_calibration_split\": 19979,\n    \"calibration_rows\": 3971,\n    \"valid_rows\": 9702,\n    \"train_start_date\": \"2025-08-25 08:30:00\",\n    \"train_end_date\": \"2026-06-17 04:30:00\",\n    \"valid_start_date\": \"2026-06-20 14:30:00\",\n    \"valid_end_date\": \"2026-06-29 02:30:00\",\n    \"feature_columns\": [\n      \"return_1\",\n      \"return_4\",\n      \"return_12\",\n      \"return_24\",\n      \"return_48\",\n      \"ma_4_gap\",\n      \"ma_24_gap\",\n      \"volume_ratio_4\",\n      \"volume_ratio_24\",\n      \"volatility_24\",\n      \"rsi_14\",\n      \"amount_zscore_24\",\n      \"volume_zscore_24\",\n      \"atr_14\",\n      \"bollinger_position_20\",\n      \"body_ratio_1\",\n      \"upper_wick_ratio_1\",\n      \"lower_wick_ratio_1\",\n      \"intraday_return\",\n      \"macd_line\",\n      \"macd_signal\",\n      \"macd_hist\",\n      \"btcusdt_return_1\",\n      \"btcusdt_return_4\",\n      \"btcusdt_return_24\",\n      \"ethusdt_return_1\",\n      \"ethusdt_return_4\",\n      \"ethusdt_return_24\",\n      \"relative_to_btc_return_4\",\n      \"relative_to_eth_return_4\",\n      \"crypto_market_return_4\",\n      \"crypto_market_return_24\",\n      \"relative_to_market_return_4\",\n      \"relative_to_market_return_24\",\n      \"range_ratio_1\",\n      \"close_to_high_20\",\n      \"close_to_low_20\",\n      \"funding_rate\",\n      \"open_interest\",\n      \"open_interest_change_24h\",\n      \"coinone_binance_spread\",\n      \"kimchi_premium\",\n      \"leader_btc_dominance_proxy\",\n      \"hour_of_day\",\n      \"day_of_week\",\n      \"is_weekend\",\n      \"news_sentiment\",\n      \"news_article_count_24h\",\n      \"news_burst_zscore\",\n      \"market_news_sentiment\",\n      \"market_news_article_count_24h\",\n      \"market_news_burst_zscore\",\n      \"stoch_k_14\",\n      \"stoch_d_3\",\n      \"obv_zscore_20\"\n    ],\n    \"class_weight_mode\": \"balanced\",\n    \"balance_symbol_weights\": true,\n    \"used_scale_pos_weight\": true,\n    \"probability_calibration\": true,\n    \"use_ensemble\": false,\n    \"ensemble_lgbm_weight\": null,\n    \"ensemble_ridge_weight\": null,\n    \"ridge_model_trained\": false,\n    \"time_series_cv\": [\n      {\n        \"accuracy\": 0.7764705882352941,\n        \"average_precision\": 0.1841959383961678,\n        \"precision\": 0.1111111111111111,\n        \"recall\": 0.03225806451612903,\n        \"precision_at_top_10pct\": NaN,\n        \"confusion_matrix\": {\n          \"tn\": 262,\n          \"fp\": 16,\n          \"fn\": 60,\n          \"tp\": 2\n        },\n        \"roc_auc\": 0.5034230679972151,\n        \"fold\": 1,\n        \"train_rows\": 340,\n        \"valid_rows\": 340,\n        \"valid_start_date\": \"2025-09-02 19:30:00\",\n        \"valid_end_date\": \"2025-09-10 18:30:00\"\n      },\n      {\n        \"accuracy\": 0.6610804851157662,\n        \"average_precision\": 0.2695878856729892,\n        \"precision\": 0.2844542447629548,\n        \"recall\": 0.225130890052356,\n        \"precision_at_top_10pct\": 0.29508196721311475,\n        \"confusion_matrix\": {\n          \"tn\": 2740,\n          \"fp\": 649,\n          \"fn\": 888,\n          \"tp\": 258\n        },\n        \"roc_auc\": 0.5077831110506892,\n        \"fold\": 2,\n        \"train_rows\": 680,\n        \"valid_rows\": 4535,\n        \"valid_start_date\": \"2025-09-10 19:00:00\",\n        \"valid_end_date\": \"2026-06-07 19:30:00\"\n      },\n      {\n        \"accuracy\": 0.8524007839294464,\n        \"average_precision\": 0.17480955977214951,\n        \"precision\": 0.22098569157392686,\n        \"recall\": 0.16276346604215455,\n        \"precision_at_top_10pct\": 0.1277533039647577,\n        \"confusion_matrix\": {\n          \"tn\": 6820,\n          \"fp\": 490,\n          \"fn\": 715,\n          \"tp\": 139\n        },\n        \"roc_auc\": 0.627984026244886,\n        \"fold\": 3,\n        \"train_rows\": 5215,\n        \"valid_rows\": 8164,\n        \"valid_start_date\": \"2026-06-07 20:00:00\",\n        \"valid_end_date\": \"2026-06-14 21:30:00\"\n      },\n      {\n        \"accuracy\": 0.789213260761999,\n        \"average_precision\": 0.27411629921229896,\n        \"precision\": 0.27877578176979373,\n        \"recall\": 0.4032723772858518,\n        \"precision_at_top_10pct\": 0.12605042016806722,\n        \"confusion_matrix\": {\n          \"tn\": 5961,\n          \"fp\": 1084,\n          \"fn\": 620,\n          \"tp\": 419\n        },\n        \"roc_auc\": 0.7075876173451161,\n        \"fold\": 4,\n        \"train_rows\": 13379,\n        \"valid_rows\": 8084,\n        \"valid_start_date\": \"2026-06-14 22:00:00\",\n        \"valid_end_date\": \"2026-06-21 23:30:00\"\n      },\n      {\n        \"accuracy\": 0.7061124694376528,\n        \"average_precision\": 0.16709192250153465,\n        \"precision\": 0.17745302713987474,\n        \"recall\": 0.2910958904109589,\n        \"precision_at_top_10pct\": 0.11046511627906977,\n        \"confusion_matrix\": {\n          \"tn\": 5436,\n          \"fp\": 1576,\n          \"fn\": 828,\n          \"tp\": 340\n        },\n        \"roc_auc\": 0.5447214022536708,\n        \"fold\": 5,\n        \"train_rows\": 21463,\n        \"valid_rows\": 8180,\n        \"valid_start_date\": \"2026-06-22 00:00:00\",\n        \"valid_end_date\": \"2026-06-29 01:30:00\"\n      }\n    ],\n    \"time_series_cv_average\": {\n      \"accuracy\": 0.7570555174960318,\n      \"average_precision\": 0.213960321111028,\n      \"precision\": 0.21455597127153223,\n      \"recall\": 0.22290413766149006,\n      \"precision_at_top_10pct\": 0.16483770190625235,\n      \"roc_auc\": 0.5782998449783154\n    }\n  }\n}\n",
+    "stderr": "",
+    "training_audit": {
+      "asset_type": "CRYPTO",
+      "asset_key": "crypto",
+      "model_version": "lgbm_crypto_signal_v8",
+      "promotion_guard": {
+        "asset_type": "CRYPTO",
+        "candidate_version": "v8",
+        "candidate_model_version": "lgbm_crypto_signal_v8",
+        "serving_version": null,
+        "serving_model_version": null,
+        "passed": true,
+        "thresholds": {
+          "min_valid_rows": 1500,
+          "min_cv_roc_auc": 0.58,
+          "min_precision_at_top_10pct": 0.24,
+          "min_composite_excess_return_net": 0.0,
+          "min_composite_precision_at_top_n": 0.5,
+          "min_risk_cv_roc_auc": 0.56,
+          "min_max_drawdown_net": -0.6,
+          "max_cv_roc_auc_drop_vs_serving": 0.015,
+          "max_excess_return_drop_vs_serving": 0.001,
+          "max_precision_drop_vs_serving": 0.02,
+          "meaningful_improvement_cv_roc_auc": 0.005,
+          "meaningful_improvement_excess_return_net": 0.001,
+          "meaningful_improvement_precision_at_top_n": 0.01
+        },
+        "dataset_quality": {
+          "asset_type": "CRYPTO",
+          "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+          "exists": true,
+          "row_count": 35684,
+          "unique_symbol_count": 30,
+          "duplicate_symbol_date_count": 0,
+          "missing_required_value_count": 0,
+          "invalid_price_row_count": 0,
+          "invalid_volume_row_count": 0,
+          "oldest_timestamp": "2025-08-25T07:00:00+00:00",
+          "latest_timestamp": "2026-06-29T05:30:00+00:00",
+          "staleness_hours": 0.29,
+          "status": "healthy",
+          "issues": []
+        },
+        "checks": [
+          {
+            "name": "dataset_quality",
+            "passed": true,
+            "actual": "healthy",
+            "threshold": "healthy",
+            "comparator": "==",
+            "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+          },
+          {
+            "name": "valid_rows",
+            "passed": true,
+            "actual": 9702,
+            "threshold": 1500,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "cv_roc_auc",
+            "passed": true,
+            "actual": 0.7524764212918187,
+            "threshold": 0.58,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "precision_at_top_10pct",
+            "passed": true,
+            "actual": 0.310864658035667,
+            "threshold": 0.24,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "risk_cv_roc_auc",
+            "passed": true,
+            "actual": 0.5782998449783154,
+            "threshold": 0.56,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "composite_excess_return_net",
+            "passed": true,
+            "actual": 0.0011742773811713387,
+            "threshold": 0.0,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "composite_precision_at_top_n",
+            "passed": true,
+            "actual": 0.515077424612877,
+            "threshold": 0.5,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "max_drawdown_net",
+            "passed": true,
+            "actual": -0.5330514823751169,
+            "threshold": -0.6,
+            "comparator": ">=",
+            "detail": null
+          }
+        ],
+        "failed_checks": []
+      },
+      "serving_audit": {
+        "status": "healthy",
+        "blocking_count": 0,
+        "assets": {
+          "stock": {
+            "asset_type": "STOCK",
+            "status": "healthy",
+            "message": "현재 serving 모델이 기준을 통과합니다.",
+            "serving_version": null,
+            "recommended_version": "v6",
+            "latest_version": "v8",
+            "current_guard": {
+              "asset_type": "STOCK",
+              "candidate_version": "v6",
+              "candidate_model_version": "lgbm_stock_signal_v6",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 800,
+                "min_cv_roc_auc": 0.5,
+                "min_precision_at_top_10pct": 0.4,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.5,
+                "min_max_drawdown_net": -0.55,
+                "max_cv_roc_auc_drop_vs_serving": 0.01,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "STOCK",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/stock_candles.csv",
+                "exists": true,
+                "row_count": 6030,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-27T00:00:00+09:00",
+                "latest_timestamp": "2026-06-29T00:00:00+09:00",
+                "staleness_hours": 14.79,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 1127,
+                  "threshold": 800,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5217886625358475,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.49759759759759753,
+                  "threshold": 0.4,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5169475282000499,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0011609781093499597,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5316455696202531,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.5009260217524534,
+                  "threshold": -0.55,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "recommended_guard": {
+              "asset_type": "STOCK",
+              "candidate_version": "v6",
+              "candidate_model_version": "lgbm_stock_signal_v6",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 800,
+                "min_cv_roc_auc": 0.5,
+                "min_precision_at_top_10pct": 0.4,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.5,
+                "min_max_drawdown_net": -0.55,
+                "max_cv_roc_auc_drop_vs_serving": 0.01,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "STOCK",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/stock_candles.csv",
+                "exists": true,
+                "row_count": 6030,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-27T00:00:00+09:00",
+                "latest_timestamp": "2026-06-29T00:00:00+09:00",
+                "staleness_hours": 14.79,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 1127,
+                  "threshold": 800,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5217886625358475,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.49759759759759753,
+                  "threshold": 0.4,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5169475282000499,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0011609781093499597,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5316455696202531,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.5009260217524534,
+                  "threshold": -0.55,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "actions": [
+              "추천 후보가 기준을 통과하므로 승격 검토가 가능합니다."
+            ]
+          },
+          "crypto": {
+            "asset_type": "CRYPTO",
+            "status": "healthy",
+            "message": "현재 serving 모델이 기준을 통과합니다.",
+            "serving_version": null,
+            "recommended_version": "v8",
+            "latest_version": "v8",
+            "current_guard": {
+              "asset_type": "CRYPTO",
+              "candidate_version": "v8",
+              "candidate_model_version": "lgbm_crypto_signal_v8",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 1500,
+                "min_cv_roc_auc": 0.58,
+                "min_precision_at_top_10pct": 0.24,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.56,
+                "min_max_drawdown_net": -0.6,
+                "max_cv_roc_auc_drop_vs_serving": 0.015,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "CRYPTO",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+                "exists": true,
+                "row_count": 35684,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-25T07:00:00+00:00",
+                "latest_timestamp": "2026-06-29T05:30:00+00:00",
+                "staleness_hours": 0.29,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 9702,
+                  "threshold": 1500,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.7524764212918187,
+                  "threshold": 0.58,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.310864658035667,
+                  "threshold": 0.24,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5782998449783154,
+                  "threshold": 0.56,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0011742773811713387,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.515077424612877,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.5330514823751169,
+                  "threshold": -0.6,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "recommended_guard": {
+              "asset_type": "CRYPTO",
+              "candidate_version": "v8",
+              "candidate_model_version": "lgbm_crypto_signal_v8",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 1500,
+                "min_cv_roc_auc": 0.58,
+                "min_precision_at_top_10pct": 0.24,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.56,
+                "min_max_drawdown_net": -0.6,
+                "max_cv_roc_auc_drop_vs_serving": 0.015,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "CRYPTO",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+                "exists": true,
+                "row_count": 35684,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-25T07:00:00+00:00",
+                "latest_timestamp": "2026-06-29T05:30:00+00:00",
+                "staleness_hours": 0.29,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 9702,
+                  "threshold": 1500,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.7524764212918187,
+                  "threshold": 0.58,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.310864658035667,
+                  "threshold": 0.24,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5782998449783154,
+                  "threshold": 0.56,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0011742773811713387,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.515077424612877,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.5330514823751169,
+                  "threshold": -0.6,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "actions": [
+              "추천 후보가 기준을 통과하므로 승격 검토가 가능합니다."
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "996b3c63-081d-4418-8fd8-af7084787e3f",
+    "type": "dataset_export",
+    "status": "success",
+    "started_at": "2026-06-29T05:46:29.039135+00:00",
+    "finished_at": "2026-06-29T05:49:37.816697Z",
+    "label": "주식 v8 자동 수집+학습",
+    "asset_type": "STOCK",
+    "exchange": "TOSS",
+    "symbols": [
+      "005930",
+      "000660",
+      "035420",
+      "035720",
+      "005380",
+      "000270",
+      "051910",
+      "068270",
+      "373220",
+      "006400",
+      "207940",
+      "105560",
+      "055550",
+      "086790",
+      "012330",
+      "028260",
+      "066570",
+      "096770",
+      "003550",
+      "034020",
+      "011200",
+      "010130",
+      "017670",
+      "009150",
+      "018260",
+      "010950",
+      "032830",
+      "042660",
+      "000810",
+      "316140",
+      "035250",
+      "251270",
+      "361610",
+      "018880",
+      "329180",
+      "259960",
+      "352820",
+      "138040",
+      "267250",
+      "302440",
+      "005387",
+      "090430",
+      "271560",
+      "034730",
+      "097950",
+      "AAPL",
+      "MSFT",
+      "NVDA",
+      "AMZN",
+      "GOOGL",
+      "META",
+      "TSLA",
+      "AMD",
+      "AVGO",
+      "LLY",
+      "NFLX",
+      "COST",
+      "JPM",
+      "V",
+      "MA",
+      "XOM",
+      "UNH",
+      "ORCL",
+      "CRM",
+      "ADBE",
+      "QCOM",
+      "INTC",
+      "MU",
+      "PLTR",
+      "SMCI",
+      "PANW",
+      "ASML",
+      "TSM",
+      "UBER",
+      "SHOP",
+      "SNOW",
+      "COIN",
+      "SOFI",
+      "ARM",
+      "RDDT",
+      "QQQ",
+      "SPY",
+      "DIA",
+      "IWM",
+      "SOXX",
+      "XLK",
+      "XLF",
+      "XLE",
+      "GLD",
+      "TLT"
+    ],
+    "preset_name": "stock_core_90",
+    "interval": "1d",
+    "count": 700,
+    "chunk_size": 0,
+    "chunk_index": 1,
+    "output": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/stock_candles.csv",
+    "row_count": 18000,
+    "failure_count": 0,
+    "failures": [],
+    "append": true
+  },
+  {
+    "id": "bb50be14-c577-4b51-906b-3d4f00de0a9d",
+    "type": "dataset_export",
+    "status": "success",
+    "started_at": "2026-06-29T05:46:23.455031+00:00",
+    "finished_at": "2026-06-29T05:46:35.583171Z",
+    "label": "코인 v8 자동 수집+학습 (30m) (Auto)",
+    "asset_type": "CRYPTO",
+    "exchange": "BINANCE",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "XRPUSDT",
+      "BNBUSDT",
+      "DOGEUSDT",
+      "ADAUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "DOTUSDT",
+      "TRXUSDT",
+      "LTCUSDT",
+      "BCHUSDT",
+      "NEARUSDT",
+      "APTUSDT",
+      "SUIUSDT",
+      "TONUSDT",
+      "ETCUSDT",
+      "XLMUSDT",
+      "HBARUSDT",
+      "ATOMUSDT",
+      "ARBUSDT",
+      "OPUSDT",
+      "INJUSDT",
+      "SEIUSDT",
+      "PEPEUSDT",
+      "SHIBUSDT",
+      "FILUSDT",
+      "MKRUSDT",
+      "AAVEUSDT"
+    ],
+    "preset_name": "crypto_core_30",
+    "interval": "30m",
+    "count": 5000,
+    "output": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+    "row_count": 30000,
+    "failure_count": 0,
+    "failures": []
+  },
+  {
+    "id": "026a3d04-9398-4843-8350-2dbd186ecc02",
+    "type": "training_run",
+    "status": "success",
+    "started_at": "2026-06-29T05:12:25.582610+00:00",
+    "finished_at": "2026-06-29T05:13:03.023232Z",
+    "label": "코인 v8 자동 수집+학습 (30m) (Auto)",
+    "config": "ml/configs/lgbm_crypto_v8.yaml",
+    "risk_config": "ml/configs/lgbm_crypto_risk_v8.yaml",
+    "summary_output": "ml/data/processed/crypto_v8_summary.json",
+    "skip_build_features": false,
+    "dataset_job_id": "81a08286-4c66-4127-b052-01adca72c2d4",
+    "command": [
+      "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/.venv/bin/python",
+      "ml/src/run_pipeline_bundle.py",
+      "--config",
+      "ml/configs/lgbm_crypto_v8.yaml",
+      "--risk-config",
+      "ml/configs/lgbm_crypto_risk_v8.yaml",
+      "--summary-output",
+      "ml/data/processed/crypto_v8_summary.json"
+    ],
+    "returncode": 0,
+    "stdout": "_return_net\": -0.00013446519205898764,\n        \"win_rate\": 0.6875,\n        \"avg_signal_score\": 76.72635083806297\n      },\n      {\n        \"sector_group\": \"인터체인\",\n        \"selections\": 19,\n        \"avg_future_return\": 0.0007401613176078895,\n        \"avg_future_return_net\": -0.0008598386823921106,\n        \"win_rate\": 0.47368421052631576,\n        \"avg_signal_score\": 55.3938910905497\n      },\n      {\n        \"sector_group\": \"UNKNOWN\",\n        \"selections\": 771,\n        \"avg_future_return\": -0.0009133662376918563,\n        \"avg_future_return_net\": -0.0011724240313710358,\n        \"win_rate\": 0.5343709468223087,\n        \"avg_signal_score\": 40.48642455811186\n      },\n      {\n        \"sector_group\": \"오라클\",\n        \"selections\": 13,\n        \"avg_future_return\": 0.0003102292094606079,\n        \"avg_future_return_net\": -0.0012897707905393924,\n        \"win_rate\": 0.5384615384615384,\n        \"avg_signal_score\": 78.05351857190041\n      },\n      {\n        \"sector_group\": \"송금/결제\",\n        \"selections\": 17,\n        \"avg_future_return\": -0.00027270275035645903,\n        \"avg_future_return_net\": -0.0018727027503564594,\n        \"win_rate\": 0.47058823529411764,\n        \"avg_signal_score\": 74.25541712578068\n      },\n      {\n        \"sector_group\": \"가상자산 대장주\",\n        \"selections\": 10,\n        \"avg_future_return\": -0.0011214864566318299,\n        \"avg_future_return_net\": -0.002721486456631831,\n        \"win_rate\": 0.5,\n        \"avg_signal_score\": 82.55386180080168\n      },\n      {\n        \"sector_group\": \"밈코인\",\n        \"selections\": 19,\n        \"avg_future_return\": -0.0047752610688526105,\n        \"avg_future_return_net\": -0.00637526106885261,\n        \"win_rate\": 0.2631578947368421,\n        \"avg_signal_score\": 74.49908691458933\n      }\n    ],\n    \"strategy\": \"composite\",\n    \"asset_type\": \"CRYPTO\",\n    \"model_version\": \"lgbm_crypto_signal_v8\",\n    \"risk_model_version\": \"lgbm_crypto_risk_v8\",\n    \"top_percent\": null,\n    \"valid_rows\": 9711,\n    \"valid_start_date\": \"2026-06-20 14:00:00\",\n    \"valid_end_date\": \"2026-06-29 02:00:00\"\n  },\n  \"risk_config\": \"/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/configs/lgbm_crypto_risk_v8.yaml\",\n  \"risk_model_version\": \"lgbm_crypto_risk_v8\",\n  \"risk_metrics_path\": \"/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/models/lgbm_crypto_risk_v8.metrics.json\",\n  \"risk_metrics\": {\n    \"accuracy\": 0.8707651117289672,\n    \"average_precision\": 0.15837113651724458,\n    \"precision\": 0.0,\n    \"recall\": 0.0,\n    \"precision_at_top_10pct\": 0.19547325102880658,\n    \"confusion_matrix\": {\n      \"tn\": 8456,\n      \"fp\": 3,\n      \"fn\": 1252,\n      \"tp\": 0\n    },\n    \"roc_auc\": 0.5146586598692358,\n    \"model_version\": \"lgbm_crypto_risk_v8\",\n    \"asset_type\": \"CRYPTO\",\n    \"target_column\": \"risk_label\",\n    \"train_rows\": 15982,\n    \"train_rows_before_calibration_split\": 19954,\n    \"calibration_rows\": 3972,\n    \"valid_rows\": 9711,\n    \"train_start_date\": \"2025-08-25 08:30:00\",\n    \"train_end_date\": \"2026-06-17 04:00:00\",\n    \"valid_start_date\": \"2026-06-20 14:00:00\",\n    \"valid_end_date\": \"2026-06-29 02:00:00\",\n    \"feature_columns\": [\n      \"return_1\",\n      \"return_4\",\n      \"return_12\",\n      \"return_24\",\n      \"return_48\",\n      \"ma_4_gap\",\n      \"ma_24_gap\",\n      \"volume_ratio_4\",\n      \"volume_ratio_24\",\n      \"volatility_24\",\n      \"rsi_14\",\n      \"amount_zscore_24\",\n      \"volume_zscore_24\",\n      \"atr_14\",\n      \"bollinger_position_20\",\n      \"body_ratio_1\",\n      \"upper_wick_ratio_1\",\n      \"lower_wick_ratio_1\",\n      \"intraday_return\",\n      \"macd_line\",\n      \"macd_signal\",\n      \"macd_hist\",\n      \"btcusdt_return_1\",\n      \"btcusdt_return_4\",\n      \"btcusdt_return_24\",\n      \"ethusdt_return_1\",\n      \"ethusdt_return_4\",\n      \"ethusdt_return_24\",\n      \"relative_to_btc_return_4\",\n      \"relative_to_eth_return_4\",\n      \"crypto_market_return_4\",\n      \"crypto_market_return_24\",\n      \"relative_to_market_return_4\",\n      \"relative_to_market_return_24\",\n      \"range_ratio_1\",\n      \"close_to_high_20\",\n      \"close_to_low_20\",\n      \"funding_rate\",\n      \"open_interest\",\n      \"open_interest_change_24h\",\n      \"coinone_binance_spread\",\n      \"kimchi_premium\",\n      \"leader_btc_dominance_proxy\",\n      \"hour_of_day\",\n      \"day_of_week\",\n      \"is_weekend\",\n      \"news_sentiment\",\n      \"news_article_count_24h\",\n      \"news_burst_zscore\",\n      \"market_news_sentiment\",\n      \"market_news_article_count_24h\",\n      \"market_news_burst_zscore\",\n      \"stoch_k_14\",\n      \"stoch_d_3\",\n      \"obv_zscore_20\"\n    ],\n    \"class_weight_mode\": \"balanced\",\n    \"balance_symbol_weights\": true,\n    \"used_scale_pos_weight\": true,\n    \"probability_calibration\": true,\n    \"use_ensemble\": false,\n    \"ensemble_lgbm_weight\": null,\n    \"ensemble_ridge_weight\": null,\n    \"ridge_model_trained\": false,\n    \"time_series_cv\": [\n      {\n        \"accuracy\": 0.7823529411764706,\n        \"average_precision\": 0.18275260946571897,\n        \"precision\": 0.07142857142857142,\n        \"recall\": 0.016129032258064516,\n        \"precision_at_top_10pct\": NaN,\n        \"confusion_matrix\": {\n          \"tn\": 265,\n          \"fp\": 13,\n          \"fn\": 61,\n          \"tp\": 1\n        },\n        \"roc_auc\": 0.4934439545138083,\n        \"fold\": 1,\n        \"train_rows\": 340,\n        \"valid_rows\": 340,\n        \"valid_start_date\": \"2025-09-02 19:30:00\",\n        \"valid_end_date\": \"2025-09-10 18:30:00\"\n      },\n      {\n        \"accuracy\": 0.6599779492833517,\n        \"average_precision\": 0.2688240066296439,\n        \"precision\": 0.27752808988764044,\n        \"recall\": 0.21553228621291448,\n        \"precision_at_top_10pct\": 0.22413793103448276,\n        \"confusion_matrix\": {\n          \"tn\": 2746,\n          \"fp\": 643,\n          \"fn\": 899,\n          \"tp\": 247\n        },\n        \"roc_auc\": 0.5098970233745662,\n        \"fold\": 2,\n        \"train_rows\": 680,\n        \"valid_rows\": 4535,\n        \"valid_start_date\": \"2025-09-10 19:00:00\",\n        \"valid_end_date\": \"2026-06-07 19:30:00\"\n      },\n      {\n        \"accuracy\": 0.8520333170014699,\n        \"average_precision\": 0.1743375502919407,\n        \"precision\": 0.21451612903225806,\n        \"recall\": 0.1557377049180328,\n        \"precision_at_top_10pct\": 0.14347826086956522,\n        \"confusion_matrix\": {\n          \"tn\": 6823,\n          \"fp\": 487,\n          \"fn\": 721,\n          \"tp\": 133\n        },\n        \"roc_auc\": 0.6288224401464741,\n        \"fold\": 3,\n        \"train_rows\": 5215,\n        \"valid_rows\": 8164,\n        \"valid_start_date\": \"2026-06-07 20:00:00\",\n        \"valid_end_date\": \"2026-06-14 21:30:00\"\n      },\n      {\n        \"accuracy\": 0.7890895596239486,\n        \"average_precision\": 0.2726652169151034,\n        \"precision\": 0.27710843373493976,\n        \"recall\": 0.39846005774783444,\n        \"precision_at_top_10pct\": 0.0873015873015873,\n        \"confusion_matrix\": {\n          \"tn\": 5965,\n          \"fp\": 1080,\n          \"fn\": 625,\n          \"tp\": 414\n        },\n        \"roc_auc\": 0.7079876307335423,\n        \"fold\": 4,\n        \"train_rows\": 13379,\n        \"valid_rows\": 8084,\n        \"valid_start_date\": \"2026-06-14 22:00:00\",\n        \"valid_end_date\": \"2026-06-21 23:30:00\"\n      },\n      {\n        \"accuracy\": 0.7089242053789732,\n        \"average_precision\": 0.16780924291899607,\n        \"precision\": 0.17549491706795078,\n        \"recall\": 0.2808219178082192,\n        \"precision_at_top_10pct\": 0.14705882352941177,\n        \"confusion_matrix\": {\n          \"tn\": 5471,\n          \"fp\": 1541,\n          \"fn\": 840,\n          \"tp\": 328\n        },\n        \"roc_auc\": 0.5437465567832834,\n        \"fold\": 5,\n        \"train_rows\": 21463,\n        \"valid_rows\": 8180,\n        \"valid_start_date\": \"2026-06-22 00:00:00\",\n        \"valid_end_date\": \"2026-06-29 01:30:00\"\n      }\n    ],\n    \"time_series_cv_average\": {\n      \"accuracy\": 0.7584755944928429,\n      \"average_precision\": 0.21327772524428062,\n      \"precision\": 0.20321522823027208,\n      \"recall\": 0.21333619978901308,\n      \"precision_at_top_10pct\": 0.15049415068376176,\n      \"roc_auc\": 0.5767795211103348\n    }\n  }\n}\n",
+    "stderr": "",
+    "training_audit": {
+      "asset_type": "CRYPTO",
+      "asset_key": "crypto",
+      "model_version": "lgbm_crypto_signal_v8",
+      "promotion_guard": {
+        "asset_type": "CRYPTO",
+        "candidate_version": "v8",
+        "candidate_model_version": "lgbm_crypto_signal_v8",
+        "serving_version": null,
+        "serving_model_version": null,
+        "passed": true,
+        "thresholds": {
+          "min_valid_rows": 1500,
+          "min_cv_roc_auc": 0.58,
+          "min_precision_at_top_10pct": 0.24,
+          "min_composite_excess_return_net": 0.0,
+          "min_composite_precision_at_top_n": 0.5,
+          "min_risk_cv_roc_auc": 0.56,
+          "min_max_drawdown_net": -0.6,
+          "max_cv_roc_auc_drop_vs_serving": 0.015,
+          "max_excess_return_drop_vs_serving": 0.001,
+          "max_precision_drop_vs_serving": 0.02,
+          "meaningful_improvement_cv_roc_auc": 0.005,
+          "meaningful_improvement_excess_return_net": 0.001,
+          "meaningful_improvement_precision_at_top_n": 0.01
+        },
+        "dataset_quality": {
+          "asset_type": "CRYPTO",
+          "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+          "exists": true,
+          "row_count": 35655,
+          "unique_symbol_count": 30,
+          "duplicate_symbol_date_count": 0,
+          "missing_required_value_count": 0,
+          "invalid_price_row_count": 0,
+          "invalid_volume_row_count": 0,
+          "oldest_timestamp": "2025-08-25T07:00:00+00:00",
+          "latest_timestamp": "2026-06-29T05:00:00+00:00",
+          "staleness_hours": 0.22,
+          "status": "healthy",
+          "issues": []
+        },
+        "checks": [
+          {
+            "name": "dataset_quality",
+            "passed": true,
+            "actual": "healthy",
+            "threshold": "healthy",
+            "comparator": "==",
+            "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+          },
+          {
+            "name": "valid_rows",
+            "passed": true,
+            "actual": 9711,
+            "threshold": 1500,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "cv_roc_auc",
+            "passed": true,
+            "actual": 0.752370501690509,
+            "threshold": 0.58,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "precision_at_top_10pct",
+            "passed": true,
+            "actual": 0.33070147290948604,
+            "threshold": 0.24,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "risk_cv_roc_auc",
+            "passed": true,
+            "actual": 0.5767795211103348,
+            "threshold": 0.56,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "composite_excess_return_net",
+            "passed": true,
+            "actual": 0.0017692081431271674,
+            "threshold": 0.0,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "composite_precision_at_top_n",
+            "passed": true,
+            "actual": 0.5321923390383048,
+            "threshold": 0.5,
+            "comparator": ">=",
+            "detail": null
+          },
+          {
+            "name": "max_drawdown_net",
+            "passed": true,
+            "actual": -0.4143332052448143,
+            "threshold": -0.6,
+            "comparator": ">=",
+            "detail": null
+          }
+        ],
+        "failed_checks": []
+      },
+      "serving_audit": {
+        "status": "healthy",
+        "blocking_count": 0,
+        "assets": {
+          "stock": {
+            "asset_type": "STOCK",
+            "status": "healthy",
+            "message": "현재 serving 모델이 기준을 통과합니다.",
+            "serving_version": null,
+            "recommended_version": "v6",
+            "latest_version": "v8",
+            "current_guard": {
+              "asset_type": "STOCK",
+              "candidate_version": "v6",
+              "candidate_model_version": "lgbm_stock_signal_v6",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 800,
+                "min_cv_roc_auc": 0.5,
+                "min_precision_at_top_10pct": 0.4,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.5,
+                "min_max_drawdown_net": -0.55,
+                "max_cv_roc_auc_drop_vs_serving": 0.01,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "STOCK",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/stock_candles.csv",
+                "exists": true,
+                "row_count": 6030,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-27T00:00:00+09:00",
+                "latest_timestamp": "2026-06-29T00:00:00+09:00",
+                "staleness_hours": 14.22,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 1127,
+                  "threshold": 800,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5217886625358475,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.49759759759759753,
+                  "threshold": 0.4,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5169475282000499,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0011609781093499597,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5316455696202531,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.5009260217524534,
+                  "threshold": -0.55,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "recommended_guard": {
+              "asset_type": "STOCK",
+              "candidate_version": "v6",
+              "candidate_model_version": "lgbm_stock_signal_v6",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 800,
+                "min_cv_roc_auc": 0.5,
+                "min_precision_at_top_10pct": 0.4,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.5,
+                "min_max_drawdown_net": -0.55,
+                "max_cv_roc_auc_drop_vs_serving": 0.01,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "STOCK",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/stock_candles.csv",
+                "exists": true,
+                "row_count": 6030,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-27T00:00:00+09:00",
+                "latest_timestamp": "2026-06-29T00:00:00+09:00",
+                "staleness_hours": 14.22,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 1127,
+                  "threshold": 800,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5217886625358475,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.49759759759759753,
+                  "threshold": 0.4,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5169475282000499,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0011609781093499597,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5316455696202531,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.5009260217524534,
+                  "threshold": -0.55,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "actions": [
+              "추천 후보가 기준을 통과하므로 승격 검토가 가능합니다."
+            ]
+          },
+          "crypto": {
+            "asset_type": "CRYPTO",
+            "status": "healthy",
+            "message": "현재 serving 모델이 기준을 통과합니다.",
+            "serving_version": null,
+            "recommended_version": "v8",
+            "latest_version": "v8",
+            "current_guard": {
+              "asset_type": "CRYPTO",
+              "candidate_version": "v8",
+              "candidate_model_version": "lgbm_crypto_signal_v8",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 1500,
+                "min_cv_roc_auc": 0.58,
+                "min_precision_at_top_10pct": 0.24,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.56,
+                "min_max_drawdown_net": -0.6,
+                "max_cv_roc_auc_drop_vs_serving": 0.015,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "CRYPTO",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+                "exists": true,
+                "row_count": 35655,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-25T07:00:00+00:00",
+                "latest_timestamp": "2026-06-29T05:00:00+00:00",
+                "staleness_hours": 0.22,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 9711,
+                  "threshold": 1500,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.752370501690509,
+                  "threshold": 0.58,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.33070147290948604,
+                  "threshold": 0.24,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5767795211103348,
+                  "threshold": 0.56,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0017692081431271674,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5321923390383048,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.4143332052448143,
+                  "threshold": -0.6,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "recommended_guard": {
+              "asset_type": "CRYPTO",
+              "candidate_version": "v8",
+              "candidate_model_version": "lgbm_crypto_signal_v8",
+              "serving_version": null,
+              "serving_model_version": null,
+              "passed": true,
+              "thresholds": {
+                "min_valid_rows": 1500,
+                "min_cv_roc_auc": 0.58,
+                "min_precision_at_top_10pct": 0.24,
+                "min_composite_excess_return_net": 0.0,
+                "min_composite_precision_at_top_n": 0.5,
+                "min_risk_cv_roc_auc": 0.56,
+                "min_max_drawdown_net": -0.6,
+                "max_cv_roc_auc_drop_vs_serving": 0.015,
+                "max_excess_return_drop_vs_serving": 0.001,
+                "max_precision_drop_vs_serving": 0.02,
+                "meaningful_improvement_cv_roc_auc": 0.005,
+                "meaningful_improvement_excess_return_net": 0.001,
+                "meaningful_improvement_precision_at_top_n": 0.01
+              },
+              "dataset_quality": {
+                "asset_type": "CRYPTO",
+                "path": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+                "exists": true,
+                "row_count": 35655,
+                "unique_symbol_count": 30,
+                "duplicate_symbol_date_count": 0,
+                "missing_required_value_count": 0,
+                "invalid_price_row_count": 0,
+                "invalid_volume_row_count": 0,
+                "oldest_timestamp": "2025-08-25T07:00:00+00:00",
+                "latest_timestamp": "2026-06-29T05:00:00+00:00",
+                "staleness_hours": 0.22,
+                "status": "healthy",
+                "issues": []
+              },
+              "checks": [
+                {
+                  "name": "dataset_quality",
+                  "passed": true,
+                  "actual": "healthy",
+                  "threshold": "healthy",
+                  "comparator": "==",
+                  "detail": "원천 데이터 중복/결측/이상치가 없어야 합니다."
+                },
+                {
+                  "name": "valid_rows",
+                  "passed": true,
+                  "actual": 9711,
+                  "threshold": 1500,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.752370501690509,
+                  "threshold": 0.58,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "precision_at_top_10pct",
+                  "passed": true,
+                  "actual": 0.33070147290948604,
+                  "threshold": 0.24,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "risk_cv_roc_auc",
+                  "passed": true,
+                  "actual": 0.5767795211103348,
+                  "threshold": 0.56,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_excess_return_net",
+                  "passed": true,
+                  "actual": 0.0017692081431271674,
+                  "threshold": 0.0,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "composite_precision_at_top_n",
+                  "passed": true,
+                  "actual": 0.5321923390383048,
+                  "threshold": 0.5,
+                  "comparator": ">=",
+                  "detail": null
+                },
+                {
+                  "name": "max_drawdown_net",
+                  "passed": true,
+                  "actual": -0.4143332052448143,
+                  "threshold": -0.6,
+                  "comparator": ">=",
+                  "detail": null
+                }
+              ],
+              "failed_checks": []
+            },
+            "actions": [
+              "추천 후보가 기준을 통과하므로 승격 검토가 가능합니다."
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "81a08286-4c66-4127-b052-01adca72c2d4",
+    "type": "dataset_export",
+    "status": "success",
+    "started_at": "2026-06-29T05:12:13.354107+00:00",
+    "finished_at": "2026-06-29T05:12:25.562025Z",
+    "label": "코인 v8 자동 수집+학습 (30m) (Auto)",
+    "asset_type": "CRYPTO",
+    "exchange": "BINANCE",
+    "symbols": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT",
+      "XRPUSDT",
+      "BNBUSDT",
+      "DOGEUSDT",
+      "ADAUSDT",
+      "AVAXUSDT",
+      "LINKUSDT",
+      "DOTUSDT",
+      "TRXUSDT",
+      "LTCUSDT",
+      "BCHUSDT",
+      "NEARUSDT",
+      "APTUSDT",
+      "SUIUSDT",
+      "TONUSDT",
+      "ETCUSDT",
+      "XLMUSDT",
+      "HBARUSDT",
+      "ATOMUSDT",
+      "ARBUSDT",
+      "OPUSDT",
+      "INJUSDT",
+      "SEIUSDT",
+      "PEPEUSDT",
+      "SHIBUSDT",
+      "FILUSDT",
+      "MKRUSDT",
+      "AAVEUSDT"
+    ],
+    "preset_name": "crypto_core_30",
+    "interval": "30m",
+    "count": 5000,
+    "output": "/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/data/raw/crypto_candles_30m.csv",
+    "row_count": 30000,
+    "failure_count": 0,
+    "failures": []
+  },
+  {
     "id": "66b57519-cd61-4e0e-8a55-5177a73e512d",
     "type": "hpo_tune",
     "status": "success",

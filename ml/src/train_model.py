@@ -1,3 +1,4 @@
+import os
 import argparse
 import json
 import sys
@@ -7,6 +8,9 @@ import joblib
 import numpy as np
 import pandas as pd
 import yaml
+
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
+
 from lightgbm import LGBMClassifier
 from sklearn.linear_model import LogisticRegression, Ridge
 
@@ -36,6 +40,11 @@ def resolve_ml_path(config_path: str, target_path: str) -> Path:
     return path if path.is_absolute() else base_dir / path
 
 
+def read_features_csv(path: Path) -> pd.DataFrame:
+    """종목코드 문자열 보존을 위해 symbol dtype을 고정합니다."""
+    return pd.read_csv(path, dtype={"symbol": "string"}, low_memory=False)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="LightGBM 신호 모델을 학습합니다.")
     parser.add_argument("--config", default="configs/lgbm_stock_v1.yaml", help="학습 설정 파일 경로")
@@ -46,7 +55,7 @@ def main() -> None:
     model_path = resolve_ml_path(args.config, config["model"]["output_path"])
     metrics_path = model_path.with_suffix(".metrics.json")
 
-    df = pd.read_csv(features_path)
+    df = read_features_csv(features_path)
     feature_columns = config["model"]["feature_columns"]
     target_column = config["model"]["target_column"]
     train_df, valid_df = split_by_time(df, float(config["model"]["validation_ratio"]))

@@ -316,7 +316,16 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                 if supabase_service_role_key:
                                     try:
                                         auth_header = f"Bearer {supabase_service_role_key}"
-                                        toss_keys = safe_query_supabase(auth_header, "user_api_keys", "GET", params={"broker_name": "eq.TOSS"})
+                                        toss_keys = safe_query_supabase(
+                                            auth_header,
+                                            "user_api_keys",
+                                            "GET",
+                                            params={
+                                                "exchange": "eq.TOSS",
+                                                "broker_env": "eq.REAL",
+                                                "limit": "1",
+                                            },
+                                        )
                                         if toss_keys:
                                             record = toss_keys[0]
                                             client_id = crypto.decrypt(record.get("encrypted_access_key"))

@@ -28,6 +28,17 @@ def resolve_ml_path(config_path: str, target_path: str) -> Path:
     return path if path.is_absolute() else base_dir / path
 
 
+def normalize_symbol(symbol: object) -> str:
+    if pd.isna(symbol):
+        return ""
+    text = str(symbol).strip().upper()
+    if text.endswith(".0") and text[:-2].isdigit():
+        text = text[:-2]
+    if text.isdigit() and len(text) <= 6:
+        return text.zfill(6)
+    return text
+
+
 def calculate_stochastic(high: pd.Series, low: pd.Series, close: pd.Series, k_period: int = 14, d_period: int = 3) -> tuple[pd.Series, pd.Series]:
     lowest_low = low.rolling(k_period, min_periods=k_period).min()
     highest_high = high.rolling(k_period, min_periods=k_period).max()
@@ -93,6 +104,26 @@ def rolling_zscore(series: pd.Series, window: int) -> pd.Series:
     return (series - rolling_mean) / rolling_std
 
 
+def calculate_price_range_ratio(high: pd.Series, low: pd.Series, close: pd.Series, window: int) -> pd.Series:
+    highest_high = high.rolling(window, min_periods=1).max()
+    lowest_low = low.rolling(window, min_periods=1).min()
+    return (highest_high - lowest_low) / close.replace(0, np.nan)
+
+
+def calculate_consecutive_contraction_streak(series: pd.Series) -> pd.Series:
+    streak_values: list[float] = []
+    streak = 0
+    previous_value = np.nan
+    for value in series.tolist():
+        if pd.notna(value) and pd.notna(previous_value) and value < previous_value:
+            streak += 1
+        else:
+            streak = 0
+        streak_values.append(float(streak))
+        previous_value = value
+    return pd.Series(streak_values, index=series.index, dtype=float)
+
+
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     rename_map = {
         "candle_date": "date",
@@ -120,6 +151,7 @@ def load_optional_feature_source(path: Path, asset_type: str, default_columns: l
     raw_df["date"] = pd.to_datetime(raw_df["date"])
     if "symbol" not in raw_df.columns:
         raw_df["symbol"] = "__ALL__"
+    raw_df["symbol"] = raw_df["symbol"].map(normalize_symbol)
 
     if asset_type.upper() == "CRYPTO":
         raw_df["date_merge_key"] = raw_df["date"].dt.floor("h").dt.strftime("%Y-%m-%d %H:00:00")
@@ -145,18 +177,29 @@ def build_macro_features() -> pd.DataFrame:
     for macro_symbol, group in macro_raw.groupby("symbol"):
         group = group.sort_values("date").copy()
         close = group["close"].astype(float)
+        return_1 = close.pct_change(1)
         group[f"macro_{macro_symbol}_return_1"] = close.pct_change(1)
         group[f"macro_{macro_symbol}_return_3"] = close.pct_change(3)
         group[f"macro_{macro_symbol}_return_5"] = close.pct_change(5)
         group[f"macro_{macro_symbol}_return_10"] = close.pct_change(10)
+        group[f"macro_{macro_symbol}_return_20"] = close.pct_change(20)
+        group[f"macro_{macro_symbol}_return_60"] = close.pct_change(60)
         group[f"macro_{macro_symbol}_ma_20_gap"] = close / close.rolling(20, min_periods=1).mean() - 1
+        group[f"macro_{macro_symbol}_ma_60_gap"] = close / close.rolling(60, min_periods=1).mean() - 1
+        group[f"macro_{macro_symbol}_volatility_20"] = return_1.rolling(20, min_periods=1).std()
+        group[f"macro_{macro_symbol}_drawdown_60"] = close / close.rolling(60, min_periods=1).max() - 1
         keep_columns = [
             "date_ymd",
             f"macro_{macro_symbol}_return_1",
             f"macro_{macro_symbol}_return_3",
             f"macro_{macro_symbol}_return_5",
             f"macro_{macro_symbol}_return_10",
+            f"macro_{macro_symbol}_return_20",
+            f"macro_{macro_symbol}_return_60",
             f"macro_{macro_symbol}_ma_20_gap",
+            f"macro_{macro_symbol}_ma_60_gap",
+            f"macro_{macro_symbol}_volatility_20",
+            f"macro_{macro_symbol}_drawdown_60",
         ]
         macro_frames.append(group[keep_columns].drop_duplicates(subset=["date_ymd"], keep="last").set_index("date_ymd"))
     return pd.concat(macro_frames, axis=1).reset_index() if macro_frames else pd.DataFrame()
@@ -237,6 +280,9 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
 
     candles = candles.copy()
     candles["date"] = pd.to_datetime(candles["date"])
+    candles["symbol"] = candles["symbol"].map(normalize_symbol)
+    if "market_country" in candles.columns:
+        candles["market_country"] = candles["market_country"].astype(str).str.upper()
     candles = candles.sort_values(["symbol", "date"]).reset_index(drop=True)
     candles["date_ymd"] = candles["date"].dt.strftime("%Y-%m-%d")
     asset_type = str(config["model"]["asset_type"]).upper()
@@ -257,12 +303,13 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
         high = group["high"].astype(float)
         low = group["low"].astype(float)
         volume = group["volume"].astype(float)
+        prev_close = close.shift(1)
 
         # return_48: 30분 캔들에서 48봉 = 24시간 대응 수익률 추가
-        for period in [1, 3, 4, 5, 10, 12, 20, 24, 48]:
+        for period in [1, 3, 4, 5, 10, 12, 20, 24, 48, 60]:
             group[f"return_{period}"] = close.pct_change(period)
 
-        for period in [4, 5, 20, 24]:
+        for period in [4, 5, 20, 24, 60]:
             group[f"ma_{period}_gap"] = close / close.rolling(period, min_periods=1).mean() - 1
             group[f"volume_ratio_{period}"] = volume / volume.rolling(period, min_periods=1).mean()
             group[f"volatility_{period}"] = group["return_1"].rolling(period, min_periods=1).std()
@@ -280,12 +327,42 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
         group["upper_wick_ratio_1"] = (high - np.maximum(open_price, close)) / close.replace(0, np.nan)
         group["lower_wick_ratio_1"] = (np.minimum(open_price, close) - low) / close.replace(0, np.nan)
         group["intraday_return"] = close / open_price.replace(0, np.nan) - 1
+        group["overnight_gap"] = open_price / prev_close.replace(0, np.nan) - 1
+        prior_high_20 = high.shift(1).rolling(20, min_periods=1).max()
+        prior_low_20 = low.shift(1).rolling(20, min_periods=1).min()
+        group["breakout_strength_20"] = close / prior_high_20.replace(0, np.nan) - 1
+        group["breakdown_strength_20"] = close / prior_low_20.replace(0, np.nan) - 1
+        avg_range_20 = (high - low).rolling(20, min_periods=1).mean()
+        group["abnormal_range_ratio_20"] = (high - low) / avg_range_20.replace(0, np.nan)
+        group["reversal_strength_1"] = group["intraday_return"] - group["overnight_gap"]
 
         amount = close * volume
         group["amount_zscore_20"] = rolling_zscore(amount, 20)
         group["amount_zscore_24"] = rolling_zscore(amount, 24)
         group["volume_zscore_20"] = rolling_zscore(volume, 20)
         group["volume_zscore_24"] = rolling_zscore(volume, 24)
+
+        range_ratio_5 = calculate_price_range_ratio(high, low, close, 5)
+        range_ratio_10 = calculate_price_range_ratio(high, low, close, 10)
+        range_ratio_20 = calculate_price_range_ratio(high, low, close, 20)
+        range_ratio_40 = calculate_price_range_ratio(high, low, close, 40)
+        group["vcp_contraction_ratio_5_20"] = range_ratio_5 / range_ratio_20.replace(0, np.nan)
+        group["vcp_contraction_ratio_10_40"] = range_ratio_10 / range_ratio_40.replace(0, np.nan)
+        group["vcp_volatility_ratio_10_40"] = (
+            group["return_1"].rolling(10, min_periods=1).std()
+            / group["return_1"].rolling(40, min_periods=1).std().replace(0, np.nan)
+        )
+        volume_ma_5 = volume.rolling(5, min_periods=1).mean()
+        volume_ma_10 = volume.rolling(10, min_periods=1).mean()
+        volume_ma_20 = volume.rolling(20, min_periods=1).mean()
+        volume_ma_40 = volume.rolling(40, min_periods=1).mean()
+        group["vcp_volume_dryup_ratio_5_20"] = volume_ma_5 / volume_ma_20.replace(0, np.nan)
+        group["vcp_volume_dryup_ratio_10_40"] = volume_ma_10 / volume_ma_40.replace(0, np.nan)
+        intraday_range = (high - low).replace(0, np.nan)
+        close_location = ((close - low) / intraday_range).clip(lower=0, upper=1)
+        group["vcp_tight_close_ratio_10"] = (close_location >= 0.7).astype(float).rolling(10, min_periods=1).mean()
+        group["vcp_breakout_proximity_20"] = close / high.rolling(20, min_periods=1).max().replace(0, np.nan)
+        group["vcp_contraction_streak"] = calculate_consecutive_contraction_streak(range_ratio_5)
 
         macd_line, macd_signal, macd_hist = calculate_macd(close)
         group["macd_line"] = macd_line / close.replace(0, np.nan)
@@ -334,9 +411,20 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
 
         features[f"relative_return_{period}"] = features.apply(calc_relative_return, axis=1)
 
-    features["sector"] = features["symbol"].map(lambda sym: SYMBOL_METADATA.get(sym, {}).get("sector", "Unknown"))
+    def resolve_symbol_metadata(symbol: object) -> dict:
+        return SYMBOL_METADATA.get(normalize_symbol(symbol), {})
+
+    features["market_country_group"] = features.apply(
+        lambda row: (
+            str(row.get("market_country", "")).upper()
+            if str(row.get("market_country", "")).upper() in {"KR", "US"}
+            else ("US" if str(row["symbol"]).isalpha() else "KR")
+        ),
+        axis=1,
+    )
+    features["sector"] = features["symbol"].map(lambda sym: resolve_symbol_metadata(sym).get("sector", "Unknown"))
     sector_means = (
-        features.groupby(["date_ymd", "sector"])[["return_1", "return_3", "return_5", "return_10"]]
+        features.groupby(["date_ymd", "sector"])[["return_1", "return_3", "return_5", "return_10", "return_20"]]
         .mean()
         .reset_index()
         .rename(
@@ -345,12 +433,93 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
                 "return_3": "sector_return_3_mean",
                 "return_5": "sector_return_5_mean",
                 "return_10": "sector_return_10_mean",
+                "return_20": "sector_return_20_mean",
             }
         )
     )
     features = pd.merge(features, sector_means, on=["date_ymd", "sector"], how="left")
-    for period in [3, 5, 10]:
+    for period in [3, 5, 10, 20]:
         features[f"sector_relative_return_{period}"] = features[f"return_{period}"] - features[f"sector_return_{period}_mean"]
+
+    sector_context = (
+        features.groupby(["date_ymd", "sector"])
+        .agg(
+            sector_breadth_1=("return_1", lambda values: float((values > 0).mean())),
+            sector_breadth_3=("return_3", lambda values: float((values > 0).mean())),
+            sector_breadth_5=("return_5", lambda values: float((values > 0).mean())),
+            sector_above_ma20_ratio=("ma_20_gap", lambda values: float((values > 0).mean())),
+            sector_breakout_ratio_20=("close_to_high_20", lambda values: float((values > -0.03).mean())),
+            sector_volume_thrust_ratio=("volume_zscore_20", lambda values: float((values > 1.0).mean())),
+        )
+        .reset_index()
+    )
+    features = pd.merge(features, sector_context, on=["date_ymd", "sector"], how="left")
+    features["sector_rank_pct_5"] = features.groupby("date_ymd")["sector_return_5_mean"].rank(pct=True, method="average")
+    features["sector_rank_pct_20"] = features.groupby("date_ymd")["sector_return_20_mean"].rank(pct=True, method="average")
+
+    market_context = (
+        features.groupby(["date_ymd", "market_country_group"])
+        .agg(
+            market_avg_return_1=("return_1", "mean"),
+            market_avg_return_3=("return_3", "mean"),
+            market_avg_return_5=("return_5", "mean"),
+            market_avg_return_10=("return_10", "mean"),
+            market_avg_return_20=("return_20", "mean"),
+            market_breadth_1=("return_1", lambda values: float((values > 0).mean())),
+            market_breadth_3=("return_3", lambda values: float((values > 0).mean())),
+            market_breadth_5=("return_5", lambda values: float((values > 0).mean())),
+            market_above_ma20_ratio=("ma_20_gap", lambda values: float((values > 0).mean())),
+            market_breakout_ratio_20=("close_to_high_20", lambda values: float((values > -0.03).mean())),
+            market_volume_thrust_ratio=("volume_zscore_20", lambda values: float((values > 1.0).mean())),
+        )
+        .reset_index()
+    )
+    features = pd.merge(features, market_context, on=["date_ymd", "market_country_group"], how="left")
+
+    for period in [3, 5, 10, 20]:
+        features[f"market_excess_return_{period}"] = features[f"return_{period}"] - features[f"market_avg_return_{period}"]
+
+    def select_market_column(row: pd.Series, suffix: str) -> float:
+        market_symbol = "NASDAQ" if row["market_country_group"] == "US" else "KOSPI"
+        return row.get(f"macro_{market_symbol}_{suffix}", np.nan)
+
+    for suffix in [
+        "return_3",
+        "return_5",
+        "return_10",
+        "return_20",
+        "ma_20_gap",
+        "ma_60_gap",
+        "volatility_20",
+        "drawdown_60",
+    ]:
+        features[f"primary_market_{suffix}"] = features.apply(select_market_column, axis=1, suffix=suffix)
+
+    features["market_regime_score"] = (
+        (features["primary_market_ma_20_gap"] > 0).astype(float)
+        + (features["primary_market_ma_60_gap"] > 0).astype(float)
+        + (features["primary_market_return_20"] > 0).astype(float)
+        + (features["market_breadth_5"] > 0.5).astype(float)
+        + (features["sector_breadth_5"] > 0.5).astype(float)
+        - (features["macro_USDKRW_ma_20_gap"] > 0).astype(float)
+        - (features["primary_market_drawdown_60"] < -0.08).astype(float)
+    )
+    features["market_risk_off_flag"] = (
+        (features["market_regime_score"] <= 0)
+        | (features["primary_market_drawdown_60"] < -0.10)
+        | (features["market_breadth_5"] < 0.45)
+    ).astype(float)
+    features["sector_strength_score"] = (
+        features["sector_rank_pct_5"].fillna(0.5)
+        + features["sector_breadth_5"].fillna(0.5)
+        + features["sector_above_ma20_ratio"].fillna(0.5)
+        + features["sector_breakout_ratio_20"].fillna(0.5)
+    ) / 4.0
+    features["relative_return_5_x_market_breadth"] = features["relative_return_5"] * features["market_breadth_5"]
+    features["relative_return_10_x_market_breadth"] = features["relative_return_10"] * features["market_breadth_5"]
+    features["sector_relative_return_5_x_sector_breadth"] = features["sector_relative_return_5"] * features["sector_breadth_5"]
+    features["sector_relative_return_20_x_sector_rank"] = features["sector_relative_return_20"] * features["sector_rank_pct_20"]
+    features["vcp_breakout_x_sector"] = features["vcp_breakout_proximity_20"] * features["sector_breakout_ratio_20"]
 
     features = apply_optional_features(features, config)
 
@@ -393,9 +562,83 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
         "stoch_k_14",
         "stoch_d_3",
         "obv_zscore_20",
+        "vcp_contraction_ratio_5_20",
+        "vcp_contraction_ratio_10_40",
+        "vcp_volatility_ratio_10_40",
+        "vcp_volume_dryup_ratio_5_20",
+        "vcp_volume_dryup_ratio_10_40",
+        "vcp_tight_close_ratio_10",
+        "vcp_breakout_proximity_20",
+        "vcp_contraction_streak",
+        "return_60",
+        "ma_60_gap",
+        "volatility_60",
+        "overnight_gap",
+        "breakout_strength_20",
+        "breakdown_strength_20",
+        "abnormal_range_ratio_20",
+        "reversal_strength_1",
+        "sector_return_20_mean",
+        "sector_relative_return_20",
+        "sector_breadth_1",
+        "sector_breadth_3",
+        "sector_breadth_5",
+        "sector_above_ma20_ratio",
+        "sector_breakout_ratio_20",
+        "sector_volume_thrust_ratio",
+        "sector_rank_pct_5",
+        "sector_rank_pct_20",
+        "sector_strength_score",
+        "market_avg_return_1",
+        "market_avg_return_3",
+        "market_avg_return_5",
+        "market_avg_return_10",
+        "market_breadth_1",
+        "market_breadth_3",
+        "market_breadth_5",
+        "market_above_ma20_ratio",
+        "market_breakout_ratio_20",
+        "market_volume_thrust_ratio",
+        "market_excess_return_3",
+        "market_excess_return_5",
+        "market_excess_return_10",
+        "market_excess_return_20",
+        "primary_market_return_3",
+        "primary_market_return_5",
+        "primary_market_return_10",
+        "primary_market_return_20",
+        "primary_market_ma_20_gap",
+        "primary_market_ma_60_gap",
+        "primary_market_volatility_20",
+        "primary_market_drawdown_60",
+        "market_regime_score",
+        "market_risk_off_flag",
+        "relative_return_5_x_market_breadth",
+        "relative_return_10_x_market_breadth",
+        "sector_relative_return_5_x_sector_breadth",
+        "sector_relative_return_20_x_sector_rank",
+        "vcp_breakout_x_sector",
     ]:
         if column not in features.columns:
             features[column] = 0.0
+
+    features["news_presence_flag"] = (features["news_article_count_24h"] > 0).astype(float)
+    features["market_news_presence_flag"] = (features["market_news_article_count_24h"] > 0).astype(float)
+    features["news_sentiment_abs"] = features["news_sentiment"].abs()
+    features["news_sentiment_x_burst"] = features["news_sentiment"] * features["news_burst_zscore"].clip(lower=-3, upper=3)
+    features["positive_news_shock"] = features["news_sentiment"].clip(lower=0) * (1 + features["news_burst_zscore"].clip(lower=0))
+    features["negative_news_shock"] = (-features["news_sentiment"]).clip(lower=0) * (
+        1 + features["news_burst_zscore"].clip(lower=0)
+    ) * (1 + features["negative_keyword_ratio"].clip(lower=0))
+    features["news_vs_market_sentiment_gap"] = features["news_sentiment"] - features["market_news_sentiment"]
+    features["news_attention_ratio"] = features["news_article_count_24h"] / (features["market_news_article_count_24h"] + 1.0)
+    features["market_news_stress_score"] = (-features["market_news_sentiment"]).clip(lower=0) * (
+        1 + features["market_news_burst_zscore"].clip(lower=0)
+    )
+    features["warning_news_combo"] = features["warning_flag"] * features["negative_news_shock"]
+    features["turnover_event_pressure"] = features["turnover_ratio"] * (
+        1 + features["news_presence_flag"] + features["market_news_presence_flag"]
+    )
 
     if asset_type == "CRYPTO":
         leader_symbols = {

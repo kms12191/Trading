@@ -1,3 +1,4 @@
+import os
 import argparse
 import json
 import sys
@@ -5,6 +6,9 @@ from pathlib import Path
 import yaml
 import pandas as pd
 import numpy as np
+
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
+
 from lightgbm import LGBMClassifier
 import optuna
 
@@ -36,6 +40,11 @@ def resolve_ml_path(config_path: str, target_path: str) -> Path:
     path = Path(target_path)
     return path if path.is_absolute() else base_dir / path
 
+
+def read_features_csv(path: Path) -> pd.DataFrame:
+    """종목코드 문자열 보존을 위해 symbol dtype을 고정합니다."""
+    return pd.read_csv(path, dtype={"symbol": "string"}, low_memory=False)
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Optuna를 사용하여 LightGBM 하이퍼파라미터를 최적화합니다.")
     parser.add_argument("--config", default="configs/lgbm_stock_v1.yaml", help="학습 설정 파일 경로")
@@ -49,7 +58,7 @@ def main() -> None:
     features_path = resolve_ml_path(config_path, config["data"]["features_path"])
     
     print(f"[Optuna HPO] 피처 로드 중: {features_path}")
-    df = pd.read_csv(features_path)
+    df = read_features_csv(features_path)
     
     feature_columns = config["model"]["feature_columns"]
     target_column = config["model"]["target_column"]

@@ -27,6 +27,9 @@ def start_market_index_scheduler(
                     "[MarketIndexScheduler] "
                     f"updated={len(rows)} errors={len(errors)} next={interval}s"
                 )
+                # 에러 상세 내용 출력 (원인 추적용)
+                for err in errors:
+                    print(f"[MarketIndexScheduler] 수집 실패 symbol={err.get('symbol')} reason={err.get('message')}")
             except Exception as error:
                 print(f"[MarketIndexScheduler] update failed: {error}")
 

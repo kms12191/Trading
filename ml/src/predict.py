@@ -1,3 +1,4 @@
+import os
 import argparse
 import sys
 from pathlib import Path
@@ -6,12 +7,14 @@ import joblib
 import pandas as pd
 import yaml
 
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from ml.src.model_utils import apply_probability_calibration
 from ml.src.build_features import build_features, normalize_columns
+from ml.src.policy_utils import apply_stock_policy_frame, predict_with_payload
 
 
 def load_config(path: str) -> dict:
@@ -23,6 +26,11 @@ def resolve_ml_path(config_path: str, target_path: str) -> Path:
     base_dir = Path(config_path).resolve().parent.parent
     path = Path(target_path)
     return path if path.is_absolute() else base_dir / path
+
+
+def read_features_csv(path: Path) -> pd.DataFrame:
+    """종목코드 문자열 보존을 위해 symbol dtype을 고정합니다."""
+    return pd.read_csv(path, dtype={"symbol": "string"}, low_memory=False)
 
 
 def load_model_payload(path: Path) -> dict:
@@ -43,8 +51,6 @@ def main() -> None:
     raw_candles_path = resolve_ml_path(args.config, config["data"]["raw_candles_path"])
 
     payload = load_model_payload(model_path)
-    model = payload["model"]
-    calibrator = payload.get("calibrator")
     model_config = payload["config"]
     feature_columns = model_config["model"]["feature_columns"]
 
@@ -59,60 +65,53 @@ def main() -> None:
             candidate_path = resolve_ml_path(args.config, str(candidate_path))
         if candidate_path.exists():
             risk_payload = load_model_payload(candidate_path)
-            risk_model = risk_payload["model"]
-            risk_calibrator = risk_payload.get("calibrator")
             risk_feature_columns = risk_payload["config"]["model"]["feature_columns"]
 
     if raw_candles_path.exists():
         raw_df = normalize_columns(pd.read_csv(raw_candles_path))
         df = build_features(raw_df, config, include_unlabeled=True)
     else:
-        df = pd.read_csv(features_path)
+        df = read_features_csv(features_path)
     df["date"] = pd.to_datetime(df["date"])
     latest_df = df.sort_values(["symbol", "date"]).groupby("symbol", as_index=False).tail(1).copy()
-    up_probabilities = model.predict_proba(latest_df[feature_columns])[:, 1]
-    up_probabilities = apply_probability_calibration(up_probabilities, calibrator)
+    up_probabilities = predict_with_payload(payload, latest_df)
 
     latest_df["up_probability"] = up_probabilities
     latest_df["up_signal_score"] = (latest_df["up_probability"] * 100).round(2)
     latest_df["up_model_version"] = model_config["model"]["version"]
 
     asset_type = config["model"].get("asset_type", "STOCK").upper()
-    long_threshold = float(config.get("prediction", {}).get("long_threshold", 0.30))
-    short_threshold = float(config.get("prediction", {}).get("short_threshold", 0.70))
+    prediction_config = config.get("prediction", {})
+    long_threshold = float(prediction_config.get("long_threshold", 0.30))
+    short_threshold = float(prediction_config.get("short_threshold", 0.70))
 
-    if risk_model is not None:
-        risk_probabilities = risk_model.predict_proba(latest_df[risk_feature_columns])[:, 1]
-        risk_probabilities = apply_probability_calibration(risk_probabilities, risk_calibrator)
+    if risk_payload is not None:
+        risk_probabilities = predict_with_payload(risk_payload, latest_df)
         latest_df["risk_probability"] = risk_probabilities
         latest_df["risk_signal_score"] = (latest_df["risk_probability"] * 100).round(2)
         latest_df["risk_model_version"] = risk_payload["config"]["model"]["version"]
-        
-        positions = []
-        scores = []
-        for idx, row in latest_df.iterrows():
-            up_p = row["up_probability"]
-            risk_p = row["risk_probability"]
-            if asset_type == "CRYPTO":
+        if asset_type == "CRYPTO":
+            positions = []
+            scores = []
+            for _, row in latest_df.iterrows():
+                risk_p = row["risk_probability"]
                 if risk_p < long_threshold:
                     positions.append("LONG")
-                    scores.append(up_p * 100)
+                    scores.append(row["up_probability"] * 100)
                 elif risk_p > short_threshold:
                     positions.append("SHORT")
                     scores.append(risk_p * 100)
                 else:
                     positions.append("HOLD")
                     scores.append(0.0)
-            else:
-                if risk_p < long_threshold:
-                    positions.append("LONG")
-                    scores.append(up_p * 100)
-                else:
-                    positions.append("HOLD")
-                    scores.append(0.0)
-        latest_df["position"] = positions
-        latest_df["signal_score"] = [round(s, 2) for s in scores]
-        latest_df["scoring_strategy"] = "composite"
+            latest_df["composite_spread"] = latest_df["up_probability"] - latest_df["risk_probability"]
+            latest_df["position"] = positions
+            latest_df["signal_score"] = [round(score, 2) for score in scores]
+            latest_df["scoring_strategy"] = "composite"
+        else:
+            latest_df = apply_stock_policy_frame(latest_df, prediction_config)
+            latest_df["signal_score"] = latest_df["signal_score"].round(2)
+            latest_df["scoring_strategy"] = "composite"
     else:
         latest_df["risk_probability"] = 1 - latest_df["up_probability"]
         latest_df["risk_signal_score"] = (latest_df["risk_probability"] * 100).round(2)
@@ -133,9 +132,18 @@ def main() -> None:
         "risk_probability",
         "up_signal_score",
         "risk_signal_score",
+        "composite_spread",
+        "adjusted_composite_spread",
+        "policy_penalty",
         "signal_score",
         "scoring_strategy",
         "position",
+        "market_regime_state",
+        "effective_long_threshold",
+        "effective_min_spread",
+        "policy_blocked",
+        "policy_block_reason",
+        "override_applied",
         "up_model_version",
         "risk_model_version",
         "model_version",
