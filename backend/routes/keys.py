@@ -165,10 +165,18 @@ def get_toss_accounts():
     broker_env = data.get("broker_env", "REAL")
 
     crypto_helper = current_app.crypto
+    user_id = None
+    if auth_header:
+        try:
+            user_id, _ = get_user_id_from_header(auth_header)
+        except Exception:
+            pass
+
     # 입력값이 비어있는 경우 DB에서 조회
     if not client_id or not client_secret:
+        if not user_id:
+            return jsonify({"success": False, "message": "인증 정보가 올바르지 않습니다."}), 401
         try:
-            user_id, token = get_user_id_from_header(auth_header)
             params = {
                 "user_id": f"eq.{user_id}",
                 "exchange": "eq.TOSS",
