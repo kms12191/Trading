@@ -32,20 +32,23 @@ def predict_with_payload(payload: dict[str, Any], df: pd.DataFrame) -> np.ndarra
 
 
 def classify_market_regime(row: pd.Series, policy: dict[str, Any]) -> str:
+    market_group = _resolve_row_market_group(row)
     market_regime_score = float(row.get("market_regime_score", 0.0) or 0.0)
     market_breadth_5 = float(row.get("market_breadth_5", 0.0) or 0.0)
     primary_market_ma_20_gap = float(row.get("primary_market_ma_20_gap", 0.0) or 0.0)
     primary_market_drawdown_60 = float(row.get("primary_market_drawdown_60", 0.0) or 0.0)
+    risk_off_market_breadth_5 = _get_market_specific_threshold(policy, "risk_off_market_breadth_5", market_group, 0.45)
+    risk_on_market_breadth_5 = _get_market_specific_threshold(policy, "risk_on_market_breadth_5", market_group, 0.55)
 
     if (
         market_regime_score <= float(policy.get("risk_off_max_score", 0.0))
-        or market_breadth_5 < float(policy.get("risk_off_market_breadth_5", 0.45))
+        or market_breadth_5 < risk_off_market_breadth_5
         or primary_market_drawdown_60 < float(policy.get("risk_off_primary_market_drawdown_60", -0.10))
     ):
         return "risk_off"
     if (
         market_regime_score >= float(policy.get("risk_on_min_score", 3.0))
-        and market_breadth_5 >= float(policy.get("risk_on_market_breadth_5", 0.55))
+        and market_breadth_5 >= risk_on_market_breadth_5
         and primary_market_ma_20_gap > 0
     ):
         return "risk_on"
@@ -59,6 +62,41 @@ def _normalize_market_group(value: Any) -> str:
     if text in {"US", "USA", "NASDAQ", "NYSE"}:
         return "US"
     return "UNKNOWN"
+
+
+def _resolve_row_market_group(row: pd.Series) -> str:
+    for key in ("market_group", "market_country_group", "market_country"):
+        if key in row and str(row.get(key) or "").strip():
+            normalized = _normalize_market_group(row.get(key))
+            if normalized != "UNKNOWN":
+                return normalized
+    symbol = str(row.get("symbol") or "").strip().upper()
+    if symbol.isalpha():
+        return "US"
+    if symbol:
+        return "KR"
+    return "UNKNOWN"
+
+
+def _policy_allows_market(policy: dict[str, Any], market_group: str) -> bool:
+    allowed_markets = policy.get("allowed_markets")
+    if not allowed_markets:
+        return True
+    normalized_allowed = {_normalize_market_group(value) for value in allowed_markets}
+    return market_group in normalized_allowed
+
+
+def _get_market_specific_threshold(
+    policy: dict[str, Any],
+    key: str,
+    market_group: str,
+    default: float,
+) -> float:
+    market_suffix = market_group.lower()
+    market_key = f"{key}_{market_suffix}"
+    if market_key in policy and policy.get(market_key) is not None:
+        return float(policy.get(market_key))
+    return float(policy.get(key, default))
 
 
 def apply_selection_caps(
@@ -147,10 +185,13 @@ def apply_selection_caps(
 def apply_stock_policy_frame(df: pd.DataFrame, prediction_config: dict[str, Any]) -> pd.DataFrame:
     policy = dict(prediction_config.get("stock_policy", {}) or {})
     override_policy = dict(prediction_config.get("override_policy", {}) or {})
+    exception_entry_policy = dict(prediction_config.get("exception_entry_policy", {}) or {})
+    relative_risk_policy = dict(prediction_config.get("relative_risk_policy", {}) or {})
     if not policy.get("enabled", False):
         result = df.copy()
         result["composite_spread"] = result["up_probability"] - result["risk_probability"]
         result["adjusted_composite_spread"] = result["composite_spread"]
+        result["risk_rank_pct"] = result.groupby("date")["risk_probability"].rank(method="average", pct=True, ascending=True)
         result["effective_long_threshold"] = float(prediction_config.get("long_threshold", 0.30))
         result["effective_min_spread"] = float(prediction_config.get("stock_min_composite_spread", 0.0))
         result["market_regime_state"] = "static"
@@ -158,6 +199,7 @@ def apply_stock_policy_frame(df: pd.DataFrame, prediction_config: dict[str, Any]
         result["policy_block_reason"] = ""
         result["policy_penalty"] = 0.0
         result["override_applied"] = 0.0
+        result["relative_risk_override_applied"] = 0.0
         result["position"] = np.where(
             (result["risk_probability"] < result["effective_long_threshold"])
             & (result["adjusted_composite_spread"] >= result["effective_min_spread"]),
@@ -169,6 +211,7 @@ def apply_stock_policy_frame(df: pd.DataFrame, prediction_config: dict[str, Any]
 
     result = df.copy()
     result["composite_spread"] = result["up_probability"] - result["risk_probability"]
+    result["risk_rank_pct"] = result.groupby("date")["risk_probability"].rank(method="average", pct=True, ascending=True)
 
     positions: list[str] = []
     scores: list[float] = []
@@ -180,11 +223,17 @@ def apply_stock_policy_frame(df: pd.DataFrame, prediction_config: dict[str, Any]
     penalties: list[float] = []
     adjusted_spreads: list[float] = []
     override_applied_flags: list[float] = []
+    exception_entry_flags: list[float] = []
+    relative_risk_override_flags: list[float] = []
+    risk_headrooms: list[float] = []
+    spread_headrooms: list[float] = []
+    long_entry_distances: list[float] = []
 
     base_long_threshold = float(prediction_config.get("long_threshold", 0.30))
     base_min_spread = float(prediction_config.get("stock_min_composite_spread", 0.0))
 
     for _, row in result.iterrows():
+        market_group = _resolve_row_market_group(row)
         regime = classify_market_regime(row, policy)
         effective_long_threshold = base_long_threshold
         effective_min_spread = base_min_spread
@@ -205,8 +254,9 @@ def apply_stock_policy_frame(df: pd.DataFrame, prediction_config: dict[str, Any]
         market_regime_score = float(row.get("market_regime_score", 0.0) or 0.0)
         market_news_stress_score = float(row.get("market_news_stress_score", 0.0) or 0.0)
         primary_market_drawdown_60 = float(row.get("primary_market_drawdown_60", 0.0) or 0.0)
+        volume_ratio_5 = float(row.get("volume_ratio_5", 0.0) or 0.0)
 
-        min_market_breadth_5 = float(policy.get("min_market_breadth_5", 0.0))
+        min_market_breadth_5 = _get_market_specific_threshold(policy, "min_market_breadth_5", market_group, 0.0)
         min_sector_breadth_5 = float(policy.get("min_sector_breadth_5", 0.0))
         min_sector_strength_score = float(policy.get("min_sector_strength_score", 0.0))
         min_market_regime_score = float(policy.get("min_market_regime_score", -999.0))
@@ -244,12 +294,15 @@ def apply_stock_policy_frame(df: pd.DataFrame, prediction_config: dict[str, Any]
         adjusted_spread = float(row["composite_spread"]) - policy_penalty
         policy_blocked = len(hard_block_reasons) > 0
         override_applied = False
+        exception_entry_applied = False
+        relative_risk_override_applied = False
         if policy_blocked and override_policy.get("enabled", False):
             allowed_regimes = {str(item).strip().lower() for item in override_policy.get("allowed_regimes", ["risk_on", "neutral", "risk_off"])}
             override_hard_block_reasons = {str(item).strip() for item in override_policy.get("hard_block_reasons", ["news_stress"])}
-            hard_blocked = any(reason in override_hard_block_reasons for reason in reason_tokens)
+            hard_blocked = any(reason in override_hard_block_reasons for reason in hard_block_reasons)
             if (
                 regime.lower() in allowed_regimes
+                and _policy_allows_market(override_policy, market_group)
                 and not hard_blocked
                 and float(row.get("up_probability", 0.0) or 0.0) >= float(override_policy.get("min_up_probability", 1.0))
                 and float(row.get("risk_probability", 1.0) or 1.0) <= float(override_policy.get("max_risk_probability", 0.0))
@@ -259,7 +312,50 @@ def apply_stock_policy_frame(df: pd.DataFrame, prediction_config: dict[str, Any]
                 override_applied = True
                 reason_tokens.append("override")
 
-        if (not policy_blocked) and row["risk_probability"] < effective_long_threshold and adjusted_spread >= effective_min_spread:
+        risk_condition_pass = float(row.get("risk_probability", 0.0) or 0.0) < effective_long_threshold
+        if (not risk_condition_pass) and (not policy_blocked) and relative_risk_policy.get("enabled", False):
+            allowed_regimes = {
+                str(item).strip().lower()
+                for item in relative_risk_policy.get("allowed_regimes", ["risk_off", "neutral"])
+            }
+            if regime.lower() in allowed_regimes:
+                if (
+                    _policy_allows_market(relative_risk_policy, market_group)
+                    and float(row.get("risk_rank_pct", 1.0) or 1.0) <= float(relative_risk_policy.get("max_risk_rank_pct", 0.15))
+                    and adjusted_spread >= float(relative_risk_policy.get("min_adjusted_composite_spread", effective_min_spread))
+                    and market_breadth_5 >= _get_market_specific_threshold(relative_risk_policy, "min_market_breadth_5", market_group, 0.25)
+                ):
+                    risk_condition_pass = True
+                    relative_risk_override_applied = True
+                    reason_tokens.append("relative_risk_override")
+
+        standard_long = (
+            (not policy_blocked)
+            and risk_condition_pass
+            and adjusted_spread >= effective_min_spread
+        )
+
+        exception_long = False
+        if (not standard_long) and (not policy_blocked) and exception_entry_policy.get("enabled", False):
+            allowed_regimes = {
+                str(item).strip().lower()
+                for item in exception_entry_policy.get("allowed_regimes", ["risk_off", "neutral"])
+            }
+            if regime.lower() in allowed_regimes:
+                if (
+                    _policy_allows_market(exception_entry_policy, market_group)
+                    and float(row.get("up_probability", 0.0) or 0.0) >= float(exception_entry_policy.get("min_up_probability", 0.75))
+                    and float(row.get("risk_probability", 1.0) or 1.0) <= float(exception_entry_policy.get("max_risk_probability", 0.20))
+                    and adjusted_spread >= float(exception_entry_policy.get("min_adjusted_composite_spread", effective_min_spread))
+                    and market_breadth_5 >= _get_market_specific_threshold(exception_entry_policy, "min_market_breadth_5", market_group, 0.25)
+                    and sector_strength_score >= float(exception_entry_policy.get("min_sector_strength_score", 0.50))
+                    and volume_ratio_5 >= float(exception_entry_policy.get("min_volume_ratio_5", 0.0))
+                ):
+                    exception_long = True
+                    exception_entry_applied = True
+                    reason_tokens.append("exception_entry")
+
+        if standard_long or exception_long:
             positions.append("LONG")
             scores.append(float(adjusted_spread * 100.0))
         else:
@@ -272,8 +368,16 @@ def apply_stock_policy_frame(df: pd.DataFrame, prediction_config: dict[str, Any]
         blocked_flags.append(float(policy_blocked))
         penalties.append(policy_penalty)
         adjusted_spreads.append(adjusted_spread)
+        risk_headrooms.append(effective_long_threshold - float(row.get("risk_probability", 0.0) or 0.0))
+        spread_headrooms.append(adjusted_spread - effective_min_spread)
+        long_entry_distances.append(
+            max(float(row.get("risk_probability", 0.0) or 0.0) - effective_long_threshold, 0.0)
+            + max(effective_min_spread - adjusted_spread, 0.0)
+        )
         blocked_reasons.append("|".join(reason_tokens + hard_block_reasons))
         override_applied_flags.append(float(override_applied))
+        exception_entry_flags.append(float(exception_entry_applied))
+        relative_risk_override_flags.append(float(relative_risk_override_applied))
 
     result["effective_long_threshold"] = thresholds
     result["effective_min_spread"] = spreads
@@ -282,7 +386,12 @@ def apply_stock_policy_frame(df: pd.DataFrame, prediction_config: dict[str, Any]
     result["policy_block_reason"] = blocked_reasons
     result["policy_penalty"] = penalties
     result["adjusted_composite_spread"] = adjusted_spreads
+    result["risk_headroom"] = risk_headrooms
+    result["spread_headroom"] = spread_headrooms
+    result["long_entry_distance"] = long_entry_distances
     result["override_applied"] = override_applied_flags
+    result["exception_entry_applied"] = exception_entry_flags
+    result["relative_risk_override_applied"] = relative_risk_override_flags
     result["position"] = positions
     result["signal_score"] = scores
     return result

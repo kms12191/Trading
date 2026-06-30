@@ -34,25 +34,59 @@ def get_cached_change_rate(exchange, symbol, broker_env, auth_header):
             crypto_helper = current_app.crypto
             records = _get_quote_records_with_env_fallback(auth_header, user_id, "TOSS", broker_env)
             if records:
-                access_key = crypto_helper.decrypt(records[0].get("encrypted_access_key"))
-                secret_key = crypto_helper.decrypt(records[0].get("encrypted_secret_key"))
-                toss_account_seq = records[0].get("toss_account_seq")
-                client = TossClient(client_id=access_key, client_secret=secret_key, account_seq=toss_account_seq, env=broker_env, user_id=user_id)
-                price_data = client.get_price(symbol)
-                change_rate = float(price_data.get("change_rate") or 0.0)
+                try:
+                    access_key = crypto_helper.decrypt(records[0].get("encrypted_access_key"))
+                    secret_key = crypto_helper.decrypt(records[0].get("encrypted_secret_key"))
+                    toss_account_seq = records[0].get("toss_account_seq")
+                    client = TossClient(client_id=access_key, client_secret=secret_key, account_seq=toss_account_seq, env=broker_env, user_id=user_id)
+                    price_data = client.get_price(symbol)
+                    change_rate = float(price_data.get("change_rate") or 0.0)
+                except Exception as toss_err:
+                    current_app.logger.warning(f"TOSS get_price failed in get_cached_change_rate: {str(toss_err)}. KIS 폴백을 시도합니다.")
+                    records = []
+            
+            # TOSS 키가 없거나 호출이 실패한 경우 KIS 키로 폴백하여 시세 및 전일대비율을 구합니다.
+            if not records:
+                records_kis = _get_quote_records_with_env_fallback(auth_header, user_id, "KIS", broker_env)
+                if records_kis:
+                    access_key = crypto_helper.decrypt(records_kis[0].get("encrypted_access_key"))
+                    secret_key = crypto_helper.decrypt(records_kis[0].get("encrypted_secret_key"))
+                    cano = records_kis[0].get("kis_account_no")
+                    acnt_prdt_cd = records_kis[0].get("kis_account_code", "01")
+                    kis_env = records_kis[0].get("broker_env", "MOCK")
+                    client = KISClient(appkey=access_key, appsecret=secret_key, cano=cano, acnt_prdt_cd=acnt_prdt_cd, env=kis_env, user_id=user_id)
+                    price_data = client.get_price(symbol)
+                    change_rate = float(price_data.get("change_rate") or 0.0)
+
         elif exchange == "KIS" and auth_header:
             user_id, token = get_user_id_from_header(auth_header)
             crypto_helper = current_app.crypto
             records = _get_quote_records_with_env_fallback(auth_header, user_id, "KIS", broker_env)
             if records:
-                access_key = crypto_helper.decrypt(records[0].get("encrypted_access_key"))
-                secret_key = crypto_helper.decrypt(records[0].get("encrypted_secret_key"))
-                cano = records[0].get("kis_account_no")
-                acnt_prdt_cd = records[0].get("kis_account_code", "01")
-                kis_env = records[0].get("broker_env", "MOCK")
-                client = KISClient(appkey=access_key, appsecret=secret_key, cano=cano, acnt_prdt_cd=acnt_prdt_cd, env=kis_env, user_id=user_id)
-                price_data = client.get_price(symbol)
-                change_rate = float(price_data.get("change_rate") or 0.0)
+                try:
+                    access_key = crypto_helper.decrypt(records[0].get("encrypted_access_key"))
+                    secret_key = crypto_helper.decrypt(records[0].get("encrypted_secret_key"))
+                    cano = records[0].get("kis_account_no")
+                    acnt_prdt_cd = records[0].get("kis_account_code", "01")
+                    kis_env = records[0].get("broker_env", "MOCK")
+                    client = KISClient(appkey=access_key, appsecret=secret_key, cano=cano, acnt_prdt_cd=acnt_prdt_cd, env=kis_env, user_id=user_id)
+                    price_data = client.get_price(symbol)
+                    change_rate = float(price_data.get("change_rate") or 0.0)
+                except Exception as kis_err:
+                    current_app.logger.warning(f"KIS get_price failed in get_cached_change_rate: {str(kis_err)}. TOSS 폴백을 시도합니다.")
+                    records = []
+            
+            # KIS 키가 없거나 호출이 실패한 경우 TOSS 키로 폴백하여 시세 및 전일대비율을 구합니다.
+            if not records:
+                records_toss = _get_quote_records_with_env_fallback(auth_header, user_id, "TOSS", broker_env)
+                if records_toss:
+                    access_key = crypto_helper.decrypt(records_toss[0].get("encrypted_access_key"))
+                    secret_key = crypto_helper.decrypt(records_toss[0].get("encrypted_secret_key"))
+                    toss_account_seq = records_toss[0].get("toss_account_seq")
+                    client = TossClient(client_id=access_key, client_secret=secret_key, account_seq=toss_account_seq, env=broker_env, user_id=user_id)
+                    price_data = client.get_price(symbol)
+                    change_rate = float(price_data.get("change_rate") or 0.0)
+
         elif exchange == "COINONE":
             url = f"https://api.coinone.co.kr/public/v2/ticker/KRW/{symbol.upper()}"
             res = requests.get(url, timeout=3)

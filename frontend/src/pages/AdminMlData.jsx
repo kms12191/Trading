@@ -2726,6 +2726,8 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
           ) : null}
         </section>
 
+        {showAdvancedTools ? (
+        <>
         <V8OptunaPanel
           presets={v8TuningPresets}
           trials={tuneTrials}
@@ -2738,8 +2740,6 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
           onRun={handleRunTuning}
         />
 
-        {showAdvancedTools ? (
-        <>
         <section className="rounded-lg border border-slate-700/80 bg-slate-surface p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -2957,6 +2957,8 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
         </section>
         ) : null}
 
+        {showAdvancedTools ? (
+        <>
         <section className="grid gap-6 grid-cols-1">
           <RegistryPanel
             title="주식 레지스트리 상태"
@@ -2984,6 +2986,8 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
           <section className="rounded-lg border border-ai-cyan/30 bg-ai-cyan/5 p-4 text-sm whitespace-pre-line text-ai-cyan">
             {registryMessage}
           </section>
+        ) : null}
+        </>
         ) : null}
 
         {showAdvancedTools ? <ExecutionChecklistPanel /> : null}

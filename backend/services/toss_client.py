@@ -406,8 +406,9 @@ class TossClient(ExchangeClient):
 
     def _get_exchange_rate_snapshot(self, definition: dict) -> dict:
         # 환율은 별도 API로 가져오되, 응답이 비면 전일 종가 기준값으로도 구성한다.
-        token = self._get_exchange_rate_bearer_token()
-        response = requests.get(
+        token = self._get_cached_token()
+        response = self._send_request(
+            "GET",
             f"{self.base_url}/api/v1/exchange-rate",
             headers={
                 "Authorization": f"Bearer {token}",
@@ -450,21 +451,6 @@ class TossClient(ExchangeClient):
             source="TOSS_EXCHANGE_RATE",
             token_info=self.get_token_cache_info(),
         )
-
-    def _get_exchange_rate_bearer_token(self) -> str:
-        secret_token = os.getenv("TOSS_SECRET_TOKEN", "")
-        if not secret_token:
-            raise RuntimeError("TOSS_SECRET_TOKEN is not configured.")
-
-        # 환율 조회는 별도 고정 토큰을 쓰므로 캐시 상태도 그에 맞게 기록한다.
-        self._last_token_cache_info = {
-            "source": "TOSS_EXCHANGE_RATE",
-            "cacheStatus": "HIT",
-            "tokenStatus": "REUSED",
-            "errorMessage": None,
-            "expiredAt": None,
-        }
-        return secret_token
 
     def _build_market_index_row(
         self,
@@ -1073,8 +1059,9 @@ class TossClient(ExchangeClient):
 
     def _get_exchange_rate_impl(self) -> float:
         try:
-            token = self._get_exchange_rate_bearer_token()
-            res = requests.get(
+            token = self._get_cached_token()
+            res = self._send_request(
+                "GET",
                 f"{self.base_url}/api/v1/exchange-rate",
                 headers={
                     "Authorization": f"Bearer {token}",

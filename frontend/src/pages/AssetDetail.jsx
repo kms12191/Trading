@@ -12,6 +12,24 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const normalizedRouteAssetType = String(assetType || '').toUpperCase() === 'STOCK' ? 'STOCK' : 'CRYPTO'
   const [resolvedAssetType, setResolvedAssetType] = useState(normalizedRouteAssetType)
 
+  const getCurrencySign = () => {
+    if (exchange === 'COINONE') return '₩';
+    if (exchange === 'BINANCE') return '$';
+    if (resolvedAssetType === 'STOCK') {
+      return /^\d+$/.test(symbol) ? '₩' : '$';
+    }
+    return '$';
+  };
+
+  const getCurrencyDigits = () => {
+    if (exchange === 'COINONE') return 0;
+    if (exchange === 'BINANCE') return 4;
+    if (resolvedAssetType === 'STOCK') {
+      return /^\d+$/.test(symbol) ? 0 : 4;
+    }
+    return 4;
+  };
+
   // 1. 거래소 기본값 세팅 (주식은 TOSS 실거래를 기본값으로, 코인은 COINONE)
   const defaultExchange = normalizedRouteAssetType === 'STOCK' ? 'TOSS' : 'COINONE'
   const [exchange, setExchange] = useState(defaultExchange)
@@ -300,6 +318,69 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     return 'border-slate-700 bg-slate-900/70 text-slate-400'
   }
 
+  const getPolicyReasonLabel = (reason) => {
+    const labels = {
+      market_breadth: '시장 폭 부족',
+      sector_breadth: '섹터 폭 부족',
+      sector_strength: '섹터 강도 부족',
+      market_regime: '시장 국면 보수적',
+      market_drawdown: '시장 낙폭 부담',
+      hard_market_drawdown: '시장 급락 차단',
+      news_stress: '뉴스 스트레스',
+      exception_entry: '예외 진입',
+      relative_risk_override: '상대 위험 완화',
+      override: '정책 예외',
+    }
+    return labels[reason] || reason
+  }
+
+  const getPolicyReasonLabels = (signal) => {
+    if (!signal) return []
+    if (Array.isArray(signal.policy_block_reason_labels) && signal.policy_block_reason_labels.length > 0) {
+      return signal.policy_block_reason_labels
+    }
+    return String(signal.policy_block_reason || '')
+      .split('|')
+      .map(item => item.trim())
+      .filter(Boolean)
+      .map(getPolicyReasonLabel)
+  }
+
+  const formatDecimalMetric = (value, digits = 2) => {
+    if (value === null || value === undefined || value === '') return '-'
+    const numberValue = Number(value)
+    if (Number.isNaN(numberValue)) return '-'
+    return numberValue.toFixed(digits)
+  }
+
+  const formatRatio = (value) => {
+    if (value === null || value === undefined || value === '') return '-'
+    const numberValue = Number(value)
+    if (Number.isNaN(numberValue)) return '-'
+    return `${numberValue.toFixed(2)}x`
+  }
+
+  const formatMetric = (value, digits = 4) => {
+    if (value === null || value === undefined || value === '') return '-'
+    const numberValue = Number(value)
+    if (Number.isNaN(numberValue)) return '-'
+    return numberValue.toFixed(digits)
+  }
+
+  const formatPercent = (value, digits = 1) => {
+    if (value === null || value === undefined || value === '') return '-'
+    const numberValue = Number(value)
+    if (Number.isNaN(numberValue)) return '-'
+    return `${(numberValue * 100).toFixed(digits)}%`
+  }
+
+  const formatReturnPercent = (value, digits = 2) => {
+    if (value === null || value === undefined || value === '') return '-'
+    const numberValue = Number(value)
+    if (Number.isNaN(numberValue)) return '-'
+    return `${(numberValue * 100).toFixed(digits)}%`
+  }
+
   const normalizeCandleTime = (rawTime) => {
     if (typeof rawTime === 'number' && !Number.isNaN(rawTime)) {
       return rawTime
@@ -496,7 +577,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         
         if (resData.meta && typeof resData.meta.change_rate === 'number') {
           setPriceChangeRate(resData.meta.change_rate);
-        } else if (uniqueFormatted.length > 1) {
+        } else if (chartInterval === '1d' && uniqueFormatted.length > 1) {
           const prevCandle = uniqueFormatted[uniqueFormatted.length - 2];
           const change = prevCandle.close !== 0 ? ((lastCandle.close - prevCandle.close) / prevCandle.close) * 100 : 0;
           setPriceChangeRate(change);
@@ -1053,7 +1134,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
             <div className="flex flex-col">
               <span className="text-[10px] text-slate-400 font-bold">현재가</span>
               <span className="text-lg font-bold font-mono text-white mt-0.5">
-                {resolvedAssetType === 'STOCK' ? `₩${currentPrice.toLocaleString()}` : `$${currentPrice.toLocaleString()}`}
+                {getCurrencySign()}{currentPrice.toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
               </span>
             </div>
 
@@ -1248,6 +1329,38 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                 </div>
               ) : mlSignal ? (
                 <div className="flex flex-col gap-3">
+                  {(() => {
+                    const performance = mlSignal.meta?.performance
+                    if (!performance) return null
+
+                    return (
+                      <div className="rounded border border-emerald-900/30 bg-emerald-950/10 px-3 py-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-300">Model Quality</span>
+                          <span className="text-[9px] text-slate-500">최근 활성 모델 기준</span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <div className="rounded border border-[#1f2945] bg-[#070b19] p-2">
+                            <p className="text-[9px] text-slate-500">CV ROC AUC</p>
+                            <p className="mt-1 font-mono text-xs font-bold text-white">{formatMetric(performance.cv_roc_auc)}</p>
+                          </div>
+                          <div className="rounded border border-[#1f2945] bg-[#070b19] p-2">
+                            <p className="text-[9px] text-slate-500">상위 10% 적중</p>
+                            <p className="mt-1 font-mono text-xs font-bold text-white">{formatPercent(performance.precision_at_top_10pct)}</p>
+                          </div>
+                          <div className="rounded border border-[#1f2945] bg-[#070b19] p-2">
+                            <p className="text-[9px] text-slate-500">복합 초과수익</p>
+                            <p className="mt-1 font-mono text-xs font-bold text-emerald-300">{formatReturnPercent(performance.composite_excess_return_net)}</p>
+                          </div>
+                          <div className="rounded border border-[#1f2945] bg-[#070b19] p-2">
+                            <p className="text-[9px] text-slate-500">최대 낙폭</p>
+                            <p className="mt-1 font-mono text-xs font-bold text-rose-300">{formatReturnPercent(performance.composite_max_drawdown_net)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded border px-2 py-1 text-[10px] font-black tracking-widest ${getSignalGradeTone(mlSignal.signal_grade)}`}>
                       {getSignalGradeLabel(mlSignal.signal_grade)}
@@ -1264,6 +1377,19 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                     {mlSignal.reason_summary || '현재 모델 신호를 요약할 수 없습니다.'}
                   </p>
 
+                  {getPolicyReasonLabels(mlSignal).length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {getPolicyReasonLabels(mlSignal).slice(0, 4).map((reason) => (
+                        <span
+                          key={reason}
+                          className="rounded border border-slate-700/80 bg-slate-900/70 px-2 py-1 text-[9px] font-bold text-slate-300"
+                        >
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-3 gap-2">
                     <div className="rounded border border-[#1f2945] bg-[#070b19] p-2">
                       <p className="text-[9px] text-slate-500">상승 확률</p>
@@ -1276,6 +1402,42 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                     <div className="rounded border border-[#1f2945] bg-[#070b19] p-2">
                       <p className="text-[9px] text-slate-500">복합 점수</p>
                       <p className="mt-1 font-mono text-xs font-bold text-cyan-300">{formatSignalScore(mlSignal.signal_score)}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded border border-[#1f2945] bg-[#070b19] p-2">
+                      <p className="text-[9px] text-slate-500">진입 거리</p>
+                      <p className="mt-1 font-mono text-xs font-bold text-white">{formatDecimalMetric(mlSignal.long_entry_distance, 3)}</p>
+                    </div>
+                    <div className="rounded border border-[#1f2945] bg-[#070b19] p-2">
+                      <p className="text-[9px] text-slate-500">거래량 확인</p>
+                      <p className={`mt-1 font-mono text-xs font-bold ${Number(mlSignal.volume_ratio_5 || 0) >= 0.7 ? 'text-emerald-300' : 'text-amber-300'}`}>
+                        {formatRatio(mlSignal.volume_ratio_5)}
+                      </p>
+                    </div>
+                    <div className="rounded border border-[#1f2945] bg-[#070b19] p-2">
+                      <p className="text-[9px] text-slate-500">시장 폭</p>
+                      <p className="mt-1 font-mono text-xs font-bold text-slate-200">{formatProbability(mlSignal.market_breadth_5)}</p>
+                    </div>
+                    <div className="rounded border border-[#1f2945] bg-[#070b19] p-2">
+                      <p className="text-[9px] text-slate-500">섹터 강도</p>
+                      <p className="mt-1 font-mono text-xs font-bold text-slate-200">{formatDecimalMetric(mlSignal.sector_strength_score, 2)}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded border border-[#1f2945] bg-[#070b19]/80 px-3 py-2 text-[10px] leading-4 text-slate-400">
+                    <div className="flex justify-between gap-3">
+                      <span>추천 티어</span>
+                      <span className="font-mono font-bold text-white">{mlSignal.recommendation_tier || mlSignal.position || '-'}</span>
+                    </div>
+                    <div className="mt-1 flex justify-between gap-3">
+                      <span>정책 국면</span>
+                      <span className="font-mono font-bold text-white">{mlSignal.market_regime_state || '-'}</span>
+                    </div>
+                    <div className="mt-1 flex justify-between gap-3">
+                      <span>조정 스프레드</span>
+                      <span className="font-mono font-bold text-white">{formatDecimalMetric(mlSignal.adjusted_composite_spread, 3)}</span>
                     </div>
                   </div>
 
@@ -1428,9 +1590,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                 <div className="bg-[#070b19] border border-[#1f2945] rounded p-3 flex justify-between items-center text-xs">
                   <span className="text-slate-400 font-bold">예정 금액</span>
                   <span className="font-mono font-bold text-white">
-                    {resolvedAssetType === 'STOCK'
-                      ? `₩${totalEstimatedAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-                      : `$${totalEstimatedAmount.toLocaleString(undefined, { maximumFractionDigits: 4 })}`}
+                    {getCurrencySign()}{totalEstimatedAmount.toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
                   </span>
                 </div>
 
@@ -1446,9 +1606,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                       <div className="flex justify-between text-slate-300">
                         <span>기준가</span>
                         <span className="text-white">
-                          {resolvedAssetType === 'STOCK'
-                            ? `₩${Number(orderPrecheck.reference_price || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-                            : `$${Number(orderPrecheck.reference_price || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}`}
+                          {getCurrencySign()}{Number(orderPrecheck.reference_price || 0).toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
                         </span>
                       </div>
                       <div className="flex justify-between text-slate-300">
@@ -1459,7 +1617,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                         <div className="flex justify-between text-slate-300">
                           <span>주문 가능 현금</span>
                           <span className="text-white">
-                            ₩{Number(orderPrecheck.available_cash).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            {getCurrencySign()}{Number(orderPrecheck.available_cash).toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
                           </span>
                         </div>
                       )}
@@ -1577,13 +1735,13 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                   <div className="flex justify-between border-b border-[#1f2945]/30 py-1">
                     <span className="text-slate-400">평균 단가</span>
                     <span className="text-white font-bold">
-                      {resolvedAssetType === 'STOCK' ? `₩${myHolding.avg_price.toLocaleString(undefined, {maximumFractionDigits:0})}` : `$${myHolding.avg_price.toLocaleString(undefined, {maximumFractionDigits:4})}`}
+                      {getCurrencySign()}{myHolding.avg_price.toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
                     </span>
                   </div>
                   <div className="flex justify-between border-b border-[#1f2945]/30 py-1">
                     <span className="text-slate-400">현재 평가금</span>
                     <span className="text-white font-bold">
-                      {resolvedAssetType === 'STOCK' ? `₩${(myHolding.current_price * myHolding.qty).toLocaleString(undefined, {maximumFractionDigits:0})}` : `$${(myHolding.current_price * myHolding.qty).toLocaleString(undefined, {maximumFractionDigits:4})}`}
+                      {getCurrencySign()}{(myHolding.current_price * myHolding.qty).toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
                     </span>
                   </div>
                   <div className="flex justify-between py-1 font-bold">

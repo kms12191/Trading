@@ -40,11 +40,20 @@ def build_policy_config(base_config: dict, params: dict) -> dict:
     prediction["stock_policy"] = {
         "enabled": True,
         "min_market_breadth_5": round(float(params["min_market_breadth_5"]), 4),
+        "min_market_breadth_5_kr": round(float(params["min_market_breadth_5_kr"]), 4),
+        "min_market_breadth_5_us": round(float(params["min_market_breadth_5_us"]), 4),
         "min_sector_breadth_5": round(float(params["min_sector_breadth_5"]), 4),
         "min_sector_strength_score": round(float(params["min_sector_strength_score"]), 4),
         "min_market_regime_score": int(params["min_market_regime_score"]),
         "max_market_news_stress_score": round(float(params["max_market_news_stress_score"]), 4),
         "max_primary_market_drawdown_60": round(float(params["max_primary_market_drawdown_60"]), 4),
+        "hard_block_market_news_stress_score": round(float(params["hard_block_market_news_stress_score"]), 4),
+        "hard_block_primary_market_drawdown_60": round(float(params["hard_block_primary_market_drawdown_60"]), 4),
+        "market_breadth_penalty_weight": round(float(params["market_breadth_penalty_weight"]), 4),
+        "sector_breadth_penalty_weight": round(float(params["sector_breadth_penalty_weight"]), 4),
+        "sector_strength_penalty_weight": round(float(params["sector_strength_penalty_weight"]), 4),
+        "market_regime_penalty_weight": round(float(params["market_regime_penalty_weight"]), 4),
+        "drawdown_penalty_weight": round(float(params["drawdown_penalty_weight"]), 4),
         "risk_on_long_threshold_bonus": round(float(params["risk_on_long_threshold_bonus"]), 4),
         "risk_on_min_spread_bonus": round(float(params["risk_on_min_spread_bonus"]), 4),
         "risk_off_long_threshold_bonus": round(float(params["risk_off_long_threshold_bonus"]), 4),
@@ -64,6 +73,28 @@ def build_policy_config(base_config: dict, params: dict) -> dict:
         "min_us_count": int(params["min_us_count"]),
         "unknown_sector_penalty": round(float(params["unknown_sector_penalty"]), 4),
     }
+    prediction["override_policy"] = {
+        "enabled": False,
+        "allowed_regimes": ["risk_off", "neutral", "risk_on"],
+        "hard_block_reasons": ["news_stress", "hard_market_drawdown"],
+        "min_up_probability": 0.72,
+        "max_risk_probability": 0.18,
+        "min_composite_spread": 0.56,
+    }
+    exception_enabled = bool(int(params.get("exception_enabled", 0)))
+    exception_regimes = ["risk_off"]
+    if int(params.get("exception_include_neutral", 0)):
+        exception_regimes.append("neutral")
+    prediction["exception_entry_policy"] = {
+        "enabled": exception_enabled,
+        "allowed_regimes": exception_regimes,
+        "min_up_probability": round(float(params.get("exception_min_up_probability", 0.80)), 4),
+        "max_risk_probability": round(float(params.get("exception_max_risk_probability", 0.18)), 4),
+        "min_adjusted_composite_spread": round(float(params.get("exception_min_adjusted_composite_spread", 0.52)), 4),
+        "min_market_breadth_5": round(float(params.get("exception_min_market_breadth_5", 0.15)), 4),
+        "min_sector_strength_score": round(float(params.get("exception_min_sector_strength_score", 0.45)), 4),
+        "min_volume_ratio_5": round(float(params.get("exception_min_volume_ratio_5", 0.0)), 4),
+    }
     return config
 
 
@@ -74,16 +105,25 @@ def score_summary(summary: dict, total_rows: int) -> float:
     max_drawdown_net = abs(float(summary.get("max_drawdown_net", 0.0)))
     win_rate = float(summary.get("selection_win_rate_net", 0.0))
     test_periods = float(summary.get("test_periods", 0.0))
+    avg_selected_count = float(summary.get("avg_selected_count", 0.0))
 
     objective = 0.0
-    objective += excess_return_net * 220.0
-    objective -= max_drawdown_net * 8.0
+    objective += excess_return_net * 260.0
+    objective -= max_drawdown_net * 12.0
     objective += (win_rate - 0.5) * 2.5
-    objective += min(active_ratio, 0.12) * 0.8
+    objective += min(active_ratio, 0.10) * 0.6
     if selected_rows <= 0:
         objective -= 5.0
-    if test_periods < 10:
-        objective -= 1.0
+    if selected_rows < 25:
+        objective -= (25.0 - selected_rows) * 0.10
+    if test_periods < 20:
+        objective -= (20.0 - test_periods) * 0.20
+    if active_ratio < 0.01:
+        objective -= (0.01 - active_ratio) * 120.0
+    if avg_selected_count < 1.0:
+        objective -= (1.0 - avg_selected_count) * 2.0
+    if max_drawdown_net > 0.45:
+        objective -= (max_drawdown_net - 0.45) * 12.0
     return objective
 
 
@@ -125,11 +165,20 @@ def main() -> None:
             "stock_min_composite_spread": trial.suggest_float("stock_min_composite_spread", 0.15, 0.75),
             "top_n": trial.suggest_int("top_n", 1, 4),
             "min_market_breadth_5": trial.suggest_float("min_market_breadth_5", 0.35, 0.60),
+            "min_market_breadth_5_kr": trial.suggest_float("min_market_breadth_5_kr", 0.25, 0.60),
+            "min_market_breadth_5_us": trial.suggest_float("min_market_breadth_5_us", 0.45, 0.70),
             "min_sector_breadth_5": trial.suggest_float("min_sector_breadth_5", 0.30, 0.65),
             "min_sector_strength_score": trial.suggest_float("min_sector_strength_score", 0.35, 0.80),
             "min_market_regime_score": trial.suggest_int("min_market_regime_score", -1, 3),
             "max_market_news_stress_score": trial.suggest_float("max_market_news_stress_score", 0.5, 5.0),
             "max_primary_market_drawdown_60": trial.suggest_float("max_primary_market_drawdown_60", -0.25, -0.05),
+            "hard_block_market_news_stress_score": trial.suggest_float("hard_block_market_news_stress_score", 2.5, 5.5),
+            "hard_block_primary_market_drawdown_60": trial.suggest_float("hard_block_primary_market_drawdown_60", -0.24, -0.10),
+            "market_breadth_penalty_weight": trial.suggest_float("market_breadth_penalty_weight", 0.05, 0.45),
+            "sector_breadth_penalty_weight": trial.suggest_float("sector_breadth_penalty_weight", 0.05, 0.30),
+            "sector_strength_penalty_weight": trial.suggest_float("sector_strength_penalty_weight", 0.03, 0.25),
+            "market_regime_penalty_weight": trial.suggest_float("market_regime_penalty_weight", 0.0, 0.12),
+            "drawdown_penalty_weight": trial.suggest_float("drawdown_penalty_weight", 0.05, 0.35),
             "risk_on_long_threshold_bonus": trial.suggest_float("risk_on_long_threshold_bonus", 0.0, 0.08),
             "risk_on_min_spread_bonus": trial.suggest_float("risk_on_min_spread_bonus", -0.10, 0.05),
             "risk_off_long_threshold_bonus": trial.suggest_float("risk_off_long_threshold_bonus", -0.10, 0.0),
@@ -145,10 +194,19 @@ def main() -> None:
             "min_kr_count": trial.suggest_int("min_kr_count", 0, 1),
             "min_us_count": trial.suggest_int("min_us_count", 0, 1),
             "unknown_sector_penalty": trial.suggest_float("unknown_sector_penalty", 0.0, 20.0),
+            "exception_enabled": trial.suggest_int("exception_enabled", 0, 1),
+            "exception_include_neutral": trial.suggest_int("exception_include_neutral", 0, 1),
+            "exception_min_up_probability": trial.suggest_float("exception_min_up_probability", 0.76, 0.95),
+            "exception_max_risk_probability": trial.suggest_float("exception_max_risk_probability", 0.145, 0.19),
+            "exception_min_adjusted_composite_spread": trial.suggest_float("exception_min_adjusted_composite_spread", 0.46, 0.66),
+            "exception_min_market_breadth_5": trial.suggest_float("exception_min_market_breadth_5", 0.05, 0.30),
+            "exception_min_sector_strength_score": trial.suggest_float("exception_min_sector_strength_score", 0.05, 0.55),
+            "exception_min_volume_ratio_5": trial.suggest_float("exception_min_volume_ratio_5", 0.0, 1.2),
         }
         tuned_config = build_policy_config(config, params)
         tuned_df = apply_stock_policy_frame(valid_df, tuned_config.get("prediction", {}))
-        _, summary = build_daily_backtest(tuned_df, int(params["top_n"]), fee_bps, slippage_bps)
+        selection_policy = tuned_config.get("prediction", {}).get("selection_policy", {})
+        _, summary = build_daily_backtest(tuned_df, int(params["top_n"]), fee_bps, slippage_bps, selection_policy)
         objective_value = score_summary(summary, len(valid_df))
         trial.set_user_attr("summary", summary)
         return objective_value

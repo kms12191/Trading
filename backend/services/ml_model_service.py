@@ -653,12 +653,17 @@ def calculate_prediction_staleness_minutes(row: dict) -> int | None:
 def classify_signal_grade(row: dict) -> str:
     """확률과 복합 점수를 운영 UI에서 바로 읽을 수 있는 등급으로 변환합니다."""
     position = str(row.get("position") or "").upper()
+    recommendation_tier = str(row.get("recommendation_tier") or "").upper()
     signal_score = coerce_float(row.get("signal_score"))
     up_probability = coerce_float(row.get("up_probability"))
     risk_probability = coerce_float(row.get("risk_probability"))
 
     if risk_probability is not None and risk_probability >= 0.65:
         return "RISKY"
+    if recommendation_tier == "LONG":
+        return "STRONG_BUY_CANDIDATE"
+    if recommendation_tier == "WATCH":
+        return "WATCH"
     if position == "LONG" and signal_score is not None and signal_score >= 30 and (up_probability or 0) >= 0.58 and (risk_probability or 0) <= 0.45:
         return "STRONG_BUY_CANDIDATE"
     if position == "LONG" and signal_score is not None and signal_score >= 10:
@@ -673,19 +678,50 @@ def build_signal_reason_summary(row: dict) -> str:
     signal_score = coerce_float(row.get("signal_score"))
     up_probability = coerce_float(row.get("up_probability"))
     risk_probability = coerce_float(row.get("risk_probability"))
+    adjusted_spread = coerce_float(row.get("adjusted_composite_spread"))
+    long_entry_distance = coerce_float(row.get("long_entry_distance"))
+    volume_ratio_5 = coerce_float(row.get("volume_ratio_5"))
     position = str(row.get("position") or "HOLD").upper()
+    recommendation_tier = str(row.get("recommendation_tier") or "").upper()
+    block_reasons = normalize_policy_block_reasons(row.get("policy_block_reason"))
 
     score_text = "-" if signal_score is None else f"{signal_score:.2f}"
     up_text = "-" if up_probability is None else f"{up_probability * 100:.1f}%"
     risk_text = "-" if risk_probability is None else f"{risk_probability * 100:.1f}%"
+    spread_text = "-" if adjusted_spread is None else f"{adjusted_spread:.3f}"
+    distance_text = "-" if long_entry_distance is None else f"{long_entry_distance:.3f}"
+    volume_text = "-" if volume_ratio_5 is None else f"{volume_ratio_5:.2f}x"
 
     if grade == "STRONG_BUY_CANDIDATE":
-        return f"상승 후보입니다. 상승 확률 {up_text}, 하락 위험 {risk_text}, 복합 점수 {score_text}입니다."
+        return f"상승 후보입니다. 상승 확률 {up_text}, 하락 위험 {risk_text}, 조정 스프레드 {spread_text}입니다."
     if grade == "WATCH":
+        reason_text = ", ".join(block_reasons[:2]) if block_reasons else "정책 임계값 근처"
+        if recommendation_tier == "WATCH":
+            return f"WATCH 후보입니다. {reason_text} 때문에 LONG은 아니지만, 진입 거리 {distance_text}, 거래량 {volume_text} 기준으로 관찰합니다."
         return f"관찰 후보입니다. 포지션 {position}, 복합 점수 {score_text} 기준으로 추가 확인이 필요합니다."
     if grade == "RISKY":
         return f"리스크 우선 확인 대상입니다. 하락 위험 {risk_text}, 복합 점수 {score_text}입니다."
     return f"뚜렷한 매수 신호는 아닙니다. 포지션 {position}, 복합 점수 {score_text}입니다."
+
+
+def normalize_policy_block_reasons(value) -> list[str]:
+    """정책 차단 사유 토큰을 UI에서 쓰기 쉬운 한국어 라벨로 변환합니다."""
+    if not value:
+        return []
+    labels = {
+        "market_breadth": "시장 폭 부족",
+        "sector_breadth": "섹터 폭 부족",
+        "sector_strength": "섹터 강도 부족",
+        "market_regime": "시장 국면 보수적",
+        "market_drawdown": "시장 낙폭 부담",
+        "hard_market_drawdown": "시장 급락 차단",
+        "news_stress": "뉴스 스트레스",
+        "exception_entry": "예외 진입",
+        "relative_risk_override": "상대 위험 완화",
+        "override": "정책 예외",
+    }
+    tokens = [str(token).strip() for token in str(value).split("|") if str(token).strip()]
+    return [labels.get(token, token) for token in tokens]
 
 def enrich_prediction_signal_row(row: dict, model_version: str | None = None) -> dict:
     """개별 예측 행에 운영용 등급, 요약, 최신성 정보를 추가합니다."""
@@ -695,6 +731,7 @@ def enrich_prediction_signal_row(row: dict, model_version: str | None = None) ->
     enriched["staleness_minutes"] = calculate_prediction_staleness_minutes(row)
     enriched["signal_grade"] = classify_signal_grade(enriched)
     enriched["reason_summary"] = build_signal_reason_summary(enriched)
+    enriched["policy_block_reason_labels"] = normalize_policy_block_reasons(row.get("policy_block_reason"))
     return enriched
 
 def build_prediction_performance_snapshot(active_result: dict) -> dict:
