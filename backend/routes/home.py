@@ -1,4 +1,4 @@
-﻿import os
+import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -59,6 +59,18 @@ def _call_with_timeout(func, timeout_seconds: float, default):
         executor.shutdown(wait=False, cancel_futures=True)
 
 
+def _market_index_payload_has_items(payload: dict) -> bool:
+    return bool(payload and payload.get("items"))
+
+
+def _build_market_index_payload(rows: list[dict], source: str, cache_status: str) -> dict:
+    payload = serialize_market_index_rows(rows)
+    payload["source"] = source
+    payload["cacheStatus"] = cache_status
+    payload["refreshNeeded"] = market_index_rows_need_refresh(rows)
+    return payload
+
+
 def parse_date_param(value: str | None, fallback: datetime) -> str:
     if not value:
         return fallback.date().isoformat()
@@ -91,7 +103,6 @@ def save_portfolio_snapshot(auth_header: str, user_id: str, balance: dict, excha
     total_eval = to_float(balance.get("total_evaluation"))
     avail_cash = to_float(balance.get("available_cash"))
 
-    # ?듯솕媛 USD??寃쎌슦 ?섏쑉???곸슜?섏뿬 ?먰솕(KRW) 湲곗??쇰줈 ?섏궛 ???
     if balance.get("currency") == "USD":
         total_eval = total_eval * exchange_rate
         avail_cash = avail_cash * exchange_rate
@@ -137,13 +148,13 @@ def require_market_sync_admin():
     if not MARKET_SYNC_ADMIN_TOKEN or token != MARKET_SYNC_ADMIN_TOKEN:
         return jsonify({
             "success": False,
-            "message": "愿由ъ옄 ?꾩슜 ?묒뾽?낅땲??",
+            "message": "관리자 전용 작업입니다.",
         }), 403
     return None
 
-@home_bp.route("/api/home/market", methods=["POST"])
+@home_bp.route("/api/home/market", methods=["POST"] )
 def get_home_market():
-    """???붾㈃??醫낇빀 ?쒖옣 ?꾪솴 ?곗씠?곕? 議고쉶?⑸땲??"""
+    """홈 화면의 시장 현황을 조회합니다."""
     try:
         auth_header = request.headers.get("Authorization")
         data = request.json or {}
@@ -155,16 +166,15 @@ def get_home_market():
     except Exception as error:
         return jsonify({
             "success": False,
-            "message": f"???쒖옣 ?곗씠??議고쉶 ?ㅽ뙣: {str(error)}",
+            "message": f"홈 화면 시장 조회 실패: {str(error)}",
         }), 500
 
-
-@home_bp.route("/api/dashboard/asset-trend", methods=["GET"])
+@home_bp.route("/api/dashboard/asset-trend", methods=["GET"] )
 def get_dashboard_asset_trend():
-    """濡쒓렇???ъ슜?먯쓽 ?좎쭨蹂?珥??먯궛 ?ㅻ깄?룹쓣 議고쉶?⑸땲??"""
+    """로그인 사용자의 자산 추이 데이터를 조회합니다."""
     auth_header = request.headers.get("Authorization")
     if not auth_header:
-        return jsonify({"success": False, "message": "?몄쬆 ?ㅻ뜑媛 ?꾩슂?⑸땲??"}), 401
+        return jsonify({"success": False, "message": "인증 헤더가 필요합니다."}), 401
 
     now = datetime.utcnow()
     start_date = parse_date_param(request.args.get("start"), now - timedelta(days=30))
@@ -173,7 +183,7 @@ def get_dashboard_asset_trend():
     try:
         user_id, _ = get_user_id_from_header(auth_header)
     except Exception as error:
-        return jsonify({"success": False, "message": f"?ъ슜???몄쬆 ?뺤씤 ?ㅽ뙣: {str(error)}"}), 401
+        return jsonify({"success": False, "message": f"사용자 인증 확인 실패: {str(error)}"}), 401
 
     try:
         rows = query_supabase(
@@ -209,15 +219,14 @@ def get_dashboard_asset_trend():
                 "start": start_date,
                 "end": end_date,
                 "source": "empty",
-                "message": f"?먯궛 ?ㅻ깄???곗씠?곌? ?꾩쭅 以鍮꾨릺吏 ?딆븯?듬땲?? {str(error)}",
+                "message": f"자산 추이 데이터를 아직 준비하지 못했습니다: {str(error)}",
             },
         })
 
-@home_bp.route("/api/home/overview", methods=["POST"])
+@home_bp.route("/api/home/overview", methods=["POST"] )
 def get_home_overview():
-    """
-    ???붾㈃???쒖옣 ?붿빟 ?곗씠?곕? 援ъ꽦?⑸땲??
-    KIS ?몄쬆 ?뺣낫媛 ?덉쑝硫?怨꾩쥖 蹂댁쑀 醫낅ぉ?? ?놁쑝硫?Coinone 怨듦컻 ?쒖꽭留?諛섑솚?⑸땲??
+    """홈 화면의 요약 데이터를 구성합니다.
+    KIS 계좌 정보가 있으면 계좌 보유 종목까지 함께 채우고, 없으면 Coinone 공개 시세만 반환합니다.
     """
     auth_header = request.headers.get("Authorization")
     user_id = None
@@ -244,12 +253,12 @@ def get_home_overview():
     try:
         result["coins"] = fetch_coinone_overview()
     except Exception as coin_error:
-        result["message"] = f"Coinone 議고쉶 ?ㅽ뙣: {str(coin_error)}"
+        result["message"] = f"Coinone 조회 실패: {str(coin_error)}"
 
     has_kis_credentials = bool(appkey and appsecret and cano)
     if not has_kis_credentials:
         if not result["message"]:
-            result["message"] = "KIS ?ㅻ? ?낅젰?섎㈃ 援?궡/?댁쇅 蹂댁쑀 醫낅ぉ???④퍡 遺덈윭?????덉뒿?덈떎."
+            result["message"] = "KIS 계좌 정보가 없어서 Coinone 공개 시세만 반환합니다. KIS 설정은 .env에서 확인해주세요."
         return jsonify({
             "success": True,
             "data": result
@@ -282,13 +291,13 @@ def get_home_overview():
     except Exception as kis_error:
         return jsonify({
             "success": False,
-            "message": f"KIS 議고쉶 ?ㅽ뙣: {str(kis_error)}",
+            "message": f"KIS 조회 실패: {str(kis_error)}",
             "data": result,
         }), 500
 
-@home_bp.route("/api/market/kis/sync", methods=["POST"])
+@home_bp.route("/api/market/kis/sync", methods=["POST"] )
 def sync_kis_market_universe():
-    """KIS 醫낅ぉ 留덉뒪???뚯씪濡쒕???DB??醫낅ぉ ?좊땲踰꾩뒪瑜??숆린?뷀빀?덈떎."""
+    """KIS 시장 종목 마스터 파일을 DB의 종목 유니버스로 동기화합니다."""
     admin_error = require_market_sync_admin()
     if admin_error:
         return admin_error
@@ -316,7 +325,7 @@ def sync_kis_market_universe():
     if not file_paths:
         return jsonify({
             "success": False,
-            "message": "KIS 醫낅ぉ ?뺣낫 ?뚯씪 寃쎈줈媛 ?꾩슂?⑸땲?? body.file_path, body.file_paths ?먮뒗 KIS_MARKET_MASTER_FILE_PATH瑜??ㅼ젙?댁＜?몄슂.",
+            "message": "KIS 종목 마스터 파일 경로가 필요합니다. body.file_path, body.file_paths 또는 KIS_MARKET_MASTER_FILE_PATH를 설정해주세요.",
         }), 400
 
     project_root = current_app.config.get("PROJECT_ROOT_PATH")
@@ -327,14 +336,14 @@ def sync_kis_market_universe():
             if root_path not in resolved_path.parents and resolved_path != root_path:
                 return jsonify({
                     "success": False,
-                    "message": "?꾨줈?앺듃 ?대뜑 諛뽰쓽 ?뚯씪 寃쎈줈???ъ슜?????놁뒿?덈떎.",
+                    "message": "프로젝트 외부의 파일 경로는 사용할 수 없습니다.",
                 }), 400
 
     kis_market_universe_service = current_app.kis_market_universe_service
     if not kis_market_universe_service.repository.is_configured:
         return jsonify({
             "success": False,
-            "message": "SUPABASE_SERVICE_ROLE_KEY媛 ?꾩슂?⑸땲?? Supabase 愿由??ㅻ? .env???ｌ뼱二쇱꽭??",
+            "message": "SUPABASE_SERVICE_ROLE_KEY가 필요합니다. Supabase 관리 키를 .env에 설정해주세요.",
         }), 500
 
     try:
@@ -354,18 +363,18 @@ def sync_kis_market_universe():
         )
         return jsonify({
             "success": True,
-            "message": "KIS 醫낅ぉ 留덉뒪?곗? 嫄곕옒?湲??ㅻ깄???숆린?붽? ?꾨즺?섏뿀?듬땲??",
+            "message": "KIS 종목 마스터 동기화가 완료되었습니다.",
             "data": result,
         })
     except Exception as error:
         return jsonify({
             "success": False,
-            "message": f"KIS 醫낅ぉ ?숆린???ㅽ뙣: {str(error)}",
+            "message": f"KIS 종목 마스터 동기화 실패: {str(error)}",
         }), 500
 
-@home_bp.route("/api/market/rankings", methods=["GET"])
+@home_bp.route("/api/market/rankings", methods=["GET"] )
 def get_market_rankings():
-    """?좊땲踰꾩뒪??嫄곕옒?湲??쒖쐞瑜?議고쉶?⑸땲??"""
+    """유니버스 종목의 거래대금 순위를 조회합니다."""
     market_segment = request.args.get("market_segment", "ALL")
     limit = int(request.args.get("limit", 50))
 
@@ -389,19 +398,12 @@ def get_market_rankings():
     except Exception as error:
         return jsonify({
             "success": False,
-            "message": f"嫄곕옒?湲??쒖쐞 議고쉶 ?ㅽ뙣: {str(error)}",
+            "message": f"거래대금 순위 조회 실패: {str(error)}",
         }), 500
 
-@home_bp.route("/api/market/indices", methods=["GET"])
 def get_market_indices():
     """하단 지수 바에 사용할 최신 지수 스냅샷을 반환합니다."""
     repository = getattr(current_app, "market_index_repository", None)
-    if repository is None or not repository.is_configured:
-        return jsonify({
-            "success": False,
-            "message": "시장 지수 저장소가 아직 설정되지 않았습니다.",
-        }), 500
-
     try:
         rows = get_market_index_cache()
         if rows:
@@ -420,27 +422,30 @@ def get_market_indices():
                 "data": payload,
             })
 
-        rows = _call_with_timeout(repository.list_latest, 2.0, [])
-        if rows:
-            payload = serialize_market_index_rows(rows)
-            payload["cacheStatus"] = "HIT"
-            payload["refreshNeeded"] = market_index_rows_need_refresh(rows)
-            set_market_index_cache(rows)
-            _log_market_index_snapshot(payload)
-            current_app.logger.info(
-                "[MarketIndex] indices loaded count=%s source=%s fetchedAt=%s",
-                len(payload.get("items") or []),
-                payload.get("source"),
-                payload.get("fetchedAt"),
-            )
-            return jsonify({
-                "success": True,
-                "data": payload,
-            })
+        if repository is not None and repository.is_configured:
+            rows = _call_with_timeout(repository.list_latest, 2.0, [])
+            if rows:
+                payload = serialize_market_index_rows(rows)
+                payload["cacheStatus"] = "HIT"
+                payload["refreshNeeded"] = market_index_rows_need_refresh(rows)
+                set_market_index_cache(rows)
+                _log_market_index_snapshot(payload)
+                current_app.logger.info(
+                    "[MarketIndex] indices loaded count=%s source=%s fetchedAt=%s",
+                    len(payload.get("items") or []),
+                    payload.get("source"),
+                    payload.get("fetchedAt"),
+                )
+                return jsonify({
+                    "success": True,
+                    "data": payload,
+                })
+        else:
+            current_app.logger.info("[MarketIndex] repository is not configured, skipping DB cache lookup.")
 
         live_rows, live_errors = _call_with_timeout(collect_market_index_rows, 8.0, ([], []))
         if live_rows:
-            if repository.is_configured:
+            if repository is not None and repository.is_configured:
                 try:
                     repository.upsert_latest(live_rows)
                 except Exception:
@@ -471,7 +476,7 @@ def get_market_indices():
     except Exception as error:
         live_rows, live_errors = _call_with_timeout(collect_market_index_rows, 8.0, ([], []))
         if live_rows:
-            if repository.is_configured:
+            if repository is not None and repository.is_configured:
                 try:
                     repository.upsert_latest(live_rows)
                 except Exception:
@@ -497,41 +502,144 @@ def get_market_indices():
             "success": False,
             "message": f"지수 데이터 조회 실패: {str(error)}",
         }), 500
+@home_bp.route("/api/market/indices", methods=["GET"])
+def get_market_indices_v2():
+    repository = getattr(current_app, "market_index_repository", None)
+    fallback_payload = None
+
+    try:
+        current_app.logger.info("[MarketIndex][route] cache lookup start")
+        rows = get_market_index_cache()
+        if rows:
+            payload = _build_market_index_payload(rows, "memory.cache", "HIT")
+            if _market_index_payload_has_items(payload) and not payload.get("refreshNeeded"):
+                _log_market_index_snapshot(payload)
+                current_app.logger.info(
+                    "[MarketIndex][route] cache load success source=%s count=%s fetchedAt=%s",
+                    payload.get("source"),
+                    len(payload.get("items") or []),
+                    payload.get("fetchedAt"),
+                )
+                return jsonify({"success": True, "data": payload})
+            if _market_index_payload_has_items(payload):
+                fallback_payload = payload
+                current_app.logger.info("[MarketIndex][route] memory cache is stale, refreshing from live collector.")
+            else:
+                current_app.logger.warning("[MarketIndex][route] memory cache query failed reason=empty serialized items")
+
+        if repository is not None and repository.is_configured:
+            current_app.logger.info("[MarketIndex][route] DB cache lookup start")
+            rows = _call_with_timeout(repository.list_latest, 2.0, [])
+            if rows:
+                payload = _build_market_index_payload(rows, "supabase.market_indices_latest", "HIT")
+                if _market_index_payload_has_items(payload):
+                    set_market_index_cache(rows)
+                    if not payload.get("refreshNeeded"):
+                        _log_market_index_snapshot(payload)
+                        current_app.logger.info(
+                            "[MarketIndex][route] DB cache load success count=%s fetchedAt=%s",
+                            len(payload.get("items") or []),
+                            payload.get("fetchedAt"),
+                        )
+                        return jsonify({"success": True, "data": payload})
+                    fallback_payload = fallback_payload or payload
+                    current_app.logger.info("[MarketIndex][route] DB cache is stale, refreshing from live collector.")
+                else:
+                    current_app.logger.warning("[MarketIndex][route] DB cache query failed reason=empty serialized items")
+            else:
+                current_app.logger.warning("[MarketIndex][route] DB cache query failed reason=no rows")
+        else:
+            current_app.logger.info("[MarketIndex][route] repository is not configured, skipping DB cache lookup.")
+
+        current_app.logger.info("[MarketIndex][route] live cache generation start")
+        live_rows, live_errors = collect_market_index_rows()
+        current_app.logger.info(
+            "[MarketIndex][route] live data collection complete rowCount=%s errorCount=%s",
+            len(live_rows),
+            len(live_errors),
+        )
+
+        if live_rows:
+            if repository is not None and repository.is_configured:
+                try:
+                    repository.upsert_latest(live_rows)
+                    current_app.logger.info("[MarketIndex][route] DB cache save success count=%s", len(live_rows))
+                except Exception as error:
+                    current_app.logger.exception("[MarketIndex][route] DB cache save failed: %s", error)
+
+            # live 수집이 끝난 즉시 메모리 캐시에 넣어 역전바가 바로 사용할 수 있게 한다.
+            set_market_index_cache(live_rows)
+            current_app.logger.info("[MarketIndex][route] memory cache save success count=%s", len(live_rows))
+
+            payload = _build_market_index_payload(live_rows, "live.collector", "MISS")
+            payload["bootstrap"] = True
+            payload["errors"] = live_errors
+            _log_market_index_snapshot(payload)
+            current_app.logger.info(
+                "[MarketIndex][route] indices loaded count=%s source=%s fetchedAt=%s",
+                len(payload.get("items") or []),
+                payload.get("source"),
+                payload.get("fetchedAt"),
+            )
+            return jsonify({"success": True, "data": payload})
+
+        if fallback_payload is not None:
+            fallback_payload["source"] = f"{fallback_payload.get('source')}.stale"
+            fallback_payload["refreshNeeded"] = True
+            fallback_payload["errors"] = live_errors
+            current_app.logger.warning(
+                "[MarketIndex][route] live refresh failed, serving stale cache count=%s errors=%s",
+                len(fallback_payload.get("items") or []),
+                live_errors,
+            )
+            return jsonify({"success": True, "data": fallback_payload})
+
+        current_app.logger.warning("[MarketIndex][route] cache query failed reason=empty live collection errors=%s", live_errors)
+        return jsonify({
+            "success": False,
+            "message": "지수 캐시를 아직 준비 중입니다. 잠시 후 다시 시도해주세요.",
+            "errors": live_errors,
+        }), 503
+    except Exception as error:
+        current_app.logger.exception("[MarketIndex][route] cache query failed: %s", error)
+        if fallback_payload is not None:
+            fallback_payload["refreshNeeded"] = True
+            fallback_payload["errors"] = [str(error)]
+            return jsonify({"success": True, "data": fallback_payload})
+        return jsonify({
+            "success": False,
+            "message": f"지수 데이터 조회 실패: {str(error)}",
+        }), 500
+
 
 @home_bp.route("/api/dashboard/balance", methods=["POST"])
 def get_dashboard_balance():
-    """?뱀젙 嫄곕옒?뚯쓽 ?ㅼ떆媛?怨꾩쥖 ?붽퀬 諛??됯? ?먯궛??議고쉶?⑸땲??"""
+    """등록된 증권사 계좌의 실시간 잔고와 평가 정보를 조회합니다."""
     auth_header = request.headers.get("Authorization")
     if not auth_header:
-        return jsonify({"success": False, "message": "?몄쬆 ?ㅻ뜑媛 ?꾨씫?섏뿀?듬땲??"}), 401
+        return jsonify({"success": False, "message": "인증 헤더가 필요합니다."}), 401
 
     data = request.json or {}
     exchange = data.get("exchange", "KIS")
     broker_env = data.get("env", "MOCK")
-    api_key_id = data.get("api_key_id")
 
     try:
         user_id, token = get_user_id_from_header(auth_header)
         
-        params = {"user_id": f"eq.{user_id}"}
-        if api_key_id:
-            params["id"] = f"eq.{api_key_id}"
-        else:
-            params.update({
-                "exchange": f"eq.{exchange}",
-                "broker_env": f"eq.{broker_env}"
-            })
+        params = {
+            "user_id": f"eq.{user_id}",
+            "exchange": f"eq.{exchange}",
+            "broker_env": f"eq.{broker_env}"
+        }
         records = query_supabase(auth_header, "user_api_keys", "GET", params=params)
         if not records or len(records) == 0:
-            return jsonify({"success": False, "message": f"?깅줉??{exchange} ({broker_env}) API ?ㅺ? ?놁뒿?덈떎."}), 404
-            
+            return jsonify({"success": False, "message": f"등록된 {exchange} ({broker_env}) API 키가 없습니다."}), 404
+
         record = records[0]
-        exchange = str(record.get("exchange") or exchange).upper()
-        broker_env = str(record.get("broker_env") or broker_env).upper()
         crypto_helper = current_app.crypto
         access_key = crypto_helper.decrypt(record.get("encrypted_access_key"))
         secret_key = crypto_helper.decrypt(record.get("encrypted_secret_key"))
-        
+
         if exchange == "TOSS":
             account_seq = record.get("toss_account_seq")
             client = TossClient(
@@ -567,9 +675,8 @@ def get_dashboard_balance():
             )
             balance = client.get_balance()
         else:
-            return jsonify({"success": False, "message": f"吏?먰븯吏 ?딅뒗 嫄곕옒?? {exchange}"}), 400
+            return jsonify({"success": False, "message": f"지원하지 않는 거래소입니다: {exchange}"}), 400
 
-        # ?듯솕媛 USD??寃쎌슦 ?먯궛 ?꾩쟻 異붿씠瑜??꾪븳 ?섏쑉 援ы븯湲?
         exchange_rate = 1500.0
         if exchange == "TOSS" and hasattr(client, "get_exchange_rate"):
             exchange_rate = client.get_exchange_rate()
@@ -579,7 +686,6 @@ def get_dashboard_balance():
         except Exception:
             pass
 
-        # ?꾨줎?몄뿏???섏궛????묓븯湲??꾪빐 exchange_rate ?꾨뱶瑜??④퍡 ?묐떟??二쇱엯
         balance["exchange_rate"] = exchange_rate
 
         return jsonify({
@@ -589,6 +695,5 @@ def get_dashboard_balance():
     except Exception as e:
         return jsonify({
             "success": False,
-            "message": f"?붽퀬 議고쉶 以??ㅽ뙣: {str(e)}"
+            "message": f"잔고 조회 실패: {str(e)}"
         }), 500
-

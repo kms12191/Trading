@@ -34,25 +34,59 @@ def get_cached_change_rate(exchange, symbol, broker_env, auth_header):
             crypto_helper = current_app.crypto
             records = _get_quote_records_with_env_fallback(auth_header, user_id, "TOSS", broker_env)
             if records:
-                access_key = crypto_helper.decrypt(records[0].get("encrypted_access_key"))
-                secret_key = crypto_helper.decrypt(records[0].get("encrypted_secret_key"))
-                toss_account_seq = records[0].get("toss_account_seq")
-                client = TossClient(client_id=access_key, client_secret=secret_key, account_seq=toss_account_seq, env=broker_env, user_id=user_id)
-                price_data = client.get_price(symbol)
-                change_rate = float(price_data.get("change_rate") or 0.0)
+                try:
+                    access_key = crypto_helper.decrypt(records[0].get("encrypted_access_key"))
+                    secret_key = crypto_helper.decrypt(records[0].get("encrypted_secret_key"))
+                    toss_account_seq = records[0].get("toss_account_seq")
+                    client = TossClient(client_id=access_key, client_secret=secret_key, account_seq=toss_account_seq, env=broker_env, user_id=user_id)
+                    price_data = client.get_price(symbol)
+                    change_rate = float(price_data.get("change_rate") or 0.0)
+                except Exception as toss_err:
+                    current_app.logger.warning(f"TOSS get_price failed in get_cached_change_rate: {str(toss_err)}. KIS 폴백을 시도합니다.")
+                    records = []
+            
+            # TOSS 키가 없거나 호출이 실패한 경우 KIS 키로 폴백하여 시세 및 전일대비율을 구합니다.
+            if not records:
+                records_kis = _get_quote_records_with_env_fallback(auth_header, user_id, "KIS", broker_env)
+                if records_kis:
+                    access_key = crypto_helper.decrypt(records_kis[0].get("encrypted_access_key"))
+                    secret_key = crypto_helper.decrypt(records_kis[0].get("encrypted_secret_key"))
+                    cano = records_kis[0].get("kis_account_no")
+                    acnt_prdt_cd = records_kis[0].get("kis_account_code", "01")
+                    kis_env = records_kis[0].get("broker_env", "MOCK")
+                    client = KISClient(appkey=access_key, appsecret=secret_key, cano=cano, acnt_prdt_cd=acnt_prdt_cd, env=kis_env, user_id=user_id)
+                    price_data = client.get_price(symbol)
+                    change_rate = float(price_data.get("change_rate") or 0.0)
+
         elif exchange == "KIS" and auth_header:
             user_id, token = get_user_id_from_header(auth_header)
             crypto_helper = current_app.crypto
             records = _get_quote_records_with_env_fallback(auth_header, user_id, "KIS", broker_env)
             if records:
-                access_key = crypto_helper.decrypt(records[0].get("encrypted_access_key"))
-                secret_key = crypto_helper.decrypt(records[0].get("encrypted_secret_key"))
-                cano = records[0].get("kis_account_no")
-                acnt_prdt_cd = records[0].get("kis_account_code", "01")
-                kis_env = records[0].get("broker_env", "MOCK")
-                client = KISClient(appkey=access_key, appsecret=secret_key, cano=cano, acnt_prdt_cd=acnt_prdt_cd, env=kis_env, user_id=user_id)
-                price_data = client.get_price(symbol)
-                change_rate = float(price_data.get("change_rate") or 0.0)
+                try:
+                    access_key = crypto_helper.decrypt(records[0].get("encrypted_access_key"))
+                    secret_key = crypto_helper.decrypt(records[0].get("encrypted_secret_key"))
+                    cano = records[0].get("kis_account_no")
+                    acnt_prdt_cd = records[0].get("kis_account_code", "01")
+                    kis_env = records[0].get("broker_env", "MOCK")
+                    client = KISClient(appkey=access_key, appsecret=secret_key, cano=cano, acnt_prdt_cd=acnt_prdt_cd, env=kis_env, user_id=user_id)
+                    price_data = client.get_price(symbol)
+                    change_rate = float(price_data.get("change_rate") or 0.0)
+                except Exception as kis_err:
+                    current_app.logger.warning(f"KIS get_price failed in get_cached_change_rate: {str(kis_err)}. TOSS 폴백을 시도합니다.")
+                    records = []
+            
+            # KIS 키가 없거나 호출이 실패한 경우 TOSS 키로 폴백하여 시세 및 전일대비율을 구합니다.
+            if not records:
+                records_toss = _get_quote_records_with_env_fallback(auth_header, user_id, "TOSS", broker_env)
+                if records_toss:
+                    access_key = crypto_helper.decrypt(records_toss[0].get("encrypted_access_key"))
+                    secret_key = crypto_helper.decrypt(records_toss[0].get("encrypted_secret_key"))
+                    toss_account_seq = records_toss[0].get("toss_account_seq")
+                    client = TossClient(client_id=access_key, client_secret=secret_key, account_seq=toss_account_seq, env=broker_env, user_id=user_id)
+                    price_data = client.get_price(symbol)
+                    change_rate = float(price_data.get("change_rate") or 0.0)
+
         elif exchange == "COINONE":
             url = f"https://api.coinone.co.kr/public/v2/ticker/KRW/{symbol.upper()}"
             res = requests.get(url, timeout=3)
@@ -321,6 +355,35 @@ def _resolve_order_org_no(proposal: dict) -> str:
     KIS 정정/취소에 필요한 원주문 조직번호를 조회합니다.
     """
     return str(proposal.get("external_order_org_no") or proposal.get("client_order_id") or "")
+
+
+def _mark_kis_order_closed(auth_header: str, proposal_id: str, detail: dict | None = None) -> dict:
+    """
+    KIS 정정/취소 가능 잔량이 없으면 DB 거래내역을 종료 상태로 동기화합니다.
+    """
+    patch_payload = {
+        "status": "EXECUTED",
+        "failure_reason": None,
+    }
+    if detail:
+        patch_payload["raw_order_payload"] = detail
+    _patch_trade_proposal(auth_header, proposal_id, patch_payload)
+    return patch_payload
+
+
+def _ensure_kis_order_modifiable(auth_header: str, proposal_id: str, proposal: dict, client) -> dict:
+    """
+    KIS 실제 미체결 잔량을 확인하고 정정/취소 불가 주문이면 차단합니다.
+    """
+    current_order = client.get_modifiable_order(
+        proposal.get("external_order_id"),
+        order_org_no=_resolve_order_org_no(proposal),
+    )
+    if current_order.get("is_modifiable"):
+        return current_order
+
+    _mark_kis_order_closed(auth_header, proposal_id, current_order)
+    raise ValueError("이미 체결되어 정정/취소할 수 없습니다.")
 
 
 def _load_kis_client_from_records(records_kis: list[dict]):
@@ -802,6 +865,7 @@ def cancel_manual_order():
             return jsonify({"success": False, "message": "이미 체결 또는 종료된 주문이라 취소할 수 없습니다.", "detail": current_status}), 400
 
         if exchange == "KIS":
+            _ensure_kis_order_modifiable(auth_header, proposal_id, proposal, client)
             cancel_result = client.cancel_order(order_id, order_org_no=_resolve_order_org_no(proposal))
         else:
             cancel_result = client.cancel_order(order_id)
@@ -889,12 +953,20 @@ def modify_manual_order():
             return jsonify({"success": False, "message": "Toss 해외주식 주문은 가격 정정만 지원합니다."}), 400
 
         if exchange == "KIS":
+            modifiable_order = _ensure_kis_order_modifiable(auth_header, proposal_id, proposal, client)
+            remaining_qty = float(modifiable_order.get("remaining_qty") or 0)
             if quantity_value is None:
-                quantity_value = float(proposal.get("volume") or 0)
+                quantity_value = remaining_qty
             if price_value is None:
                 price_value = float(proposal.get("price") or 0)
             if quantity_value <= 0 or price_value <= 0:
                 return jsonify({"success": False, "message": "KIS 정정에는 유효한 가격과 수량이 필요합니다."}), 400
+            if remaining_qty > 0 and quantity_value > remaining_qty:
+                return jsonify({
+                    "success": False,
+                    "message": f"KIS 미체결 잔량({remaining_qty:g}주)을 초과해 정정할 수 없습니다.",
+                    "detail": modifiable_order,
+                }), 400
             modify_result = client.modify_order(
                 order_id,
                 order_org_no=_resolve_order_org_no(proposal),

@@ -37,6 +37,38 @@ def load_model_payload(path: Path) -> dict:
     return joblib.load(path)
 
 
+def annotate_watch_candidates(predictions: pd.DataFrame, asset_type: str, top_n: int) -> pd.DataFrame:
+    result = predictions.copy()
+    result["watch_candidate"] = 0
+    result["watch_rank"] = 0
+    result["recommendation_tier"] = result["position"]
+
+    if asset_type != "STOCK" or result.empty:
+        return result
+
+    watch_top_n = max(top_n, 5)
+    eligible_mask = (
+        (result["position"] != "LONG")
+        & result["adjusted_composite_spread"].notna()
+        & (result["adjusted_composite_spread"] > 0)
+    )
+    sort_columns = ["adjusted_composite_spread", "up_probability"]
+    ascending = [False, False]
+    if "long_entry_distance" in result.columns:
+        sort_columns = ["long_entry_distance", "adjusted_composite_spread", "up_probability"]
+        ascending = [True, False, False]
+    watch_df = result.loc[eligible_mask].sort_values(sort_columns, ascending=ascending).head(watch_top_n)
+    if watch_df.empty:
+        return result
+
+    for rank, idx in enumerate(watch_df.index, start=1):
+        result.at[idx, "watch_candidate"] = 1
+        result.at[idx, "watch_rank"] = rank
+        result.at[idx, "recommendation_tier"] = "WATCH"
+    result.loc[result["position"] == "LONG", "recommendation_tier"] = "LONG"
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="저장된 LightGBM 모델로 최신 피처를 예측합니다.")
     parser.add_argument("--config", default="configs/lgbm_stock_v1.yaml", help="학습 설정 파일 경로")
@@ -134,22 +166,33 @@ def main() -> None:
         "risk_signal_score",
         "composite_spread",
         "adjusted_composite_spread",
+        "risk_rank_pct",
         "policy_penalty",
+        "risk_headroom",
+        "spread_headroom",
+        "long_entry_distance",
         "signal_score",
         "scoring_strategy",
         "position",
         "market_regime_state",
+        "market_breadth_5",
+        "sector_breadth_5",
+        "sector_strength_score",
+        "volume_ratio_5",
         "effective_long_threshold",
         "effective_min_spread",
         "policy_blocked",
         "policy_block_reason",
         "override_applied",
+        "exception_entry_applied",
+        "relative_risk_override_applied",
         "up_model_version",
         "risk_model_version",
         "model_version",
     ]
     output_columns = [column for column in output_columns if column in latest_df.columns]
     predictions = latest_df[output_columns].sort_values("signal_score", ascending=False)
+    predictions = annotate_watch_candidates(predictions, asset_type, int(config.get("backtest", {}).get("top_n", 3)))
     predictions_path.parent.mkdir(parents=True, exist_ok=True)
     predictions.to_csv(predictions_path, index=False)
     print(f"예측 파일 생성 완료: {predictions_path} ({len(predictions):,} rows)")

@@ -32,9 +32,45 @@ const mapTradeStatus = (status) => {
 
 const mapTradeSide = (side) => (String(side || '').toUpperCase() === 'SELL' ? '매도' : '매수')
 
-const TRADE_HISTORY_SELECT_FIELDS = 'id,exchange,asset_type,ticker,symbol,side,price,volume,order_amount,ord_type,market_country,currency,client_order_id,external_order_id,status,failure_reason,created_at'
+const TRADE_HISTORY_SELECT_FIELDS = 'id,exchange,asset_type,ticker,symbol,side,price,volume,order_amount,ord_type,market_country,currency,broker_env,client_order_id,external_order_id,external_order_org_no,status,failure_reason,created_at'
 
 const isCancelReplaceExchange = (exchange) => ['COINONE', 'BINANCE'].includes(String(exchange || '').toUpperCase())
+
+const fetchSymbolDisplayNames = async (proposals = []) => {
+  const symbols = Array.from(new Set(
+    proposals
+      .map((proposal) => String(proposal.symbol || proposal.ticker || '').trim().toUpperCase())
+      .filter(Boolean),
+  ))
+
+  if (symbols.length === 0) return {}
+
+  const pairs = await Promise.all(
+    symbols.map(async (symbol) => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/symbol/lookup?query=${encodeURIComponent(symbol)}`)
+        const payload = await response.json()
+        const displayName = payload?.success ? payload.data?.display_name : ''
+        return [symbol, displayName || symbol]
+      } catch {
+        return [symbol, symbol]
+      }
+    }),
+  )
+
+  return Object.fromEntries(pairs)
+}
+
+const hydrateTradeProposals = async (proposals = []) => {
+  const symbolNameMap = await fetchSymbolDisplayNames(proposals)
+  return proposals.map((proposal) => {
+    const symbol = String(proposal.symbol || proposal.ticker || '').trim().toUpperCase()
+    return {
+      ...proposal,
+      display_name: symbolNameMap[symbol] || symbol || proposal.symbol || proposal.ticker,
+    }
+  })
+}
 
 const mapProposalToTrade = (proposal) => {
   const createdAt = proposal.created_at ? new Date(proposal.created_at) : null
@@ -55,18 +91,20 @@ const mapProposalToTrade = (proposal) => {
     price !== null && quantity !== null ? Number(price) * Number(quantity) : null
   )
   const ticker = proposal.symbol || proposal.ticker || '-'
+  const displayName = proposal.display_name || ticker
 
   return {
     id: proposal.id,
     rawStatus: proposal.status,
     brokerEnv: proposal.broker_env || 'REAL',
+    orderOrgNo: proposal.external_order_org_no || '',
     marketCountry: proposal.market_country || '',
     rawPrice: price,
     rawQuantity: quantity,
     date,
     time,
     exchange: proposal.exchange || '-',
-    symbolName: ticker,
+    symbolName: displayName,
     ticker,
     side: mapTradeSide(proposal.side),
     currency,
@@ -134,7 +172,8 @@ export default function TradeHistoryTab() {
         setTradeHistory([])
         setTradeError('거래내역을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')
       } else {
-        setTradeHistory((data || []).map(mapProposalToTrade))
+        const hydratedRows = await hydrateTradeProposals(data || [])
+        setTradeHistory(hydratedRows.map(mapProposalToTrade))
       }
       setLoading(false)
     }
@@ -200,7 +239,8 @@ export default function TradeHistoryTab() {
       .order('created_at', { ascending: false })
 
     if (error) throw error
-    const nextTrades = (data || []).map(mapProposalToTrade)
+    const hydratedRows = await hydrateTradeProposals(data || [])
+    const nextTrades = hydratedRows.map(mapProposalToTrade)
     setTradeHistory(nextTrades)
     if (selectedTrade) {
       const nextSelectedTrade = nextTrades.find((trade) => trade.id === selectedTrade.id)

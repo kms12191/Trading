@@ -70,27 +70,19 @@ export default function AssetsTab({ balance, allocation, displayCurrency = 'KRW'
     }
   })
   const rawHoldings = balance?.holdings?.length
-    ? balance.holdings.map((stock, index) => {
+    ? balance.holdings.map((stock) => {
       const isForeign = /[a-zA-Z]/.test(stock.symbol)
       const stockCurrency = stock.currency || (isForeign ? 'USD' : 'KRW')
       const currentDisplayCurrency = isForeign ? displayCurrency : 'KRW'
       const exchangeName = stock.exchange || stock.account_type || (isForeign ? 'TOSS' : 'KIS')
-      const rawExchange = String(stock.raw_exchange || exchangeName || '').toUpperCase()
-      const assetType = stock.asset_type || (['COINONE', 'BINANCE'].includes(rawExchange) ? 'CRYPTO' : 'STOCK')
-      const symbol = stock.symbol || stock.id || `holding-${index}`
-      const profitRate = Number(stock.profit_rate)
       return {
-        id: symbol,
-        rowId: `${rawExchange || exchangeName}-${stock.env || 'REAL'}-${symbol}-${index}`,
+        id: stock.symbol,
         name: stock.name,
         exchange: exchangeName,
-        assetType,
-        source: stock.source || 'LIVE_BALANCE',
-        sourceLabel: stock.source_label || '',
         quantity: `${stock.qty}`,
         average: formatCurrency(stock.avg_price, stockCurrency, currentDisplayCurrency),
         profit: formatCurrency(stock.profit, stockCurrency, currentDisplayCurrency),
-        returnRate: `${profitRate >= 0 ? '+' : ''}${Number.isFinite(profitRate) ? profitRate.toFixed(2) : '0.00'}%`,
+        returnRate: `${stock.profit_rate >= 0 ? '+' : ''}${stock.profit_rate.toFixed(2)}%`,
       }
     })
     : FALLBACK_HOLDINGS.map((stock) => {
@@ -205,16 +197,11 @@ export default function AssetsTab({ balance, allocation, displayCurrency = 'KRW'
             </thead>
             <tbody>
               {sortedHoldings.map((item) => (
-                <tr key={item.rowId || item.id} className="border-b border-slate-800/80 last:border-b-0 hover:bg-slate-800/20">
+                <tr key={item.id} className="border-b border-slate-800/80 last:border-b-0 hover:bg-slate-800/20">
                   <td className="px-5 py-4 font-bold text-white">
-                    <Link to={`/asset/${item.assetType || 'STOCK'}/${item.id}`} className="text-blue-400 hover:text-blue-300 hover:underline">
+                    <Link to={`/asset/STOCK/${item.id}`} className="text-blue-400 hover:text-blue-300 hover:underline">
                       {item.name}
                     </Link>
-                    {item.source === 'DB_ESTIMATED' ? (
-                      <span className="ml-2 inline-flex rounded border border-amber-400/40 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-300">
-                        {item.sourceLabel || '실잔고 미확인'}
-                      </span>
-                    ) : null}
                   </td>
                   <td className="px-5 py-4 font-sans font-bold text-slate-400">
                     <span className="rounded bg-slate-800/60 border border-slate-700/60 px-1.5 py-0.5 text-[10px] uppercase">

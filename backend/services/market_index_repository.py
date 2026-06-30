@@ -1,6 +1,6 @@
-import os
 import json
 import logging
+import os
 from typing import Any
 
 import requests
@@ -22,10 +22,13 @@ class MarketIndexRepository:
         if not self.is_configured or not rows:
             return
 
-        # 저장 시에는 새 스키마 필드와 구 스키마 필드를 함께 정규화해서 보낸다.
-        # 업서트 대상이 오래된 컬럼 구성을 가지고 있어도 깨지지 않게 맞춰주는 단계다.
-        logger.info("[MarketIndex][upsert] count=%s", len(rows))
         payload = [self._compat_row(row) for row in rows]
+        symbols = [str(row.get("symbol") or "") for row in payload]
+        logger.info("[MarketIndex][upsert] count=%s symbols=%s", len(payload), ",".join(symbols))
+        logger.debug(
+            "[MarketIndex][upsert] payload=%s",
+            json.dumps(payload, ensure_ascii=False, default=str),
+        )
         response = requests.post(
             f"{self.supabase_url}/rest/v1/market_indices_latest?on_conflict=symbol",
             headers=self._service_write_headers(),
@@ -33,15 +36,28 @@ class MarketIndexRepository:
             timeout=60,
         )
         if response.ok:
+            logger.info("[MarketIndex][upsert] saved count=%s symbols=%s", len(payload), ",".join(symbols))
             return
 
+        logger.warning(
+            "[MarketIndex][upsert] failed status=%s body=%s",
+            response.status_code,
+            response.text,
+        )
         fallback_response = requests.post(
             f"{self.supabase_url}/rest/v1/market_indices_latest?on_conflict=symbol",
             headers=self._service_write_headers(),
             json=payload,
             timeout=60,
         )
+        if not fallback_response.ok:
+            logger.error(
+                "[MarketIndex][upsert] retry failed status=%s body=%s",
+                fallback_response.status_code,
+                fallback_response.text,
+            )
         fallback_response.raise_for_status()
+        logger.info("[MarketIndex][upsert] retry saved count=%s symbols=%s", len(payload), ",".join(symbols))
 
     def list_latest(self) -> list[dict[str, Any]]:
         if not self.is_configured:
@@ -58,31 +74,46 @@ class MarketIndexRepository:
                 timeout=30,
             )
             response.raise_for_status()
-            return response.json()
+            rows = response.json()
+            logger.info(
+                "[MarketIndex][db-load] count=%s symbols=%s",
+                len(rows or []),
+                ",".join(str(row.get("symbol") or "") for row in (rows or [])),
+            )
+            return rows
         except HTTPError as error:
             if error.response is not None and error.response.status_code == 404:
                 raise RuntimeError("market_indices_latest table is not available in Supabase yet.") from error
+            logger.warning("[MarketIndex][db-load] failed: %s", error, exc_info=True)
             return self._list_latest_fallback()
-        except Exception:
+        except Exception as error:
+            logger.warning("[MarketIndex][db-load] failed: %s", error, exc_info=True)
             return self._list_latest_fallback()
 
     def _list_latest_fallback(self) -> list[dict[str, Any]]:
-        # GET이 실패해도 동일 엔드포인트를 다시 조회해 일시적 헤더/응답 문제를 흡수한다.
-        response = requests.get(
-            f"{self.supabase_url}/rest/v1/market_indices_latest",
-            headers=self._service_read_headers(),
-            params={
-                "select": "symbol,label,source,market_country,ticker,current_price,previous_close,change_price,change_rate,current_value,change_value,change_percent,currency,display_order,as_of,updated_at,raw_payload",
-                "order": "display_order.asc,updated_at.desc",
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = requests.get(
+                f"{self.supabase_url}/rest/v1/market_indices_latest",
+                headers=self._service_read_headers(),
+                params={
+                    "select": "symbol,label,source,market_country,ticker,current_price,previous_close,change_price,change_rate,current_value,change_value,change_percent,currency,display_order,as_of,updated_at,raw_payload",
+                    "order": "display_order.asc,updated_at.desc",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            rows = response.json()
+            logger.info(
+                "[MarketIndex][db-fallback] load success count=%s symbols=%s",
+                len(rows or []),
+                ",".join(str(row.get("symbol") or "") for row in (rows or [])),
+            )
+            return rows
+        except Exception as error:
+            logger.warning("[MarketIndex][db-fallback] list_latest failed: %s", error, exc_info=True)
+            return []
 
     def _compat_row(self, row: dict[str, Any]) -> dict[str, Any]:
-        # DB에 남아 있는 예전 컬럼명과 새 컬럼명을 동시에 읽어서 호환성을 유지한다.
-        # 데이터 마이그레이션이 끝나기 전후 모두를 같은 코드로 다루기 위한 변환 레이어다.
         current_price = row.get("current_price") or row.get("current_value") or 0
         change_price = row.get("change_price") or row.get("change_value") or 0
         change_rate = row.get("change_rate") or row.get("change_percent") or 0

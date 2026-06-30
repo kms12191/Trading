@@ -40,17 +40,45 @@ def format_percent(value: Any, digits: int = 2) -> str:
     return f"{number * 100:.{digits}f}%"
 
 
-def read_position_counts(path: Path) -> dict[str, int]:
-    counts: dict[str, int] = {}
+def read_prediction_summary(path: Path) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "position_counts": {},
+        "recommendation_tier_counts": {},
+        "top_watch_symbols": [],
+        "policy_block_reason_counts": {},
+    }
     if not path.exists():
-        return counts
+        return summary
 
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
+        watch_rows: list[tuple[int, str]] = []
         for row in reader:
             position = (row.get("position") or "").strip() or "UNKNOWN"
-            counts[position] = counts.get(position, 0) + 1
-    return counts
+            summary["position_counts"][position] = summary["position_counts"].get(position, 0) + 1
+
+            recommendation_tier = (row.get("recommendation_tier") or "").strip()
+            if recommendation_tier:
+                summary["recommendation_tier_counts"][recommendation_tier] = summary["recommendation_tier_counts"].get(recommendation_tier, 0) + 1
+
+            watch_candidate = (row.get("watch_candidate") or "").strip()
+            watch_rank = (row.get("watch_rank") or "").strip()
+            symbol = (row.get("symbol") or "").strip()
+            if watch_candidate == "1" and watch_rank.isdigit() and symbol:
+                watch_rows.append((int(watch_rank), symbol))
+
+            block_reason = (row.get("policy_block_reason") or "").strip()
+            if block_reason:
+                for token in block_reason.split("|"):
+                    normalized = token.strip()
+                    if not normalized:
+                        continue
+                    summary["policy_block_reason_counts"][normalized] = (
+                        summary["policy_block_reason_counts"].get(normalized, 0) + 1
+                    )
+
+    summary["top_watch_symbols"] = [symbol for _, symbol in sorted(watch_rows, key=lambda item: item[0])]
+    return summary
 
 
 def format_position_counts(counts: dict[str, int]) -> str:
@@ -58,6 +86,13 @@ def format_position_counts(counts: dict[str, int]) -> str:
         return "-"
     ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return ", ".join(f"{key}:{value}" for key, value in ordered)
+
+
+def format_top_counts(counts: dict[str, int], limit: int = 5) -> str:
+    if not counts:
+        return "-"
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return ", ".join(f"{key}:{value}" for key, value in ordered[:limit])
 
 
 def load_version_row(repo_root: Path, asset_key: str, version: str) -> dict[str, Any]:
@@ -88,7 +123,7 @@ def load_version_row(repo_root: Path, asset_key: str, version: str) -> dict[str,
         "composite_test_periods": composite.get("test_periods"),
         "composite_top_n": composite.get("top_n"),
         "avg_selected_count": composite.get("avg_selected_count"),
-        "position_counts": read_position_counts(predictions_path),
+        **read_prediction_summary(predictions_path),
         "metrics_path": str(metrics_path),
         "composite_path": str(composite_path),
         "up_only_path": str(up_only_path),
@@ -152,6 +187,9 @@ def build_markdown(asset_key: str, rows: list[dict[str, Any]]) -> str:
             f"- 복합 초과수익(순): {format_percent(candidate['composite_excess_return_net'])}",
             f"- 복합 최대낙폭: {format_percent(candidate['composite_max_drawdown_net'])}",
             f"- 복합 승률(순): {format_percent(candidate['composite_selection_win_rate_net'])}",
+            f"- 최신 추천 티어 분포: {format_position_counts(candidate.get('recommendation_tier_counts', {}))}",
+            f"- 최신 WATCH 후보: {', '.join(candidate.get('top_watch_symbols', [])) or '-'}",
+            f"- 최신 차단 사유 상위: {format_top_counts(candidate.get('policy_block_reason_counts', {}))}",
             "",
             "## 근거 파일",
             "",

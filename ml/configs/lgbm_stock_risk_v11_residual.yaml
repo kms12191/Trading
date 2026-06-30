@@ -1,21 +1,16 @@
 data:
   raw_candles_path: data/raw/stock_candles.csv
   features_path: data/processed/stock_features_lgbm_v11.csv
-  predictions_path: data/processed/stock_predictions_lgbm_v11.csv
-  backtest_up_only_summary_path: data/processed/stock_backtest_up_only_v11.json
-  backtest_up_only_daily_path: data/processed/stock_backtest_up_only_daily_v11.csv
-  backtest_composite_summary_path: data/processed/stock_backtest_composite_v11.json
-  backtest_composite_daily_path: data/processed/stock_backtest_composite_daily_v11.csv
 model:
-  version: lgbm_stock_signal_v11
+  version: lgbm_stock_risk_v11
   asset_type: STOCK
-  output_path: models/lgbm_stock_signal_v11.joblib
+  output_path: models/lgbm_stock_risk_v11.joblib
   horizon_periods: 3
   up_return_threshold: 0.01
   risk_return_threshold: -0.02
   validation_ratio: 0.2
   random_state: 42
-  target_column: residual_up_label
+  target_column: residual_risk_label
   feature_columns:
   - return_1
   - return_3
@@ -137,73 +132,6 @@ model:
   - stoch_k_14
   - stoch_d_3
   - obv_zscore_20
-prediction:
-  risk_model_path: models/lgbm_stock_risk_v11.joblib
-  long_threshold: 0.1604
-  stock_min_composite_spread: 0.3606
-  stock_policy:
-    enabled: true
-    min_market_breadth_5: 0.578
-    min_market_breadth_5_us: 0.59
-    min_sector_breadth_5: 0.4396
-    min_sector_strength_score: 0.6783
-    min_market_regime_score: 1
-    max_market_news_stress_score: 2.4283
-    max_primary_market_drawdown_60: -0.1649
-    hard_block_market_news_stress_score: 3.0203
-    hard_block_primary_market_drawdown_60: -0.2101
-    market_breadth_penalty_weight: 0.0993
-    sector_breadth_penalty_weight: 0.1773
-    sector_strength_penalty_weight: 0.175
-    market_regime_penalty_weight: 0.0485
-    drawdown_penalty_weight: 0.2667
-    risk_on_long_threshold_bonus: 0.0471
-    risk_on_min_spread_bonus: -0.0549
-    risk_off_long_threshold_bonus: -0.0253
-    risk_off_min_spread_bonus: 0.135
-    risk_on_min_score: 4
-    risk_off_max_score: -2
-    risk_on_market_breadth_5: 0.6234
-    risk_off_market_breadth_5: 0.5143
-    risk_off_primary_market_drawdown_60: -0.0653
-  selection_policy:
-    enabled: true
-    max_per_market: 2
-    max_per_sector: 1
-    max_unknown_sector: 2
-    min_kr_count: 1
-    min_us_count: 0
-    unknown_sector_penalty: 19.1794
-  override_policy:
-    enabled: false
-    allowed_regimes:
-    - risk_off
-    - neutral
-    - risk_on
-    hard_block_reasons:
-    - news_stress
-    - hard_market_drawdown
-    min_up_probability: 0.72
-    max_risk_probability: 0.18
-    min_composite_spread: 0.56
-  exception_entry_policy:
-    enabled: true
-    allowed_regimes:
-    - risk_off
-    min_up_probability: 0.7655
-    max_risk_probability: 0.1833
-    min_adjusted_composite_spread: 0.4964
-    min_market_breadth_5: 0.103
-    min_sector_strength_score: 0.4489
-    min_volume_ratio_5: 0.70
-  relative_risk_policy:
-    enabled: false
-    allowed_regimes:
-    - risk_off
-    - neutral
-    max_risk_rank_pct: 0.18
-    min_adjusted_composite_spread: 0.5
-    min_market_breadth_5: 0.28
 labels:
   neutral_zone_abs_return: 0.003
   drop_neutral_samples: true
@@ -219,17 +147,14 @@ training:
   use_ensemble: true
   ensemble_lgbm_weight: 0.7
   ensemble_ridge_weight: 0.3
-backtest:
-  fee_bps: 8
-  slippage_bps: 12
-  top_n: 3
 lightgbm:
-  n_estimators: 126
-  learning_rate: 0.03867985761704387
-  num_leaves: 43
-  max_depth: 3
-  min_child_samples: 54
-  subsample: 0.8380624594912494
-  colsample_bytree: 0.8449873693695749
-  reg_alpha: 0.0013254139078865493
-  reg_lambda: 0.06019283361917798
+  objective: binary
+  n_estimators: 250
+  learning_rate: 0.009
+  num_leaves: 93
+  max_depth: 4
+  min_child_samples: 53
+  subsample: 0.60
+  colsample_bytree: 0.64
+  reg_alpha: 0.05
+  reg_lambda: 0.01

@@ -59,7 +59,6 @@ def get_keys_status():
             broker_env = str(record.get("broker_env") or "REAL").upper()
             account_status = {
                 "registered": True,
-                "id": record.get("id"),
                 "access_key": mask_key,
                 "broker_env": broker_env,
                 "toss_account_no": toss_acc,

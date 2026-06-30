@@ -2,12 +2,14 @@ import os
 import json
 import time
 import threading
+import logging
 import requests
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from backend.services.exchange_client import ExchangeClient
 
 KST = timezone(timedelta(hours=9))
+logger = logging.getLogger(__name__)
 
 # KIS 모의투자 API Rate Limiter
 _kis_mock_rate_limiter_lock = threading.Lock()
@@ -52,6 +54,10 @@ class KISClient(ExchangeClient):
             "cacheStatus": "MISS",
             "tokenStatus": "REFRESHED",
             "errorMessage": None,
+        }
+        self._access_token_cache = {
+            "token": None,
+            "expired_at": None,
         }
         
         if self.env == "REAL":
@@ -134,6 +140,115 @@ class KISClient(ExchangeClient):
         }
             
         return new_token
+
+    def _clear_token_cache(self):
+        from backend.services.token_cache_service import clear_db_token
+        try:
+            clear_db_token("KIS", self.env, self.user_id)
+        except Exception:
+            pass
+        self._access_token_cache = {
+            "token": None,
+            "expired_at": None,
+        }
+
+    def _get_cached_token(self) -> str:
+        from backend.services.lock_service import distributed_lock
+        from backend.services.token_cache_service import get_db_token_with_status, set_db_token
+
+        cached_token = self._access_token_cache.get("token")
+        cached_expired_at = self._access_token_cache.get("expired_at")
+        if cached_token and isinstance(cached_expired_at, datetime):
+            if (cached_expired_at - datetime.utcnow()).total_seconds() > 300:
+                self._last_token_cache_info = {
+                    "source": "memory",
+                    "cacheStatus": "HIT",
+                    "tokenStatus": "REUSED",
+                    "errorMessage": None,
+                    "expiredAt": cached_expired_at.isoformat() + "Z",
+                }
+                return cached_token
+
+        cache_state = get_db_token_with_status("KIS", self.env, self.user_id)
+        self._last_token_cache_info = {
+            "source": "token_cache_service",
+            "cacheStatus": cache_state.get("cache_status", "MISS"),
+            "tokenStatus": cache_state.get("token_status", "REFRESHED"),
+            "errorMessage": cache_state.get("error_message"),
+            "expiredAt": cache_state.get("expired_at"),
+        }
+        token = cache_state.get("token")
+        if token:
+            expired_at_raw = cache_state.get("expired_at")
+            try:
+                cached_expired_at = datetime.fromisoformat(str(expired_at_raw).replace("Z", "+00:00")).replace(tzinfo=None) if expired_at_raw else None
+            except Exception:
+                cached_expired_at = None
+            self._access_token_cache = {
+                "token": token,
+                "expired_at": cached_expired_at,
+            }
+            return token
+
+        # 같은 토큰을 동시에 다시 발급하지 않도록 잠근다.
+        lock_key = f"kis-token:{self.env}:{self.user_id or 'anonymous'}"
+        with distributed_lock(lock_key, duration_seconds=120) as acquired:
+            if not acquired:
+                time.sleep(0.5)
+                cache_state = get_db_token_with_status("KIS", self.env, self.user_id)
+                token = cache_state.get("token")
+                if token:
+                    expired_at_raw = cache_state.get("expired_at")
+                    try:
+                        cached_expired_at = datetime.fromisoformat(str(expired_at_raw).replace("Z", "+00:00")).replace(tzinfo=None) if expired_at_raw else None
+                    except Exception:
+                        cached_expired_at = None
+                    self._access_token_cache = {
+                        "token": token,
+                        "expired_at": cached_expired_at,
+                    }
+                    self._last_token_cache_info = {
+                        "source": "token_cache_service",
+                        "cacheStatus": "HIT",
+                        "tokenStatus": "REUSED",
+                        "errorMessage": cache_state.get("error_message"),
+                        "expiredAt": cache_state.get("expired_at"),
+                    }
+                    return token
+
+            token_data = self._request_new_token()
+            new_token = token_data["access_token"]
+            expires_in = 86400
+            expired_at_raw = token_data.get("expires_in") or token_data.get("access_token_token_expired") or token_data.get("access_token_expired_at")
+            if expired_at_raw:
+                try:
+                    if isinstance(expired_at_raw, (int, float)):
+                        expires_in = int(expired_at_raw)
+                    else:
+                        exp_dt = datetime.strptime(str(expired_at_raw), "%Y-%m-%d %H:%M:%S")
+                        expires_in = int((exp_dt - datetime.now()).total_seconds())
+                except Exception:
+                    pass
+            if expires_in <= 0:
+                expires_in = 86400
+
+            try:
+                set_db_token("KIS", self.env, new_token, expires_in, self.user_id)
+            except Exception as error:
+                logger.warning("[KIS Client] token cache save failed: %s", error)
+            expired_at = datetime.utcnow() + timedelta(seconds=expires_in)
+            self._access_token_cache = {
+                "token": new_token,
+                "expired_at": expired_at,
+            }
+            self._last_token_cache_info = {
+                "source": "token_cache_service",
+                "cacheStatus": "MISS",
+                "tokenStatus": "REFRESHED",
+                "errorMessage": cache_state.get("error_message"),
+                "expiredAt": expired_at.isoformat() + "Z",
+            }
+            return new_token
 
     def _request_new_token(self) -> dict:
         _enforce_kis_mock_rate_limit(self.env)
@@ -790,6 +905,105 @@ class KISClient(ExchangeClient):
             "order_org_no": output.get("KRX_FWDG_ORD_ORGNO", ""),
             "status": "ORDERED",
             "raw": data
+        }
+
+    def get_modifiable_orders(self) -> list[dict]:
+        """
+        KIS 국내주식 정정/취소 가능 주문 목록을 조회합니다.
+        """
+        _enforce_kis_mock_rate_limit(self.env)
+        url = f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl"
+        token = self._get_cached_token()
+        headers = {
+            "content-type": "application/json",
+            "authorization": f"Bearer {token}",
+            "appkey": self.appkey,
+            "appsecret": self.appsecret,
+            "tr_id": "TTTC8036R" if self.env == "REAL" else "VTTC8036R",
+        }
+        params = {
+            "CANO": self.cano,
+            "ACNT_PRDT_CD": self.acnt_prdt_cd,
+            "INQR_DVSN_1": "0",
+            "INQR_DVSN_2": "0",
+            "CTX_AREA_FK100": "",
+            "CTX_AREA_NK100": "",
+        }
+        orders = []
+
+        for _ in range(10):
+            res = requests.get(url, headers=headers, params=params, timeout=10)
+            if res.status_code != 200:
+                raise Exception(f"KIS modifiable orders failed: {res.text}")
+
+            data = res.json()
+            if data.get("rt_cd") != "0":
+                raise Exception(f"KIS modifiable orders error: {data.get('msg1')}")
+
+            page_orders = data.get("output", []) or data.get("output1", []) or []
+            if isinstance(page_orders, dict):
+                page_orders = [page_orders]
+
+            for row in page_orders:
+                order_id = str(row.get("odno") or row.get("ODNO") or row.get("orgn_odno") or "").strip()
+                order_org_no = str(
+                    row.get("ord_gno_brno")
+                    or row.get("KRX_FWDG_ORD_ORGNO")
+                    or row.get("krx_fwdg_ord_orgno")
+                    or ""
+                ).strip()
+                order_qty = self._to_float(row.get("ord_qty") or row.get("ORD_QTY"))
+                executed_qty = self._to_float(row.get("tot_ccld_qty") or row.get("TOT_CCLD_QTY"))
+                remaining_qty = self._to_float(
+                    row.get("psbl_qty")
+                    or row.get("rvse_cncl_psbl_qty")
+                    or row.get("nccs_qty")
+                    or row.get("rmn_qty")
+                )
+                if remaining_qty <= 0 and order_qty > 0:
+                    remaining_qty = max(order_qty - executed_qty, 0)
+
+                orders.append({
+                    "order_id": order_id,
+                    "order_org_no": order_org_no,
+                    "symbol": str(row.get("pdno") or row.get("PDNO") or "").strip(),
+                    "name": row.get("prdt_name") or row.get("PRDT_NAME") or "",
+                    "order_qty": order_qty,
+                    "executed_qty": executed_qty,
+                    "remaining_qty": remaining_qty,
+                    "raw": row,
+                })
+
+            next_fk100 = str(data.get("ctx_area_fk100") or data.get("CTX_AREA_FK100") or "").strip()
+            next_nk100 = str(data.get("ctx_area_nk100") or data.get("CTX_AREA_NK100") or "").strip()
+            tr_cont = str(res.headers.get("tr_cont") or res.headers.get("Tr_Cont") or "").upper()
+            if not next_fk100 and not next_nk100:
+                break
+            if tr_cont and tr_cont not in {"M", "F"}:
+                break
+            params["CTX_AREA_FK100"] = next_fk100
+            params["CTX_AREA_NK100"] = next_nk100
+
+        return orders
+
+    def get_modifiable_order(self, order_id: str, order_org_no: str = "") -> dict:
+        """
+        특정 원주문의 정정/취소 가능 여부와 미체결 잔량을 반환합니다.
+        """
+        target_order_id = str(order_id or "").strip()
+        target_org_no = str(order_org_no or "").strip()
+        for order in self.get_modifiable_orders():
+            same_order = order.get("order_id") == target_order_id
+            same_org = not target_org_no or not order.get("order_org_no") or order.get("order_org_no") == target_org_no
+            if same_order and same_org:
+                return {**order, "is_modifiable": order.get("remaining_qty", 0) > 0}
+
+        return {
+            "order_id": target_order_id,
+            "order_org_no": target_org_no,
+            "remaining_qty": 0.0,
+            "is_modifiable": False,
+            "raw": {},
         }
 
     def _modify_or_cancel_order(

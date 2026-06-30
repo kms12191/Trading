@@ -43,6 +43,10 @@ class TossClient(ExchangeClient):
             "tokenStatus": "REFRESHED",
             "errorMessage": None,
         }
+        self._access_token_cache = {
+            "token": None,
+            "expired_at": None,
+        }
 
     def _send_request(self, method: str, url: str, **kwargs) -> requests.Response:
         """
@@ -98,16 +102,31 @@ class TossClient(ExchangeClient):
                 logger.info(f"[Toss Client] Self-Throttling 활성화. {throttle_wait:.2f}초간 지연합니다.")
                 time.sleep(throttle_wait)
 
-        max_attempts = 3
+        max_attempts = 2
+        refreshed_once = False
         last_exception = None
         for attempt in range(max_attempts):
             try:
-                # 401 에러로 인해 토큰이 리프레시된 경우 헤더 동적 갱신
-                headers = kwargs.get("headers", {})
-                if "Authorization" in headers and headers["Authorization"].startswith("Bearer "):
-                    token = self._get_cached_token()
-                    headers["Authorization"] = f"Bearer {token}"
-                    kwargs["headers"] = headers
+                headers = dict(kwargs.get("headers") or {})
+                auth_header = headers.get("Authorization")
+                if isinstance(auth_header, str) and auth_header.startswith("Bearer "):
+                    headers["Authorization"] = f"Bearer {self._get_cached_token()}"
+                elif group != "AUTH":
+                    headers["Authorization"] = f"Bearer {self._get_cached_token()}"
+                kwargs["headers"] = headers
+
+                masked_auth = "NONE"
+                if isinstance(headers.get("Authorization"), str) and headers["Authorization"].startswith("Bearer "):
+                    token_value = headers["Authorization"].split(" ", 1)[1].strip()
+                    masked_auth = f"Bearer ***{token_value[-6:]}" if len(token_value) > 6 else "Bearer ***"
+                logger.debug(
+                    "[Toss Client][request] method=%s path=%s auth_present=%s auth_value=%s attempt=%s",
+                    method.upper(),
+                    path,
+                    bool(headers.get("Authorization")),
+                    masked_auth,
+                    attempt + 1,
+                )
 
                 res = requests.request(method, url, **kwargs)
 
@@ -152,9 +171,14 @@ class TossClient(ExchangeClient):
                         pass
 
                 if is_unauthorized:
-                    logger.warning(f"[Toss Client] 401 Unauthorized 감지. 토큰 만료 처리 후 재시도합니다. (시도 {attempt + 1}/{max_attempts})")
-                    self._clear_token_cache()
-                    if attempt < max_attempts - 1:
+                    logger.warning(
+                        "[Toss Client] 401 Unauthorized 감지. 토큰 1회 재발급 후 재시도합니다. (시도 %s/%s)",
+                        attempt + 1,
+                        max_attempts,
+                    )
+                    if not refreshed_once:
+                        refreshed_once = True
+                        self._clear_token_cache()
                         continue
 
                 return res
@@ -182,6 +206,10 @@ class TossClient(ExchangeClient):
             clear_db_token("TOSS", self.env, self.user_id)
         except Exception:
             pass
+        self._access_token_cache = {
+            "token": None,
+            "expired_at": None,
+        }
 
     def get_token_cache_info(self) -> dict:
         return dict(self._last_token_cache_info)
@@ -196,6 +224,19 @@ class TossClient(ExchangeClient):
         토큰이 만료되었거나 캐시가 없으면 새로 발급을 요청합니다.
         """
         from backend.services.token_cache_service import get_db_token_with_status, set_db_token
+
+        cached_token = self._access_token_cache.get("token")
+        cached_expired_at = self._access_token_cache.get("expired_at")
+        if cached_token and isinstance(cached_expired_at, datetime):
+            if (cached_expired_at - datetime.utcnow()).total_seconds() > 300:
+                self._last_token_cache_info = {
+                    "source": "memory",
+                    "cacheStatus": "HIT",
+                    "tokenStatus": "REUSED",
+                    "errorMessage": None,
+                    "expiredAt": cached_expired_at.isoformat() + "Z",
+                }
+                return cached_token
         
         # DB에서 유효한 공용 토큰 획득 시도
         cache_state = get_db_token_with_status("TOSS", self.env, self.user_id)
@@ -208,6 +249,15 @@ class TossClient(ExchangeClient):
         }
         token = cache_state.get("token")
         if token:
+            expired_at_raw = cache_state.get("expired_at")
+            try:
+                cached_expired_at = datetime.fromisoformat(str(expired_at_raw).replace("Z", "+00:00")).replace(tzinfo=None) if expired_at_raw else None
+            except Exception:
+                cached_expired_at = None
+            self._access_token_cache = {
+                "token": token,
+                "expired_at": cached_expired_at,
+            }
             return token
 
         # 토큰 새로 발급
@@ -220,6 +270,10 @@ class TossClient(ExchangeClient):
             set_db_token("TOSS", self.env, new_token, expires_in, self.user_id)
         except Exception:
             pass
+        self._access_token_cache = {
+            "token": new_token,
+            "expired_at": datetime.utcnow() + timedelta(seconds=expires_in),
+        }
         self._last_token_cache_info = {
             "source": "token_cache_service",
             "cacheStatus": "MISS",
@@ -264,6 +318,23 @@ class TossClient(ExchangeClient):
             "NASDAQ100_F": "NDX",
             "SP500": "SPX",
         }.get(definition["symbol"], definition.get("code") or definition["symbol"])
+
+    def _market_index_symbol_candidates(self, definition: dict) -> list[str]:
+        symbol = str(definition.get("symbol") or "").upper()
+        code = str(definition.get("code") or "").upper()
+        candidates_by_symbol = {
+            "USDKRW": ["USDKRW"],
+            "KOSPI": ["KS11", "^KS11", "KOSPI"],
+            "KOSDAQ": ["KQ11", "^KQ11", "KOSDAQ"],
+            "NASDAQ100_F": ["NDX", "^NDX"],
+            "SP500": ["SPX", "^GSPC"],
+        }
+        candidates = candidates_by_symbol.get(symbol, [])
+        if code and code not in candidates:
+            candidates.append(code)
+        if symbol and symbol not in candidates:
+            candidates.append(symbol)
+        return [candidate for candidate in dict.fromkeys(candidates) if candidate]
 
     def _fetch_price_payload(self, symbol: str) -> dict:
         # price 엔드포인트와 복수형 파라미터를 모두 시도해 응답 차이를 흡수한다.
@@ -382,32 +453,69 @@ class TossClient(ExchangeClient):
         if definition["kind"] == "fx":
             return self._get_exchange_rate_snapshot(definition)
 
-        symbol = self._market_index_symbol(definition)
-        quote = self._fetch_price_payload(symbol)
-        candle_info = self._get_daily_previous_close(symbol)
-        current_price = float(quote.get("current_price") or 0.0)
-        previous_close = float(candle_info.get("previous_close") or 0.0)
-        if not current_price:
-            raise RuntimeError(f"Toss index lookup returned empty value for {definition['symbol']}")
+        candidates = self._market_index_symbol_candidates(definition)
+        logger.info(
+            "[Toss Client][market-index] definition=%s candidates=%s",
+            definition.get("symbol"),
+            ",".join(candidates) if candidates else "NONE",
+        )
 
-        return self._build_standard_market_index_row(
-            definition,
-            symbol,
-            current_price,
-            previous_close,
-            {
-                "quote": quote.get("raw") or {},
-                "candles": candle_info.get("candles") or [],
-                "candleSelection": candle_info,
-            },
-            source="TOSS_OPEN_API",
-            token_info=self.get_token_cache_info(),
+        last_error: Exception | None = None
+        # 지수는 후보 심볼을 순서대로 시도해서 stock-not-found를 줄인다.
+        for candidate in candidates:
+            logger.info(
+                "[Toss Client][market-index] definition=%s symbol=%s",
+                definition.get("symbol"),
+                candidate,
+            )
+            try:
+                quote = self._fetch_price_payload(candidate)
+                try:
+                    candle_info = self._get_daily_previous_close(candidate)
+                except Exception as candle_error:
+                    logger.debug(
+                        "[Toss Client][market-index] candle lookup failed for symbol=%s error=%s",
+                        candidate,
+                        candle_error,
+                    )
+                    candle_info = {
+                        "previous_close": 0.0,
+                        "candles": [],
+                        "selected_index": None,
+                        "today_candle_included": False,
+                    }
+
+                current_price = float(quote.get("current_price") or 0.0)
+                previous_close = float(candle_info.get("previous_close") or 0.0)
+                if not current_price:
+                    raise RuntimeError(f"Toss index lookup returned empty value for {candidate}")
+
+                return self._build_standard_market_index_row(
+                    definition,
+                    candidate,
+                    current_price,
+                    previous_close,
+                    {
+                        "quote": quote.get("raw") or {},
+                        "candles": candle_info.get("candles") or [],
+                        "candleSelection": candle_info,
+                        "symbolUsed": candidate,
+                    },
+                    source="TOSS_OPEN_API",
+                    token_info=self.get_token_cache_info(),
+                )
+            except Exception as error:
+                last_error = error
+
+        raise RuntimeError(
+            f"Toss index lookup failed for {definition.get('symbol')} with candidates={candidates}: {last_error}"
         )
 
     def _get_exchange_rate_snapshot(self, definition: dict) -> dict:
         # 환율은 별도 API로 가져오되, 응답이 비면 전일 종가 기준값으로도 구성한다.
-        token = self._get_exchange_rate_bearer_token()
-        response = requests.get(
+        token = self._get_cached_token()
+        response = self._send_request(
+            "GET",
             f"{self.base_url}/api/v1/exchange-rate",
             headers={
                 "Authorization": f"Bearer {token}",
@@ -450,21 +558,6 @@ class TossClient(ExchangeClient):
             source="TOSS_EXCHANGE_RATE",
             token_info=self.get_token_cache_info(),
         )
-
-    def _get_exchange_rate_bearer_token(self) -> str:
-        secret_token = os.getenv("TOSS_SECRET_TOKEN", "")
-        if not secret_token:
-            raise RuntimeError("TOSS_SECRET_TOKEN is not configured.")
-
-        # 환율 조회는 별도 고정 토큰을 쓰므로 캐시 상태도 그에 맞게 기록한다.
-        self._last_token_cache_info = {
-            "source": "TOSS_EXCHANGE_RATE",
-            "cacheStatus": "HIT",
-            "tokenStatus": "REUSED",
-            "errorMessage": None,
-            "expiredAt": None,
-        }
-        return secret_token
 
     def _build_market_index_row(
         self,
@@ -1073,8 +1166,9 @@ class TossClient(ExchangeClient):
 
     def _get_exchange_rate_impl(self) -> float:
         try:
-            token = self._get_exchange_rate_bearer_token()
-            res = requests.get(
+            token = self._get_cached_token()
+            res = self._send_request(
+                "GET",
                 f"{self.base_url}/api/v1/exchange-rate",
                 headers={
                     "Authorization": f"Bearer {token}",

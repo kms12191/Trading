@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchUserWatchlist, supabase } from '../supabaseClient'
 import Header from '../components/Header.jsx'
 import Settings from './Settings'
-import { ASSET_PERIOD_OPTIONS } from '../dashboardConstants.js'
-import { Rate, SectionHeader, SidebarNav, Sparkline } from '../components/DashboardComponents.jsx'
-import { getAssetPeriodRange } from '../dashboardUtils.js'
+import { Rate, SectionHeader, SidebarNav } from '../components/DashboardComponents.jsx'
 import WatchlistTab from './WatchlistTab.jsx'
 import AssetsTab from './AssetsTab.jsx'
 import TradeHistoryTab from './TradeHistoryTab.jsx'
@@ -12,7 +10,6 @@ import AdminMlData from './AdminMlData.jsx'
 
 const DASHBOARD_API_BASE_URL = 'http://localhost:5050'
 const BALANCE_EXCHANGE_ORDER = ['TOSS', 'KIS', 'COINONE', 'BINANCE']
-const TRADE_PROPOSAL_HOLDING_FIELDS = 'id,exchange,asset_type,ticker,symbol,side,price,volume,order_amount,market_country,currency,status,broker_env,created_at'
 
 const toNumber = (value) => {
   const numericValue = Number(value)
@@ -45,85 +42,27 @@ const formatCurrency = (value, currency, displayCurrency = 'KRW', exchangeRate =
   return `₩${Math.round(numeric).toLocaleString()}`
 }
 
+const parsePriceNumber = (value) => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  const numeric = Number(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''))
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+const getWatchlistCurrentPrice = (item = {}) => {
+  const payload = item.sourcePayload || {}
+  return parsePriceNumber(
+    item.currentPrice
+      ?? payload.current_price
+      ?? payload.currentPrice
+      ?? payload.live_price
+      ?? payload.livePrice
+      ?? payload.price,
+  )
+}
+
 const formatSignedRate = (value) => {
   const numericValue = toNumber(value)
   return `${numericValue >= 0 ? '+' : ''}${numericValue.toFixed(2)}%`
-}
-
-const getTrendPointValue = (item) => toNumber(item?.total_evaluation ?? item?.value)
-
-const getTrendPointTime = (item) => item?.snapshot_at || item?.snapshot_date || item?.date || ''
-
-const buildCurrentBalanceTrend = (currentValue, periodKey) => {
-  return Array.from({ length: 6 }, () => toNumber(currentValue))
-}
-
-const buildFallbackTrendLabels = (periodKey) => {
-  const now = new Date()
-  const count = 6
-  const stepMs = periodKey === '1h'
-    ? 10 * 60 * 1000
-    : periodKey === '1d'
-      ? 3 * 60 * 60 * 1000
-      : periodKey === '1w'
-        ? 24 * 60 * 60 * 1000
-        : 4 * 24 * 60 * 60 * 1000
-
-  return Array.from({ length: count }, (_, index) => {
-    const value = new Date(now.getTime() - (count - 1 - index) * stepMs)
-    return formatTrendAxisLabel(value.toISOString(), periodKey)
-  })
-}
-
-const formatTrendAxisLabel = (value, periodKey) => {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value).slice(5, 10)
-
-  if (periodKey === '1h' || periodKey === '1d') {
-    return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-  }
-
-  return date.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })
-}
-
-const getTrendQueryRange = (periodKey, dateRange) => {
-  const end = new Date()
-  const start = new Date(end)
-
-  if (periodKey === 'custom') {
-    const customStart = dateRange.start ? new Date(`${dateRange.start}T00:00:00`) : start
-    const customEnd = dateRange.end ? new Date(`${dateRange.end}T23:59:59`) : end
-    return { start: customStart.toISOString(), end: customEnd.toISOString() }
-  }
-
-  if (periodKey === '1h') {
-    start.setHours(end.getHours() - 1)
-  } else if (periodKey === '1d') {
-    start.setDate(end.getDate() - 1)
-  } else if (periodKey === '1w') {
-    start.setDate(end.getDate() - 7)
-  } else {
-    start.setMonth(end.getMonth() - 1)
-  }
-
-  return { start: start.toISOString(), end: end.toISOString() }
-}
-
-const formatTrendDelta = (values, displayCurrency = 'KRW', exchangeRate = 1500) => {
-  if (!values.length) return '+0'
-  const delta = values[values.length - 1] - values[0]
-  const formatted = formatCurrency(Math.abs(delta), 'KRW', displayCurrency, exchangeRate)
-  if (delta === 0) return formatted
-  return `${delta > 0 ? '+' : '-'}${formatted}`
-}
-
-const getTrendDeltaTone = (values) => {
-  if (!values.length) return 'text-white'
-  const delta = values[values.length - 1] - values[0]
-  if (delta > 0) return 'text-red-400'
-  if (delta < 0) return 'text-blue-400'
-  return 'text-white'
 }
 
 const getHoldingMarketType = (holding = {}) => {
@@ -198,7 +137,6 @@ const mergeAccountBalances = (items, showMockAssets = true) => {
   
   const holdings = filteredItems.flatMap((item) => {
     const exchange = item.exchange
-    const sourceExchange = item.raw_exchange || exchange
     const rate = toNumber(item.exchange_rate) || representativeRate
     const itemCurrency = item.currency || 'KRW'
     
@@ -217,10 +155,6 @@ const mergeAccountBalances = (items, showMockAssets = true) => {
       ...holding,
       exchange: holding.exchange || exchange,
       account_type: holding.account_type || exchange,
-      raw_exchange: holding.raw_exchange || sourceExchange,
-      asset_type: holding.asset_type || (['COINONE', 'BINANCE'].includes(sourceExchange) ? 'CRYPTO' : 'STOCK'),
-      account_key_id: item.api_key_id,
-      source: holding.source || 'LIVE_BALANCE',
       env: item.env || 'REAL',
     }))
   })
@@ -232,118 +166,6 @@ const mergeAccountBalances = (items, showMockAssets = true) => {
     exchange_rate: representativeRate,
     holdings,
     sources: filteredItems.map((item) => item.exchange),
-  }
-}
-
-const getHoldingIdentity = (holding = {}) => {
-  const symbol = String(holding.symbol || holding.ticker || holding.id || '').trim().toUpperCase()
-  const assetType = String(holding.asset_type || '').trim().toUpperCase() || 'STOCK'
-  return symbol ? `${assetType}:${symbol}` : ''
-}
-
-const fetchTradeSymbolNameMap = async (tradeRows = []) => {
-  const symbols = Array.from(new Set(
-    tradeRows
-      .filter((row) => String(row.status || '').toUpperCase() === 'EXECUTED')
-      .map((row) => String(row.symbol || row.ticker || '').trim().toUpperCase())
-      .filter(Boolean),
-  ))
-
-  if (symbols.length === 0) return {}
-
-  const pairs = await Promise.all(
-    symbols.map(async (symbol) => {
-      try {
-        const response = await fetch(`${DASHBOARD_API_BASE_URL}/api/symbol/lookup?query=${encodeURIComponent(symbol)}`)
-        const payload = await response.json()
-        const displayName = payload?.success ? payload.data?.display_name : ''
-        return [symbol, displayName || symbol]
-      } catch {
-        return [symbol, symbol]
-      }
-    }),
-  )
-
-  return Object.fromEntries(pairs)
-}
-
-const buildEstimatedHoldingsFromTrades = (tradeRows = [], liveHoldings = [], showMockAssets = true) => {
-  const liveKeys = new Set(liveHoldings.map(getHoldingIdentity).filter(Boolean))
-  const grouped = new Map()
-
-  tradeRows.forEach((row) => {
-    const status = String(row.status || '').toUpperCase()
-    const env = String(row.broker_env || 'REAL').toUpperCase()
-    if (status !== 'EXECUTED') return
-    if (!showMockAssets && env === 'MOCK') return
-
-    const symbol = String(row.symbol || row.ticker || '').trim().toUpperCase()
-    if (!symbol) return
-
-    const assetType = String(row.asset_type || (['COINONE', 'BINANCE'].includes(row.exchange) ? 'CRYPTO' : 'STOCK')).toUpperCase()
-    const key = `${assetType}:${symbol}`
-    const side = String(row.side || '').toUpperCase()
-    const price = toNumber(row.price)
-    const volume = toNumber(row.volume) || (price > 0 ? toNumber(row.order_amount) / price : 0)
-    if (volume <= 0) return
-
-    const current = grouped.get(key) || {
-      symbol,
-      name: row.display_name || symbol,
-      asset_type: assetType,
-      exchange: row.exchange || '-',
-      raw_exchange: row.exchange || '-',
-      account_type: row.exchange || '-',
-      env,
-      currency: row.currency || (row.exchange === 'BINANCE' ? 'USD' : 'KRW'),
-      qty: 0,
-      buyQty: 0,
-      buyAmount: 0,
-      lastPrice: 0,
-    }
-
-    if (side === 'SELL') {
-      current.qty -= volume
-    } else {
-      current.qty += volume
-      current.buyQty += volume
-      current.buyAmount += price * volume
-    }
-    if (price > 0) current.lastPrice = price
-    grouped.set(key, current)
-  })
-
-  return Array.from(grouped.values())
-    .filter((item) => item.qty > 0 && !liveKeys.has(`${item.asset_type}:${item.symbol}`))
-    .map((item) => {
-      const avgPrice = item.buyQty > 0 ? item.buyAmount / item.buyQty : item.lastPrice
-      const currentPrice = item.lastPrice || avgPrice
-      return {
-        symbol: item.symbol,
-        name: item.name,
-        qty: item.qty,
-        avg_price: avgPrice,
-        current_price: currentPrice,
-        profit: 0,
-        profit_rate: 0,
-        currency: item.currency,
-        exchange: item.exchange,
-        raw_exchange: item.raw_exchange,
-        account_type: item.account_type,
-        asset_type: item.asset_type,
-        env: item.env,
-        source: 'DB_ESTIMATED',
-        source_label: '실잔고 미확인',
-      }
-    })
-}
-
-const mergeBalanceWithTradeEstimates = (mergedBalance, tradeRows = [], showMockAssets = true) => {
-  const holdings = Array.isArray(mergedBalance?.holdings) ? mergedBalance.holdings : []
-  const estimatedHoldings = buildEstimatedHoldingsFromTrades(tradeRows, holdings, showMockAssets)
-  return {
-    ...mergedBalance,
-    holdings: [...holdings, ...estimatedHoldings],
   }
 }
 
@@ -369,7 +191,6 @@ const buildBalanceRequests = (keyStatus) =>
       return {
         exchange,
         env,
-        apiKeyId: account?.id,
         label: getBalanceRequestLabel(exchange, env),
       }
     })
@@ -384,9 +205,6 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   })
   const [activeTab, setActiveTab] = useState('dashboard')
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
-  const [selectedAssetPeriod, setSelectedAssetPeriod] = useState('1h')
-  const [assetDateRange, setAssetDateRange] = useState(() => getAssetPeriodRange('1h'))
-  const [isAssetCalendarOpen, setIsAssetCalendarOpen] = useState(false)
 
   const [encrypted, setEncrypted] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -395,7 +213,6 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [showMockAssets, setShowMockAssets] = useState(true)
   const [rawBalances, setRawBalances] = useState([])
-  const [executedTradeRows, setExecutedTradeRows] = useState([])
   const [dashboardWatchlist, setDashboardWatchlist] = useState([])
   const [watchlistLoading, setWatchlistLoading] = useState(false)
   const [watchlistError, setWatchlistError] = useState('')
@@ -420,9 +237,6 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
     })
   }
   const [balanceError, setBalanceError] = useState('')
-  const [assetTrendRows, setAssetTrendRows] = useState([])
-  const [assetTrendLoading, setAssetTrendLoading] = useState(false)
-  const [assetTrendSource, setAssetTrendSource] = useState('current-balance')
 
   const [displayCurrency, setDisplayCurrency] = useState('KRW')
 
@@ -502,7 +316,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
       }
 
       const results = await Promise.all(
-        balanceRequests.map(async ({ exchange, env, label, apiKeyId }) => {
+        balanceRequests.map(async ({ exchange, env, label }) => {
           try {
             const response = await fetch(`${DASHBOARD_API_BASE_URL}/api/dashboard/balance`, {
               method: 'POST',
@@ -510,7 +324,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                 'Content-Type': 'application/json',
                 Authorization: authHeader,
               },
-              body: JSON.stringify({ exchange, env, api_key_id: apiKeyId }),
+              body: JSON.stringify({ exchange, env }),
             })
             const payload = await response.json()
 
@@ -522,7 +336,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
               }
             }
 
-            return { ...payload.data, exchange: label, raw_exchange: exchange, env, api_key_id: apiKeyId }
+            return { ...payload.data, exchange: label, raw_exchange: exchange, env }
           } catch (error) {
             return {
               exchange: label,
@@ -535,34 +349,8 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
 
       const failedResults = results.filter((item) => item?.error)
       const successResults = results.filter((item) => !item?.error)
-      let tradeRows = []
-      const { data: proposalRows, error: proposalError } = await supabase
-        .from('trade_proposals')
-        .select(TRADE_PROPOSAL_HOLDING_FIELDS)
-        .eq('status', 'EXECUTED')
-        .order('created_at', { ascending: true })
-
-      if (proposalError) {
-        setBalanceError(`거래내역 보정 조회 실패: ${proposalError.message}`)
-      } else {
-        const baseRows = proposalRows || []
-        const symbolNameMap = await fetchTradeSymbolNameMap(baseRows)
-        tradeRows = baseRows.map((row) => {
-          const symbol = String(row.symbol || row.ticker || '').trim().toUpperCase()
-          return {
-            ...row,
-            display_name: symbolNameMap[symbol] || symbol,
-          }
-        })
-      }
-
-      setExecutedTradeRows(tradeRows)
       setRawBalances(successResults)
-      const mergedBalance = mergeBalanceWithTradeEstimates(
-        mergeAccountBalances(successResults, showMockAssets),
-        tradeRows,
-        showMockAssets,
-      )
+      const mergedBalance = mergeAccountBalances(successResults, showMockAssets)
       setBalance(mergedBalance)
 
       if (mergedBalance.sources.length === 0) {
@@ -582,94 +370,39 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
     }
   }
 
-  const loadAssetTrend = async () => {
-    if (!isLoggedIn) {
-      setAssetTrendRows([])
-      setAssetTrendSource('current-balance')
-      return
-    }
-
-    setAssetTrendLoading(true)
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        setAssetTrendRows([])
-        setAssetTrendSource('current-balance')
-        return
-      }
-
-      const trendRange = getTrendQueryRange(selectedAssetPeriod, assetDateRange)
-      const params = new URLSearchParams(trendRange)
-      const response = await fetch(`${DASHBOARD_API_BASE_URL}/api/dashboard/asset-trend?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      })
-      const payload = await response.json()
-
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.message || 'Asset trend request failed.')
-      }
-
-      const rows = payload.data?.items || []
-      setAssetTrendRows(rows)
-      setAssetTrendSource(rows.length > 0 ? payload.data?.source || 'portfolio_snapshots' : 'current-balance')
-    } catch (error) {
-      setAssetTrendRows([])
-      setAssetTrendSource('current-balance')
-    } finally {
-      setAssetTrendLoading(false)
-    }
-  }
-
   useEffect(() => {
     loadAccountBalance()
   }, [isLoggedIn])
 
   useEffect(() => {
-    let isMounted = true
-
-    async function loadDashboardWatchlist() {
-      if (!isLoggedIn) {
-        setDashboardWatchlist([])
-        return
-      }
-
-      setWatchlistLoading(true)
-      setWatchlistError('')
-      try {
-        const items = await fetchUserWatchlist()
-        if (isMounted) setDashboardWatchlist(items)
-      } catch (error) {
-        if (!isMounted) return
-        setDashboardWatchlist([])
-        setWatchlistError(error.message || '관심종목을 불러오지 못했습니다.')
-      } finally {
-        if (isMounted) setWatchlistLoading(false)
-      }
-    }
-
     loadDashboardWatchlist()
-
-    return () => {
-      isMounted = false
-    }
   }, [isLoggedIn, activeTab])
 
-  useEffect(() => {
-    loadAssetTrend()
-  }, [isLoggedIn, selectedAssetPeriod, assetDateRange.start, assetDateRange.end])
+  const loadDashboardWatchlist = async () => {
+    if (!isLoggedIn) {
+      setDashboardWatchlist([])
+      setWatchlistError('')
+      return
+    }
+
+    setWatchlistLoading(true)
+    setWatchlistError('')
+    try {
+      const items = await fetchUserWatchlist()
+      setDashboardWatchlist(items)
+    } catch (error) {
+      setDashboardWatchlist([])
+      setWatchlistError(error.message || '관심종목을 불러오지 못했습니다.')
+    } finally {
+      setWatchlistLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (rawBalances.length > 0) {
-      setBalance(mergeBalanceWithTradeEstimates(
-        mergeAccountBalances(rawBalances, showMockAssets),
-        executedTradeRows,
-        showMockAssets,
-      ))
+      setBalance(mergeAccountBalances(rawBalances, showMockAssets))
     }
-  }, [rawBalances, showMockAssets, executedTradeRows])
+  }, [rawBalances, showMockAssets])
 
   const refreshBalance = async () => {
     if (!encrypted) {
@@ -773,36 +506,6 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   }
 
   const allocation = getAllocationData()
-  const assetTrendPoints = assetTrendRows.filter((item) => getTrendPointValue(item) > 0)
-  const assetTrendDbValues = assetTrendPoints.map(getTrendPointValue)
-  const assetTrendValues = assetTrendDbValues.length > 0
-    ? assetTrendDbValues
-    : buildCurrentBalanceTrend(balance?.total_evaluation, selectedAssetPeriod)
-  const displayTrendValues = (() => {
-    if (displayCurrency === 'USD') {
-      const rate = toNumber(balance?.exchange_rate) || 1380
-      return assetTrendValues.map(v => v / rate)
-    }
-    return assetTrendValues
-  })()
-  const assetTrendLabels = assetTrendDbValues.length > 0
-    ? assetTrendPoints.map((item) => formatTrendAxisLabel(getTrendPointTime(item), selectedAssetPeriod))
-    : buildFallbackTrendLabels(selectedAssetPeriod)
-  const assetTrendSummary = assetTrendSource === 'portfolio_snapshots'
-    ? `${assetDateRange.start || '시작일'} ~ ${assetDateRange.end || '종료일'}`
-    : `현재 계정 자산 기준 · ${assetDateRange.start || '시작일'} ~ ${assetDateRange.end || '종료일'}`
-  const assetTrendDelta = formatTrendDelta(assetTrendValues, displayCurrency, balance?.exchange_rate)
-  const assetTrendDeltaTone = getTrendDeltaTone(assetTrendValues)
-
-  const handleAssetPeriodChange = (periodKey) => {
-    setSelectedAssetPeriod(periodKey)
-    setAssetDateRange(getAssetPeriodRange(periodKey))
-  }
-
-  const handleAssetDateChange = (field, value) => {
-    setSelectedAssetPeriod('custom')
-    setAssetDateRange((prev) => ({ ...prev, [field]: value }))
-  }
 
   return (
     <div className="min-h-screen bg-obsidian-bg text-[#e2e2ec] font-inter">
@@ -928,88 +631,6 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                 </div>
               ) : null}
 
-              <section className="grid grid-cols-1 gap-6">
-                {/* 총 자산 가치 그래프 (Sparkline) */}
-                <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-5 flex flex-col gap-3">
-                  <div className="mb-1 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Portfolio Trend</p>
-                      <h2 className="text-sm font-bold text-white uppercase tracking-wider">자산 가치 변화 추이</h2>
-                    </div>
-                    <button
-                      className={`rounded border px-2 py-1 text-[10px] font-bold transition-all ${
-                        isAssetCalendarOpen
-                          ? 'border-ai-cyan bg-ai-cyan/10 text-ai-cyan'
-                          : 'border-slate-700 text-slate-400 hover:border-ai-cyan hover:text-white'
-                      }`}
-                      type="button"
-                      onClick={() => setIsAssetCalendarOpen((prev) => !prev)}
-                    >
-                      기간 변경
-                    </button>
-                  </div>
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                      <p className="text-2xl font-bold text-white font-mono">{balanceLoading ? '조회 중' : formatCurrency(balance?.total_evaluation, balance?.currency, 'KRW', balance?.exchange_rate)}</p>
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        {assetTrendSummary} <span className={`${assetTrendDeltaTone} font-bold font-mono`}>{assetTrendDelta}</span>
-                      </p>
-                    </div>
-                    <div className="flex gap-1.5 text-[10px] font-bold text-slate-400">
-                      {ASSET_PERIOD_OPTIONS.map((item) => (
-                        <button
-                          key={item.key}
-                          className={`rounded border px-2.5 py-1 cursor-pointer transition-all ${
-                            selectedAssetPeriod === item.key
-                              ? 'border-ai-cyan/30 bg-ai-cyan/10 text-ai-cyan'
-                              : 'border-transparent bg-[#0f172a] text-slate-400 hover:bg-slate-800 hover:text-white'
-                          }`}
-                          type="button"
-                          onClick={() => handleAssetPeriodChange(item.key)}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {isAssetCalendarOpen ? (
-                    <div className="grid gap-2 rounded border border-slate-800 bg-[#0f172a] p-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
-                      <input
-                        className="h-10 rounded border border-slate-700 bg-transparent px-3 font-mono text-xs text-slate-200 outline-none [color-scheme:dark] focus:border-ai-cyan"
-                        type="date"
-                        value={assetDateRange.start}
-                        onChange={(event) => handleAssetDateChange('start', event.target.value)}
-                      />
-                      <span className="hidden text-slate-600 sm:block">-</span>
-                      <input
-                        className="h-10 rounded border border-slate-700 bg-transparent px-3 font-mono text-xs text-slate-200 outline-none [color-scheme:dark] focus:border-ai-cyan"
-                        type="date"
-                        value={assetDateRange.end}
-                        onChange={(event) => handleAssetDateChange('end', event.target.value)}
-                      />
-                    </div>
-                  ) : null}
-                  <div className="mt-2 rounded border border-slate-800 bg-[#0f172a]/60 p-4">
-                    <Sparkline
-                      values={displayTrendValues}
-                      labels={assetTrendLabels}
-                      formatValue={(value) => formatCurrency(value, displayCurrency, displayCurrency, balance?.exchange_rate)}
-                    />
-                    <div className="mt-3 flex items-center justify-between text-[10px] font-bold text-slate-500">
-                      <span>
-                        {assetTrendLoading
-                          ? '자산 추이 불러오는 중'
-                          : assetTrendSource === 'portfolio_snapshots'
-                            ? 'DB 자산 스냅샷 기준'
-                            : '현재 계정 자산 기준'}
-                      </span>
-                      <span>{displayTrendValues.length}개 포인트</span>
-                    </div>
-                  </div>
-                </div>
-
-              </section>
-
               {/* 자산 배분 상태 및 관심 종목 그리드 */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
 
@@ -1038,13 +659,23 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                 <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-5 md:col-span-7 flex flex-col gap-3">
                   <div className="mb-1 flex items-start justify-between gap-3">
                     <h2 className="text-sm font-bold text-white uppercase tracking-wider">관심 종목 명단 (시세 모니터링)</h2>
-                    <button
-                      className="rounded border border-slate-700 px-2 py-1 text-[10px] font-bold text-slate-400 transition-all hover:border-ai-cyan hover:text-white"
-                      type="button"
-                      onClick={() => setActiveTab('watchlist')}
-                    >
-                      관리
-                    </button>
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        className="rounded border border-slate-700 px-2 py-1 text-[10px] font-bold text-slate-400 transition-all hover:border-ai-cyan hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        type="button"
+                        disabled={watchlistLoading}
+                        onClick={loadDashboardWatchlist}
+                      >
+                        {watchlistLoading ? '갱신 중' : '새로 고침'}
+                      </button>
+                      <button
+                        className="rounded border border-slate-700 px-2 py-1 text-[10px] font-bold text-slate-400 transition-all hover:border-ai-cyan hover:text-white"
+                        type="button"
+                        onClick={() => setActiveTab('watchlist')}
+                      >
+                        관리
+                      </button>
+                    </div>
                   </div>
                   <div className="overflow-x-auto max-h-[180px] overflow-y-auto">
                     <table className="w-full border-collapse text-xs">
@@ -1052,31 +683,44 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                         <tr>
                           <th className="px-3 py-2 text-left font-bold">종목명</th>
                           <th className="px-3 py-2 text-left font-bold">시장</th>
-                          <th className="px-3 py-2 text-right font-bold">평균가</th>
-                          <th className="px-3 py-2 text-right font-bold">등락률</th>
+                          <th className="px-3 py-2 text-right font-bold">저장 당시 가격</th>
+                          <th className="px-3 py-2 text-right font-bold">현재가</th>
+                          <th className="px-3 py-2 text-right font-bold">현재가 변동</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/40">
                         {dashboardWatchlist.map((item) => {
-                          const isForeign = /[a-zA-Z]/.test(item.id) || item.market.includes('해외')
-                          const stockCurrency = isForeign ? 'USD' : 'KRW'
-                          const numericPrice = parseFloat(item.average.replace(/[^0-9.-]/g, '')) || 0
+                          const stockCurrency = item.currency || (item.marketCountry === 'US' ? 'USD' : 'KRW')
+                          const savedPrice = parsePriceNumber(item.latestPrice ?? item.average)
+                          const currentPrice = getWatchlistCurrentPrice(item) ?? savedPrice
+                          const hasSavedPrice = Number.isFinite(savedPrice) && savedPrice > 0
+                          const hasCurrentPrice = Number.isFinite(currentPrice)
+                          const priceDelta = hasSavedPrice && hasCurrentPrice ? currentPrice - savedPrice : 0
+                          const priceDeltaRate = hasSavedPrice ? (priceDelta / savedPrice) * 100 : 0
+                          const priceDeltaTone = priceDelta > 0 ? 'text-red-400' : priceDelta < 0 ? 'text-blue-400' : 'text-white'
+                          const signedDeltaAmount = `${priceDelta > 0 ? '+' : priceDelta < 0 ? '-' : ''}${formatCurrency(Math.abs(priceDelta), stockCurrency, stockCurrency === 'USD' || stockCurrency === 'USDT' ? displayCurrency : 'KRW', balance?.exchange_rate || 1380)}`
+                          const signedDeltaRate = `${priceDeltaRate > 0 ? '+' : ''}${priceDeltaRate.toFixed(2)}%`
                           const exchangeRate = balance?.exchange_rate || 1380
-                          const currentDisplayCurrency = isForeign ? displayCurrency : 'KRW'
+                          const currentDisplayCurrency = stockCurrency === 'USD' || stockCurrency === 'USDT' ? displayCurrency : 'KRW'
                           return (
                             <tr key={item.id} className="hover:bg-slate-800/20 transition-colors">
                               <td className="px-3 py-2.5 font-bold text-white">{item.name}</td>
                               <td className="px-3 py-2.5 text-slate-400">{item.market}</td>
                               <td className="px-3 py-2.5 text-right font-mono text-slate-300">
-                                {formatCurrency(numericPrice, stockCurrency, currentDisplayCurrency, exchangeRate)}
+                                {hasSavedPrice ? formatCurrency(savedPrice, stockCurrency, currentDisplayCurrency, exchangeRate) : '-'}
                               </td>
-                              <td className="px-3 py-2.5 text-right"><Rate value={item.change} /></td>
+                              <td className="px-3 py-2.5 text-right font-mono text-slate-300">
+                                {hasCurrentPrice ? formatCurrency(currentPrice, stockCurrency, currentDisplayCurrency, exchangeRate) : '-'}
+                              </td>
+                              <td className={`px-3 py-2.5 text-right font-mono font-bold ${priceDeltaTone}`}>
+                                {hasSavedPrice && hasCurrentPrice ? `${signedDeltaAmount} (${signedDeltaRate})` : '-'}
+                              </td>
                             </tr>
                           )
                         })}
                         {!watchlistLoading && dashboardWatchlist.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-8 text-center text-slate-500" colSpan={4}>
+                            <td className="px-3 py-8 text-center text-slate-500" colSpan={5}>
                               관심종목이 없습니다. 하트를 눌러 관심 종목을 추가해주세요.
                             </td>
                           </tr>
@@ -1093,8 +737,8 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
               <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-6 flex flex-col gap-4">
                 <div className="flex justify-between items-center border-b border-slate-800 pb-2">
                   <h2 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-wider">
-                    <span className="w-2 h-2 rounded bg-indigo-500" />
-                    Held Positions (보유 주식 자산 현황)
+                    <span />
+                    보유 주식 자산 현황
                   </h2>
                   {encrypted && (
                     <button
@@ -1146,20 +790,11 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                           const exchangeRate = balance.exchange_rate || 1380
                           const currentDisplayCurrency = isForeign ? displayCurrency : 'KRW'
                           const exchangeName = stock.exchange || stock.account_type || '-'
-                          const isEstimatedHolding = stock.source === 'DB_ESTIMATED'
-                          const profitRate = Number(stock.profit_rate)
 
                           return (
                             <tr key={`${exchangeName}-${stock.env || 'REAL'}-${stock.symbol}-${index}`} className="hover:bg-slate-800/40 transition-colors">
                               <td className="py-3 px-3 font-sans">
-                                <div className="flex flex-wrap items-center gap-2 font-semibold text-white">
-                                  <span>{stock.name}</span>
-                                  {isEstimatedHolding ? (
-                                    <span className="rounded border border-amber-400/40 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-300">
-                                      실잔고 미확인
-                                    </span>
-                                  ) : null}
-                                </div>
+                                <div className="font-semibold text-white">{stock.name}</div>
                                 <div className="text-[10px] text-slate-500 font-mono">{stock.symbol}</div>
                               </td>
                               <td className="py-3 px-3 text-left font-sans font-bold text-slate-400">
@@ -1178,7 +813,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                                 {stock.profit > 0 ? '+' : ''}{formatCurrency(stock.profit, stockCurrency, currentDisplayCurrency, exchangeRate)}
                               </td>
                               <td className={`py-3 px-3 text-right font-semibold`}>
-                                <Rate value={(profitRate >= 0 ? '+' : '') + (Number.isFinite(profitRate) ? profitRate.toFixed(2) : '0.00') + '%'} />
+                                <Rate value={(stock.profit_rate >= 0 ? '+' : '') + stock.profit_rate.toFixed(2) + '%'} />
                               </td>
                             </tr>
                           )

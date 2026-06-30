@@ -97,10 +97,21 @@ def _log_collection_stage(stage: str, symbol: str, payload: Any) -> None:
 def set_market_index_cache(rows: list[dict[str, Any]]) -> None:
     global _MARKET_INDEX_CACHE
     _MARKET_INDEX_CACHE = list(rows or [])
+    logger.info(
+        "[MarketIndex][cache-save] memory count=%s symbols=%s",
+        len(_MARKET_INDEX_CACHE),
+        ",".join(str(row.get("symbol") or "") for row in _MARKET_INDEX_CACHE),
+    )
 
 
 def get_market_index_cache() -> list[dict[str, Any]]:
-    return list(_MARKET_INDEX_CACHE)
+    rows = list(_MARKET_INDEX_CACHE)
+    logger.info(
+        "[MarketIndex][cache-load] memory count=%s symbols=%s",
+        len(rows),
+        ",".join(str(row.get("symbol") or "") for row in rows),
+    )
+    return rows
 
 
 def _configured_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -298,6 +309,13 @@ def collect_market_index_rows() -> tuple[list[dict[str, Any]], list[dict[str, st
     rows: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     clients_by_env: dict[str, KISClient | None] = {}
+    target_date = datetime.now(KST).date().isoformat()
+    logger.info(
+        "[MarketIndex][collect-start] targetDate=%s symbolCount=%s symbols=%s",
+        target_date,
+        len(KIS_INDEX_DEFINITIONS),
+        ",".join(CONFIGURED_INDEX_SYMBOLS),
+    )
     # Toss -> DB 캐시 -> KIS 순서로 안전하게 시도한다.
     # 1차 수집에 실패해도 2차, 3차 경로가 이어서 동작하도록 설계한 구조다.
     toss_client = get_toss_market_index_client()
@@ -328,6 +346,12 @@ def collect_market_index_rows() -> tuple[list[dict[str, Any]], list[dict[str, st
             continue
         except Exception as error:
             primary_error = str(error)
+            logger.warning(
+                "[MarketIndex][collect-primary-failed] symbol=%s reason=%s",
+                symbol,
+                primary_error,
+                exc_info=True,
+            )
 
         if definition["kind"] == "fx":
             try:
@@ -371,6 +395,12 @@ def collect_market_index_rows() -> tuple[list[dict[str, Any]], list[dict[str, st
                     continue
             except Exception as error:
                 fallback_errors.append(f"DB Cache: {error}")
+                logger.warning(
+                    "[MarketIndex][collect-db-cache-failed] symbol=%s reason=%s",
+                    symbol,
+                    error,
+                    exc_info=True,
+                )
 
         if definition["kind"] == "fx":
             try:
@@ -397,6 +427,12 @@ def collect_market_index_rows() -> tuple[list[dict[str, Any]], list[dict[str, st
                 continue
             except Exception as error:
                 fallback_errors.append(f"KIS: {error}")
+                logger.warning(
+                    "[MarketIndex][collect-fx-kis-failed] symbol=%s reason=%s",
+                    symbol,
+                    error,
+                    exc_info=True,
+                )
 
         if definition["kind"] != "fx":
             try:
@@ -422,6 +458,12 @@ def collect_market_index_rows() -> tuple[list[dict[str, Any]], list[dict[str, st
                 _log_collection_stage("summary", symbol, diagnostics)
             except Exception as error:
                 fallback_errors.append(f"KIS: {error}")
+                logger.warning(
+                    "[MarketIndex][collect-kis-failed] symbol=%s reason=%s",
+                    symbol,
+                    error,
+                    exc_info=True,
+                )
                 message = "; ".join([item for item in [primary_error, *fallback_errors] if item])
                 errors.append({
                     "symbol": symbol,
@@ -437,6 +479,12 @@ def collect_market_index_rows() -> tuple[list[dict[str, Any]], list[dict[str, st
                 )
                 _log_collection_stage("error", symbol, diagnostics)
 
+    logger.info(
+        "[MarketIndex][collect-complete] targetDate=%s collected=%s errors=%s",
+        target_date,
+        len(rows),
+        len(errors),
+    )
     return rows, errors
 
 
