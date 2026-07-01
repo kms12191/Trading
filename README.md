@@ -8,10 +8,12 @@
 - 프론트엔드
   - 대시보드, 자산 탭, 뉴스 화면, 설정 화면
   - 종목 상세 페이지 차트/호가/체결/주문 사전검증
+  - 코인원 가상자산 상세 페이지 지정가 주문 UI
   - ML 운영 콘솔과 활성 신호 확인 UI
 - 백엔드
   - `home`, `keys`, `ml`, `news`, `trade` Blueprint API
   - Toss/KIS/Coinone/Binance 클라이언트
+  - 코인원 계좌 잔고 조회, 현재가 조회, 지정가 주문, 미체결 주문 취소
   - 뉴스 수집/요약
   - ML 자동 수집/학습 스케줄러, 승격 검증, serving 감사
 - ML
@@ -53,6 +55,7 @@ python app.py
   - API Gateway: `backend/app.py`
   - 스케줄러 전용 프로세스: `backend/worker.py`
 - 기본 설정상 `SCHEDULER_RUN_IN_GATEWAY=false` 이므로, 스케줄러 운영은 `worker.py`를 별도로 띄우는 구조가 기준입니다.
+- 코인원 실주문은 현재 지정가 주문만 연결되어 있으며, 시장가 주문은 API 정책 검증 전까지 차단합니다.
 
 ### 2. 프론트엔드
 

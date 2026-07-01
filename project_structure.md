@@ -94,6 +94,7 @@ backend/
 
 - `agent.py`, `trading_engine.py`는 현재 저장소에 없습니다.
 - 토큰 캐시는 현재 `token_cache_service.py`와 Supabase `token_caches`를 기준으로 보는 것이 맞습니다.
+- `coinone_client.py`는 코인원 잔고/현재가/지정가 주문/미체결 주문 취소를 담당하며, 시장가 주문은 아직 운영 경로가 아닙니다.
 - `upbit_client.py`는 남아 있지만 현재 핵심 운영 경로는 아닙니다.
 
 ## frontend

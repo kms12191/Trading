@@ -305,8 +305,8 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
         volume = group["volume"].astype(float)
         prev_close = close.shift(1)
 
-        # return_48: 30분 캔들에서 48봉 = 24시간 대응 수익률 추가
-        for period in [1, 3, 4, 5, 10, 12, 20, 24, 48, 60]:
+        # horizon_periods를 명시적으로 포함해 라벨과 리더/시장 동조 피처의 시간축을 맞춥니다.
+        for period in sorted({1, 3, 4, 5, horizon_periods, 10, 12, 20, 24, 48, 60}):
             group[f"return_{period}"] = close.pct_change(period)
 
         for period in [4, 5, 20, 24, 60]:
@@ -641,9 +641,11 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
     )
 
     if asset_type == "CRYPTO":
+        horizon = int(config["model"]["horizon_periods"])
+        leader_periods = sorted({1, 4, horizon, 12, 24})
         leader_symbols = {
-            "BTCUSDT": [1, 4, 24],
-            "ETHUSDT": [1, 4, 24],
+            "BTCUSDT": leader_periods,
+            "ETHUSDT": leader_periods,
         }
 
         for leader_symbol, periods in leader_symbols.items():
@@ -652,28 +654,40 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
             leader_df = leader_df.rename(columns=rename_map)
             features = pd.merge(features, leader_df, on="date", how="left")
 
+        for period in leader_periods:
+            for leader in ["btcusdt", "ethusdt"]:
+                column = f"{leader}_return_{period}"
+                if column not in features.columns:
+                    features[column] = 0.0
+
         for column in ["btcusdt_return_4", "ethusdt_return_4", "btcusdt_return_1", "ethusdt_return_1", "btcusdt_return_24"]:
             if column not in features.columns:
                 features[column] = 0.0
 
         features["relative_to_btc_return_4"] = features["return_4"] - features["btcusdt_return_4"]
         features["relative_to_eth_return_4"] = features["return_4"] - features["ethusdt_return_4"]
-        market_returns = features.groupby("date")[["return_4", "return_24"]].mean().reset_index().rename(
-            columns={
-                "return_4": "crypto_market_return_4",
-                "return_24": "crypto_market_return_24",
-            }
+        features[f"relative_to_btc_return_{horizon}"] = features[f"return_{horizon}"] - features[f"btcusdt_return_{horizon}"]
+        features[f"relative_to_eth_return_{horizon}"] = features[f"return_{horizon}"] - features[f"ethusdt_return_{horizon}"]
+        market_return_periods = sorted({4, horizon, 24})
+        market_returns = (
+            features.groupby("date")[[f"return_{period}" for period in market_return_periods]]
+            .mean()
+            .reset_index()
+            .rename(columns={f"return_{period}": f"crypto_market_return_{period}" for period in market_return_periods})
         )
         features = pd.merge(features, market_returns, on="date", how="left")
         features["relative_to_market_return_4"] = features["return_4"] - features["crypto_market_return_4"]
         features["relative_to_market_return_24"] = features["return_24"] - features["crypto_market_return_24"]
+        features[f"relative_to_market_return_{horizon}"] = (
+            features[f"return_{horizon}"] - features[f"crypto_market_return_{horizon}"]
+        )
 
         # 잔차 수익률 라벨: BTC 시장 동조 노이즈 제거 후 개별 알파 예측 (v8+)
         # config에 use_residual_label: true 설정 시 활성화
         label_config = config.get("labels", {})
         if label_config.get("use_residual_label", False):
             market_symbol = str(label_config.get("residual_market_symbol", "BTCUSDT")).upper()
-            btc_col = f"{market_symbol.lower()}_return_{int(config['model']['horizon_periods'])}"
+            btc_col = f"{market_symbol.lower()}_return_{horizon}"
             if btc_col not in features.columns:
                 # horizon_periods 봉 수익률 BTC 컬럼이 없으면 가장 근접한 것을 사용
                 btc_col = "btcusdt_return_24" if "btcusdt_return_24" in features.columns else None
