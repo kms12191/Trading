@@ -99,6 +99,11 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const effectiveOrderPrice = orderType === 'LIMIT' ? Number(price || 0) : currentPrice
   const totalEstimatedAmount = effectiveOrderPrice * Number(quantity || 0)
   const isStockAsset = resolvedAssetType === 'STOCK'
+  const orderCurrencyCode = exchange === 'COINONE'
+    ? 'KRW'
+    : exchange === 'BINANCE'
+      ? 'USD'
+      : (/^\d+$/.test(symbol) ? 'KRW' : 'USD')
   const showLevel2Panel = false
 
   const [isMarketClosed, setIsMarketClosed] = useState(false)
@@ -224,7 +229,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   // 종목 메타데이터(한글명 등) 조회
   const fetchSymbolMetadata = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/symbol/lookup?query=${symbol}`)
+      const response = await fetch(`${API_BASE_URL}/api/symbol/lookup?query=${symbol}&asset_type=${normalizedRouteAssetType}`)
       const resData = await response.json()
       if (resData.success && resData.data && resData.data.display_name) {
         setDisplayName(resData.data.display_name)
@@ -1059,6 +1064,12 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   }, [exchange, symbol, brokerEnv, level2PollMs, isStockAsset, showLevel2Panel]);
 
   useEffect(() => {
+    if (exchange === 'COINONE' && orderType === 'MARKET') {
+      setOrderType('LIMIT')
+    }
+  }, [exchange, orderType])
+
+  useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       fetchOrderPrecheck()
     }, isStockAsset ? 800 : 250)
@@ -1196,6 +1207,12 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
 
     if (orderType === 'LIMIT' && (!price || parseFloat(price) <= 0)) {
       setTradeMessage({ text: '올바른 지정가 단가를 입력하세요.', isError: true })
+      setSubmitting(false)
+      return
+    }
+
+    if (exchange === 'COINONE' && orderType !== 'LIMIT') {
+      setTradeMessage({ text: '코인원 주문은 현재 지정가만 지원합니다.', isError: true })
       setSubmitting(false)
       return
     }
@@ -1745,19 +1762,27 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                       name="orderType"
                       value="MARKET"
                       checked={orderType === 'MARKET'}
-                      onChange={() => setOrderType('MARKET')}
+                      onChange={() => {
+                        if (exchange !== 'COINONE') setOrderType('MARKET')
+                      }}
+                      disabled={exchange === 'COINONE'}
                       className="accent-cyan-400"
                     />
                     시장가
                   </label>
                 </div>
               </div>
+              {exchange === 'COINONE' && (
+                <p className="text-[10px] leading-relaxed text-slate-500">
+                  코인원 실주문은 안전 검증이 완료된 지정가 주문만 지원합니다.
+                </p>
+              )}
 
               {/* 주문 제출 폼 */}
               <form onSubmit={handlePlaceOrder} className="flex flex-col gap-4">
                 {/* 1. 가격 입력 */}
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] text-slate-400 font-bold">주문 단가 ({resolvedAssetType === 'STOCK' ? 'KRW' : 'USD'})</span>
+                  <span className="text-[10px] text-slate-400 font-bold">주문 단가 ({orderCurrencyCode})</span>
                   <input
                     type="number"
                     disabled={orderType === 'MARKET'}

@@ -12,6 +12,7 @@ from backend.services.broker_order_history_service import (
 )
 from backend.services.toss_client import TossClient
 from backend.services.kis_client import KISClient
+from backend.services.coinone_client import CoinoneClient
 
 # 단기 인메모리 시세 캐시 정의 (Rate limit 방지용)
 CANDLE_CACHE = {}
@@ -305,6 +306,11 @@ def _build_exchange_client(exchange: str, broker_env: str, record: dict, access_
             acnt_prdt_cd=record.get("kis_account_code", "01"),
             env=broker_env,
             user_id=record.get("user_id"),
+        )
+    if exchange == "COINONE":
+        return CoinoneClient(
+            access_token=access_key,
+            secret_key=secret_key,
         )
     return None
 
@@ -706,7 +712,7 @@ def _resolve_reference_price(exchange: str, symbol: str, order_type: str, price,
             raise ValueError("주문 단가는 0보다 커야 합니다.")
         return resolved_price, "LIMIT_INPUT"
 
-    if exchange not in ("TOSS", "KIS") or client is None:
+    if exchange not in ("TOSS", "KIS", "COINONE") or client is None:
         raise ValueError(f"{exchange} 거래소는 현재 시장가 조회가 지원되지 않습니다.")
 
     price_info = client.get_price(symbol)
@@ -874,6 +880,8 @@ def precheck_manual_order():
         return jsonify({"success": False, "message": "올바르지 않은 주문 방향(action)입니다."}), 400
     if order_type.upper() not in ("LIMIT", "MARKET"):
         return jsonify({"success": False, "message": "올바르지 않은 주문 유형(order_type)입니다."}), 400
+    if exchange == "COINONE" and order_type.upper() != "LIMIT":
+        return jsonify({"success": False, "message": "코인원 주문 사전검증은 현재 지정가(LIMIT)만 지원합니다."}), 400
 
     try:
         record, access_key, secret_key = _load_user_exchange_record(auth_header, user_id, exchange, broker_env)
@@ -932,6 +940,8 @@ def place_manual_order():
 
     if order_type.upper() not in ("LIMIT", "MARKET"):
         return jsonify({"success": False, "message": "올바르지 않은 주문 유형(order_type)입니다."}), 400
+    if exchange == "COINONE" and order_type.upper() != "LIMIT":
+        return jsonify({"success": False, "message": "코인원 주문은 현재 지정가(LIMIT)만 지원합니다."}), 400
 
     try:
         qty = float(quantity)
@@ -988,6 +998,9 @@ def place_manual_order():
             client = _build_exchange_client(exchange, broker_env, record, access_key, secret_key)
             order_res = client.place_order(symbol=symbol, qty=qty, side=action, ord_type=order_type, price=order_price)
         elif exchange == "KIS":
+            client = _build_exchange_client(exchange, broker_env, record, access_key, secret_key)
+            order_res = client.place_order(symbol=symbol, qty=qty, side=action, ord_type=order_type, price=order_price)
+        elif exchange == "COINONE":
             client = _build_exchange_client(exchange, broker_env, record, access_key, secret_key)
             order_res = client.place_order(symbol=symbol, qty=qty, side=action, ord_type=order_type, price=order_price)
         else:
@@ -1417,19 +1430,22 @@ def cancel_manual_order():
 
     exchange = proposal.get("exchange")
     broker_env = _resolve_proposal_broker_env(proposal, broker_env_override)
-    if exchange not in ("TOSS", "KIS"):
+    if exchange not in ("TOSS", "KIS", "COINONE"):
         return jsonify({"success": False, "message": f"{exchange} 주문 취소는 아직 지원하지 않습니다."}), 400
 
     try:
         record, access_key, secret_key = _load_user_exchange_record(auth_header, user_id, exchange, broker_env)
         client = _build_exchange_client(exchange, broker_env, record, access_key, secret_key)
-        current_status = client.get_order_status(order_id)
+        symbol = proposal.get("symbol") or proposal.get("ticker")
+        current_status = client.get_order_status(order_id, symbol=symbol) if exchange == "COINONE" else client.get_order_status(order_id)
         if exchange != "KIS" and _is_terminal_order_status(current_status.get("status")):
             return jsonify({"success": False, "message": "이미 체결 또는 종료된 주문이라 취소할 수 없습니다.", "detail": current_status}), 400
 
         if exchange == "KIS":
             _ensure_kis_order_modifiable(auth_header, proposal_id, proposal, client)
             cancel_result = client.cancel_order(order_id, order_org_no=_resolve_order_org_no(proposal))
+        elif exchange == "COINONE":
+            cancel_result = client.cancel_order(order_id, symbol=symbol)
         else:
             cancel_result = client.cancel_order(order_id)
         _patch_trade_proposal(auth_header, proposal_id, {
@@ -2643,6 +2659,8 @@ def lookup_symbol():
     if not query:
         return jsonify({"success": False, "message": "query 파라미터가 필수적입니다."}), 400
 
+    asset_type_hint = request.args.get("asset_type", "").strip().upper()
+
     import re
     from backend.services.symbol_metadata import SYMBOL_METADATA, search_crypto_symbols, COIN_DISPLAY_NAMES
     from backend.services.market_repository import MarketRepository
@@ -2671,6 +2689,20 @@ def lookup_symbol():
                     "display_name": name,
                     "asset_type": "CRYPTO",
                     "market": "USDT"
+                }
+            })
+
+    # 2.5. 실시간 가상자산 캐시 목록 정밀 검색 및 매칭
+    crypto_matches = search_crypto_symbols(query, limit=10)
+    for c in crypto_matches:
+        if c["symbol"].upper() == query or c["display_name"].upper() == query:
+            return jsonify({
+                "success": True,
+                "data": {
+                    "symbol": c["symbol"],
+                    "display_name": c["display_name"],
+                    "asset_type": "CRYPTO",
+                    "market": c["market"]
                 }
             })
 
@@ -2719,12 +2751,16 @@ def lookup_symbol():
         })
 
     # 6. 매칭 실패 시 기본값 반환 (Toss 등 신규 등록 주식/코인 대비)
+    fallback_asset_type = "STOCK"
+    if asset_type_hint in ("STOCK", "CRYPTO"):
+        fallback_asset_type = asset_type_hint
+
     return jsonify({
         "success": True,
         "data": {
             "symbol": query,
             "display_name": query,
-            "asset_type": "STOCK",
+            "asset_type": fallback_asset_type,
             "market": ""
         }
     })
