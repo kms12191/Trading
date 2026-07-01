@@ -779,6 +779,15 @@ class TossClient(ExchangeClient):
 
         res = self._send_request("POST", url, json=payload, headers=headers)
         if res.status_code != 200:
+            try:
+                error = (res.json() or {}).get("error") or {}
+            except ValueError:
+                error = {}
+            if error.get("code") == "opposite-pending-order-exists":
+                raise Exception("주문 전송 실패\n토스 주문 접수 실패 : 반대 포지션 미체결 주문이 존재합니다.")
+            error_message = error.get("message")
+            if error_message:
+                raise Exception(f"토스 주문 접수 실패 : {error_message}")
             raise Exception(f"토스 주문 접수 실패: {res.text}")
 
         data = res.json()
@@ -814,7 +823,7 @@ class TossClient(ExchangeClient):
             "X-Tossinvest-Account": self.account_seq,
             "Content-Type": "application/json"
         }
-        res = self._send_request("POST", url, headers=headers)
+        res = self._send_request("POST", url, headers=headers, timeout=20)
         if res.status_code != 200:
             raise Exception(f"토스 주문 취소 실패: {res.text}")
 
@@ -826,7 +835,14 @@ class TossClient(ExchangeClient):
             "raw": data
         }
 
-    def modify_order(self, order_id: str, price: float | None = None, quantity: float | None = None) -> dict:
+    def modify_order(
+        self,
+        order_id: str,
+        price: float | None = None,
+        quantity: float | None = None,
+        order_type: str = "LIMIT",
+        confirm_high_value_order: bool | None = None,
+    ) -> dict:
         """
         접수된 토스 대기 주문의 가격 또는 수량을 정정합니다.
         """
@@ -847,13 +863,17 @@ class TossClient(ExchangeClient):
             "X-Tossinvest-Account": self.account_seq,
             "Content-Type": "application/json"
         }
-        payload = {}
+        payload = {
+            "orderType": str(order_type or "LIMIT").upper(),
+        }
         if price is not None:
-            payload["price"] = price
+            payload["price"] = str(price)
         if quantity is not None:
-            payload["quantity"] = quantity
+            payload["quantity"] = str(int(quantity)) if float(quantity).is_integer() else str(quantity)
+        if confirm_high_value_order is not None:
+            payload["confirmHighValueOrder"] = bool(confirm_high_value_order)
 
-        res = self._send_request("POST", url, json=payload, headers=headers)
+        res = self._send_request("POST", url, json=payload, headers=headers, timeout=20)
         if res.status_code != 200:
             raise Exception(f"토스 주문 정정 실패: {res.text}")
 
@@ -882,17 +902,26 @@ class TossClient(ExchangeClient):
             "X-Tossinvest-Account": self.account_seq,
             "Content-Type": "application/json"
         }
-        res = self._send_request("GET", url, headers=headers)
+        res = self._send_request("GET", url, headers=headers, timeout=15)
         if res.status_code != 200:
             raise Exception(f"토스 주문 조회 실패: {res.text}")
 
         data = res.json()
         result = data.get("result", {})
+        execution = result.get("execution") or {}
+        qty = float(result.get("quantity", 0) or 0)
+        executed_qty = float(
+            result.get("executedQuantity")
+            or result.get("filledQuantity")
+            or execution.get("filledQuantity")
+            or 0
+        )
         return {
             "order_id": result.get("orderId"),
             "status": result.get("status"),
-            "qty": float(result.get("quantity", 0)),
-            "executed_qty": float(result.get("executedQuantity", 0)),
+            "qty": qty,
+            "executed_qty": executed_qty,
+            "remaining_qty": max(qty - executed_qty, 0.0),
             "raw": data
         }
 

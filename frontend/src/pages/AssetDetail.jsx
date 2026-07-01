@@ -1263,7 +1263,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       if (resData.success) {
         const autoExitMessage = resData.auto_exit ? ` / ${resData.auto_exit}` : ''
         setTradeMessage({
-          text: `주문이 성공적으로 전송되었습니다! 주문번호: ${resData.order_id || 'MOCK'}${autoExitMessage}`,
+          text: `주문이 성공적으로 전송되었습니다!${autoExitMessage}`,
           isError: false
         })
         setQuantity('')
@@ -1971,7 +1971,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
 
                 {/* 결과 메세지 */}
                 {tradeMessage.text && (
-                  <div className={`p-2.5 rounded text-xs font-bold leading-relaxed border ${tradeMessage.isError ? 'bg-red-950/40 text-red-400 border-red-900/60' : 'bg-green-950/40 text-green-400 border-green-900/60'}`}>
+                  <div className={`whitespace-pre-line p-2.5 rounded text-xs font-bold leading-relaxed border ${tradeMessage.isError ? 'bg-red-950/40 text-red-400 border-red-900/60' : 'bg-green-950/40 text-green-400 border-green-900/60'}`}>
                     {tradeMessage.text}
                   </div>
                 )}

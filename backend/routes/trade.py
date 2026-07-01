@@ -368,7 +368,45 @@ def _is_terminal_order_status(status: str | None) -> bool:
     거래소 주문 상태가 더 이상 정정/취소될 수 없는 상태인지 판단합니다.
     """
     normalized = str(status or "").upper()
-    return normalized in {"EXECUTED", "FILLED", "COMPLETED", "DONE", "CANCELED", "CANCELLED", "REJECTED", "FAILED", "EXPIRED"}
+    return normalized in {
+        "EXECUTED",
+        "FILLED",
+        "COMPLETED",
+        "DONE",
+        "CANCELED",
+        "CANCELLED",
+        "REJECTED",
+        "FAILED",
+        "EXPIRED",
+        "REPLACED",
+    }
+
+
+def _infer_trade_status_from_order_status(order_status: dict | None, fallback: str = "EXECUTED") -> str:
+    normalized = str((order_status or {}).get("status") or "").upper()
+    if normalized in {"CANCELED", "CANCELLED"}:
+        return "CANCELED"
+    if normalized in {"REJECTED", "FAILED", "EXPIRED"}:
+        return "FAILED"
+    return fallback
+
+
+def _patch_proposal_as_not_actionable(auth_header: str, proposal_id: str, order_status: dict | None, reason: str):
+    status = _infer_trade_status_from_order_status(order_status, fallback="EXECUTED")
+    payload = {
+        "status": status,
+        "failure_reason": reason,
+        "raw_order_payload": {"last_order_status": order_status or {}, "action_restricted_reason": reason},
+    }
+    if status == "CANCELED":
+        payload["canceled_at"] = datetime.utcnow().isoformat() + "Z"
+    _patch_trade_proposal(auth_header, proposal_id, payload)
+    return payload
+
+
+def _is_toss_action_restricted_error(error: Exception, code: str) -> bool:
+    text = str(error)
+    return code in text or "가능수량이 부족" in text
 
 
 def _resolve_proposal_broker_env(proposal: dict, fallback: str | None = None) -> str:
@@ -1006,6 +1044,9 @@ def place_manual_order():
         else:
             return jsonify({"success": False, "message": f"{exchange} 거래소는 현재 수동 주문 기능이 지원되지 않습니다."}), 400
     except Exception as e:
+        error_message = str(e)
+        if "\n" in error_message:
+            return jsonify({"success": False, "message": error_message}), 500
         return jsonify({"success": False, "message": f"주문 전송 실패: {str(e)}"}), 500
 
     # 5. 주문 체결 성공 후 자동 감시(Stop-loss, Take-profit) 바인딩
@@ -1433,12 +1474,19 @@ def cancel_manual_order():
     if exchange not in ("TOSS", "KIS", "COINONE"):
         return jsonify({"success": False, "message": f"{exchange} 주문 취소는 아직 지원하지 않습니다."}), 400
 
+    current_status = {}
     try:
         record, access_key, secret_key = _load_user_exchange_record(auth_header, user_id, exchange, broker_env)
         client = _build_exchange_client(exchange, broker_env, record, access_key, secret_key)
         symbol = proposal.get("symbol") or proposal.get("ticker")
-        current_status = client.get_order_status(order_id, symbol=symbol) if exchange == "COINONE" else client.get_order_status(order_id)
+        try:
+            current_status = client.get_order_status(order_id, symbol=symbol) if exchange == "COINONE" else client.get_order_status(order_id)
+        except Exception as status_error:
+            if exchange != "TOSS":
+                raise
+            current_app.logger.warning("Toss order status lookup failed before cancel: %s", status_error)
         if exchange != "KIS" and _is_terminal_order_status(current_status.get("status")):
+            _patch_proposal_as_not_actionable(auth_header, proposal_id, current_status, "이미 체결 또는 종료된 주문이라 취소할 수 없습니다.")
             return jsonify({"success": False, "message": "이미 체결 또는 종료된 주문이라 취소할 수 없습니다.", "detail": current_status}), 400
 
         if exchange == "KIS":
@@ -1462,6 +1510,13 @@ def cancel_manual_order():
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
+        if exchange == "TOSS" and _is_toss_action_restricted_error(e, "cancel-restricted"):
+            _patch_proposal_as_not_actionable(auth_header, proposal_id, current_status, "취소 가능수량이 없어 주문 상태를 종료 처리했습니다.")
+            return jsonify({
+                "success": False,
+                "message": "취소 가능수량이 없습니다. 이미 체결 또는 종료된 주문으로 보여 거래내역 상태를 갱신했습니다.",
+                "detail": current_status,
+            }), 400
         _patch_trade_proposal(auth_header, proposal_id, {
             "failure_reason": f"주문 취소 실패: {str(e)[:500]}",
         })
@@ -1513,6 +1568,7 @@ def modify_manual_order():
     if exchange not in ("TOSS", "KIS"):
         return jsonify({"success": False, "message": f"{exchange} 주문 정정은 아직 지원하지 않습니다."}), 400
 
+    current_status = {}
     try:
         price_value = float(new_price) if new_price not in (None, "") else None
         quantity_value = float(new_quantity) if new_quantity not in (None, "") else None
@@ -1523,8 +1579,14 @@ def modify_manual_order():
 
         record, access_key, secret_key = _load_user_exchange_record(auth_header, user_id, exchange, broker_env)
         client = _build_exchange_client(exchange, broker_env, record, access_key, secret_key)
-        current_status = client.get_order_status(order_id)
+        try:
+            current_status = client.get_order_status(order_id)
+        except Exception as status_error:
+            if exchange != "TOSS":
+                raise
+            current_app.logger.warning("Toss order status lookup failed before modify: %s", status_error)
         if exchange != "KIS" and _is_terminal_order_status(current_status.get("status")):
+            _patch_proposal_as_not_actionable(auth_header, proposal_id, current_status, "이미 체결 또는 종료된 주문이라 정정할 수 없습니다.")
             return jsonify({"success": False, "message": "이미 체결 또는 종료된 주문이라 정정할 수 없습니다.", "detail": current_status}), 400
 
         market_country = proposal.get("market_country")
@@ -1554,12 +1616,40 @@ def modify_manual_order():
                 ord_type=proposal.get("ord_type") or "LIMIT",
             )
         else:
-            modify_result = client.modify_order(order_id, price=price_value, quantity=quantity_value)
+            order_type_value = str(proposal.get("ord_type") or proposal.get("order_type") or "LIMIT").upper()
+            remaining_qty = float(current_status.get("remaining_qty") or 0)
+            if market_country != "US" and current_status and remaining_qty <= 0:
+                return jsonify({"success": False, "message": "이미 체결되어 정정 가능한 수량이 없습니다.", "detail": current_status}), 400
+            if market_country != "US" and quantity_value is None:
+                quantity_value = remaining_qty if remaining_qty > 0 else float(proposal.get("volume") or 0)
+                if quantity_value <= 0:
+                    return jsonify({"success": False, "message": "Toss 국내주식 정정에는 유효한 주문 수량이 필요합니다."}), 400
+            if market_country != "US" and remaining_qty > 0 and quantity_value is not None and quantity_value > remaining_qty:
+                return jsonify({
+                    "success": False,
+                    "message": f"Toss 정정 가능수량({remaining_qty:g}주)을 초과해 정정할 수 없습니다.",
+                    "detail": current_status,
+                }), 400
+            if order_type_value == "LIMIT" and price_value is None:
+                price_value = float(proposal.get("price") or 0)
+                if price_value <= 0:
+                    return jsonify({"success": False, "message": "Toss 지정가 정정에는 유효한 주문 가격이 필요합니다."}), 400
+            if order_type_value == "MARKET":
+                price_value = None
+            modify_result = client.modify_order(
+                order_id,
+                price=price_value,
+                quantity=quantity_value,
+                order_type=order_type_value,
+            )
         patch_payload = {
             "status": "MODIFIED",
             "failure_reason": None,
             "modified_at": datetime.utcnow().isoformat() + "Z",
         }
+        modified_order_id = modify_result.get("order_id")
+        if modified_order_id:
+            patch_payload["external_order_id"] = modified_order_id
         if price_value is not None:
             patch_payload["price"] = price_value
         if quantity_value is not None:
@@ -1575,6 +1665,13 @@ def modify_manual_order():
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
+        if exchange == "TOSS" and _is_toss_action_restricted_error(e, "modify-restricted"):
+            _patch_proposal_as_not_actionable(auth_header, proposal_id, current_status, "정정 가능수량이 없어 주문 상태를 종료 처리했습니다.")
+            return jsonify({
+                "success": False,
+                "message": "정정 가능수량이 없습니다. 이미 체결 또는 종료된 주문으로 보여 거래내역 상태를 갱신했습니다.",
+                "detail": current_status,
+            }), 400
         _patch_trade_proposal(auth_header, proposal_id, {
             "failure_reason": f"주문 정정 실패: {str(e)[:500]}",
         })

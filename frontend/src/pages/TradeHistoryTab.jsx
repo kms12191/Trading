@@ -381,19 +381,31 @@ export default function TradeHistoryTab() {
 
   const requestOrderAction = async (endpoint, body) => {
     const authHeader = await getAuthHeader()
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: authHeader,
-      },
-      body: JSON.stringify(body),
-    })
-    const payload = await response.json().catch(() => ({}))
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.message || '주문 처리 요청에 실패했습니다.')
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), 30000)
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authHeader,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.message || '주문 처리 요청에 실패했습니다.')
+      }
+      return payload
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new Error('주문 처리 요청 시간이 초과되었습니다. 백엔드와 거래소 응답 상태를 확인해 주세요.')
+      }
+      throw error
+    } finally {
+      window.clearTimeout(timeoutId)
     }
-    return payload
   }
 
   const handleSyncBrokerHistory = async () => {

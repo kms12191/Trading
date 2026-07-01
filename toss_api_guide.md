@@ -134,8 +134,40 @@
 
 ### 2) 주문 정정 (`POST /api/v1/orders/{orderId}/modify`)
 * **설명:** 기존 대기 주문의 가격 또는 수량을 정정합니다.
-* **국내 주식 (KR):** 수량(`quantity`) 필수 기입 (양의 정수).
-* **해외 주식 (US):** 수량 변경은 불가능하며 가격 정정만 가능 (`quantity` 입력 시 `400 us-modify-quantity-not-supported` 에러 발생).
+* **공식 OpenAPI 기준:** `OrderModifyRequest`는 `orderType`이 필수입니다. `clientOrderId`는 정정 요청 바디에 포함하지 않습니다.
+* **요청 바디 모델 (`OrderModifyRequest`):**
+  * `orderType` (String, Required): 변경할 호가 유형 (`LIMIT` 또는 `MARKET`).
+  * `quantity` (String decimal, Conditional): 변경할 수량.
+    * 국내 주식(KR): 필수. 양의 정수만 허용합니다. 미전달, 0, 음수, 소수점은 `400 invalid-request`.
+    * 해외 주식(US): 전달 불가. 제공 시 `400 us-modify-quantity-not-supported`.
+  * `price` (String decimal, Conditional): 변경할 가격.
+    * `LIMIT`: 필수. 미전달 시 `400 invalid-request`.
+    * `MARKET`: 전달 불가. 전달 시 `400 invalid-request`.
+    * KR: 정수 원 단위이며 호가 단위에 맞아야 합니다.
+    * US: 달러 단위. 1달러 미만은 소수점 넷째 자리까지, 1달러 이상은 소수점 둘째 자리까지 지원합니다.
+  * `confirmHighValueOrder` (Boolean, Optional): 정정 후 1억원 이상 주문 시 `true` 필요. 기본값 `false`.
+* **국내 주식 (KR) 예시:**
+  ```json
+  {
+    "orderType": "LIMIT",
+    "quantity": "15",
+    "price": "71000"
+  }
+  ```
+* **해외 주식 (US) 예시:**
+  ```json
+  {
+    "orderType": "LIMIT",
+    "price": "185.5"
+  }
+  ```
+* **주요 오류:**
+  * `account-header-required` (400): `X-Tossinvest-Account` 헤더 누락.
+  * `invalid-request` (400): 필수 필드 누락, 수량/가격 형식 오류, 호가 단위 불일치.
+  * `us-modify-quantity-not-supported` (400): 미국 주식 정정 요청에 `quantity` 포함.
+  * `already-filled`, `already-canceled`, `already-modified`, `already-rejected` (409): 정정 불가 상태.
+  * `modify-restricted`, `order-hours-closed`, `max-order-amount-exceeded` (422): 거래소 비즈니스 규칙 위반.
+* **구현 주의:** 정정 성공 응답의 `result.orderId`는 새로 발급된 주문 식별자이며 원주문의 `orderId`와 다릅니다. 정정 성공 후 앱의 `external_order_id`를 새 주문번호로 갱신해야 이후 취소/재정정이 정상 동작합니다.
 
 ### 3) 주문 취소 (`POST /api/v1/orders/{orderId}/cancel`)
 * **설명:** 기존 주문을 취소합니다. 이미 체결 완료된 주문은 취소할 수 없습니다.
