@@ -84,6 +84,11 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const [loadingNews, setLoadingNews] = useState(false)
   const [newsSyncing, setNewsSyncing] = useState(false)
   const [newsSyncMessage, setNewsSyncMessage] = useState({ text: '', isError: false })
+  const [disclosureList, setDisclosureList] = useState([])
+  const [loadingDisclosures, setLoadingDisclosures] = useState(false)
+  const [selectedDisclosureId, setSelectedDisclosureId] = useState('')
+  const [disclosureSyncing, setDisclosureSyncing] = useState(false)
+  const [disclosureSyncMessage, setDisclosureSyncMessage] = useState({ text: '', isError: false })
   const [displayName, setDisplayName] = useState(symbol)
   const [marketFeeds, setMarketFeeds] = useState({
     candles: { source: 'IDLE', isMock: false, degradedReason: '' },
@@ -120,6 +125,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       ? 'USD'
       : (/^\d+$/.test(symbol) ? 'KRW' : 'USD')
   const showLevel2Panel = false
+  const selectedDisclosure = disclosureList.find((item) => item.id === selectedDisclosureId) || disclosureList[0] || null
 
   const [isMarketClosed, setIsMarketClosed] = useState(false)
   const chartPollMs = isMarketClosed
@@ -370,6 +376,63 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       })
     } finally {
       setNewsSyncing(false)
+    }
+  }
+
+  const fetchDisclosureList = async () => {
+    if (resolvedAssetType !== 'STOCK') {
+      setDisclosureList([])
+      setSelectedDisclosureId('')
+      return
+    }
+
+    setLoadingDisclosures(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/disclosures?symbol=${symbol}&limit=10`)
+      const resData = await response.json()
+      if (resData.success && resData.data && resData.data.items) {
+        setDisclosureList(resData.data.items)
+        setSelectedDisclosureId(resData.data.items[0]?.id || '')
+      }
+    } catch (error) {
+      console.error('공시 목록 로드 실패:', error)
+    } finally {
+      setLoadingDisclosures(false)
+    }
+  }
+
+  const handleRequestDisclosureSync = async () => {
+    setDisclosureSyncing(true)
+    setDisclosureSyncMessage({ text: '', isError: false })
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/disclosures/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: 'incremental' }),
+      })
+      const resData = await response.json()
+      if (!response.ok || !resData.success) {
+        setDisclosureSyncMessage({
+          text: resData.message || '공시 수집 요청에 실패했습니다.',
+          isError: true,
+        })
+        return
+      }
+
+      setDisclosureSyncMessage({
+        text: `공시 ${Number(resData.data?.saved || 0)}건을 확인했습니다.`,
+        isError: false,
+      })
+      await fetchDisclosureList()
+    } catch (error) {
+      setDisclosureSyncMessage({
+        text: `공시 수집 요청 오류: ${error.message}`,
+        isError: true,
+      })
+    } finally {
+      setDisclosureSyncing(false)
     }
   }
 
@@ -985,6 +1048,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     fetchCandles()
     fetchUserBalance()
     fetchNewsList()
+    fetchDisclosureList()
     fetchSymbolMetadata()
   }, [exchange, symbol, chartInterval, brokerEnv])
 
@@ -1586,15 +1650,71 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                   <section className="min-h-[220px] rounded-lg border border-[#1f2945]/70 bg-[#07111f]/70 p-4">
                     <div className="mb-3 flex items-center justify-between border-b border-[#1f2945]/50 pb-2">
                       <h3 className="text-xs font-bold text-cyan-300">공시</h3>
-                      <span className="text-[10px] font-mono text-slate-500">DART</span>
+                      <span className="text-[10px] font-mono text-slate-500">{disclosureList.length}건 · DART</span>
                     </div>
-                    <div className="flex min-h-[150px] flex-col items-center justify-center gap-2 text-center">
-                      <p className="text-xs font-mono text-slate-500">
-                        해당 종목의 DART 공시 연동을 준비 중입니다.
-                      </p>
-                      <p className="max-w-[320px] text-[11px] leading-5 text-slate-600">
-                        stock_code와 corp_code 매핑 후 최근 공시 목록이 이 영역에 표시됩니다.
-                      </p>
+                    <div className="flex flex-col gap-3">
+                      {loadingDisclosures ? (
+                        <div className="py-8 text-center text-xs text-cyan-400/80 font-mono animate-pulse">
+                          DART 공시 로드 중...
+                        </div>
+                      ) : disclosureList.length > 0 ? (
+                        <>
+                          <div className="border-l-2 border-cyan-500 pl-3 py-1.5 bg-cyan-950/20 rounded-r">
+                            <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">DART 공시 요약보기</span>
+                            <p className="text-xs text-[#e2e2ec] mt-1 leading-relaxed">
+                              {selectedDisclosure?.summary || selectedDisclosure?.report_nm || `${symbol} 종목의 최근 공시를 확인 중입니다.`}
+                            </p>
+                          </div>
+                          {disclosureList.map(item => (
+                            <div key={item.id} className="flex flex-col gap-2 border-b border-[#1f2945]/30 px-1 py-2 transition-all hover:bg-slate-800/10 sm:flex-row sm:items-center sm:justify-between">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedDisclosureId(item.id)}
+                                className="min-w-0 text-left text-xs text-[#e2e2ec] hover:text-cyan-200"
+                              >
+                                <span className="block truncate font-bold">{item.report_nm}</span>
+                                <span className="mt-0.5 block text-[10px] font-mono text-slate-500">{item.corp_name} · {item.rcept_dt}</span>
+                              </button>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedDisclosureId(item.id)}
+                                  className="rounded border border-cyan-500/30 px-2 py-1 text-[10px] font-bold text-cyan-300 transition hover:bg-cyan-950/30"
+                                >
+                                  요약 보기
+                                </button>
+                                <a
+                                  href={item.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="rounded border border-slate-700 px-2 py-1 text-[10px] font-bold text-slate-300 transition hover:border-cyan-500/40 hover:text-white"
+                                >
+                                  원문 열기
+                                </a>
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center gap-3 py-8 text-center">
+                          <p className="text-xs text-slate-500 font-mono">
+                            해당 종목의 저장된 DART 공시가 없습니다.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleRequestDisclosureSync}
+                            disabled={disclosureSyncing}
+                            className="rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-3 py-2 text-[11px] font-bold text-cyan-300 transition hover:bg-cyan-900/40 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {disclosureSyncing ? '공시 수집 요청 중...' : '최근 공시 수집 요청하기'}
+                          </button>
+                          {disclosureSyncMessage.text ? (
+                            <p className={`max-w-[320px] text-[11px] leading-5 ${disclosureSyncMessage.isError ? 'text-rose-300' : 'text-cyan-300'}`}>
+                              {disclosureSyncMessage.text}
+                            </p>
+                          ) : null}
+                        </div>
+                      )}
                     </div>
                   </section>
                 </div>

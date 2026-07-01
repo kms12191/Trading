@@ -17,14 +17,17 @@ from backend.utils.crypto_helper import CryptoHelper
 from backend.services.news_repository import NewsRepository
 from backend.services.news_ingest import NewsIngestService
 from backend.services.news_summary_service import NewsSummaryService
+from backend.services.dart_repository import DartRepository
+from backend.services.dart_ingest import DartIngestService
 from backend.services.kis_market_universe import KISMarketUniverseService
 from backend.services.market_snapshot_scheduler import start_market_snapshot_scheduler
-from backend.services.ml_scheduler import start_news_ingest_scheduler, start_ml_automation_scheduler
+from backend.services.ml_scheduler import start_dart_ingest_scheduler, start_news_ingest_scheduler, start_ml_automation_scheduler
 
 from backend.routes.home import home_bp
 from backend.routes.keys import keys_bp
 from backend.routes.ml import ml_bp
 from backend.routes.news import news_bp
+from backend.routes.disclosures import disclosures_bp
 from backend.routes.trade import trade_bp
 from backend.routes.transfer import transfer_bp
 
@@ -51,6 +54,8 @@ BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY", "")
 
 NEWS_INGEST_ENABLED = os.getenv("NEWS_INGEST_ENABLED", "false").lower() == "true"
 NEWS_INGEST_INTERVAL_SECONDS = int(os.getenv("NEWS_INGEST_INTERVAL_SECONDS", "600"))
+DART_INGEST_ENABLED = os.getenv("DART_INGEST_ENABLED", "false").lower() == "true"
+DART_INGEST_INTERVAL_SECONDS = int(os.getenv("DART_INGEST_INTERVAL_SECONDS", "900"))
 ML_AUTOMATION_ENABLED = os.getenv("ML_AUTOMATION_ENABLED", "true").lower() == "true"
 HOME_MARKET_SNAPSHOT_ENABLED = os.getenv("HOME_MARKET_SNAPSHOT_ENABLED", "true").lower() == "true"
 HOME_MARKET_OPEN_INTERVAL_SECONDS = int(os.getenv("HOME_MARKET_OPEN_INTERVAL_SECONDS", "60"))
@@ -75,12 +80,16 @@ crypto = CryptoHelper(ENCRYPTION_KEY)
 news_repository = NewsRepository()
 news_ingest_service = NewsIngestService()
 news_summary_service = NewsSummaryService()
+dart_repository = DartRepository()
+dart_ingest_service = DartIngestService()
 kis_market_universe_service = KISMarketUniverseService()
 
 app.crypto = crypto
 app.news_repository = news_repository
 app.news_ingest_service = news_ingest_service
 app.news_summary_service = news_summary_service
+app.dart_repository = dart_repository
+app.dart_ingest_service = dart_ingest_service
 app.kis_market_universe_service = kis_market_universe_service
 
 # Blueprint 등록
@@ -88,6 +97,7 @@ app.register_blueprint(home_bp)
 app.register_blueprint(keys_bp)
 app.register_blueprint(ml_bp)
 app.register_blueprint(news_bp)
+app.register_blueprint(disclosures_bp)
 app.register_blueprint(trade_bp)
 app.register_blueprint(transfer_bp)
 
@@ -100,6 +110,11 @@ if is_scheduler_host and SCHEDULER_RUN_IN_GATEWAY:
         news_ingest_service=news_ingest_service,
         news_ingest_enabled=NEWS_INGEST_ENABLED,
         news_ingest_interval_seconds=NEWS_INGEST_INTERVAL_SECONDS
+    )
+    start_dart_ingest_scheduler(
+        dart_ingest_service=dart_ingest_service,
+        dart_ingest_enabled=DART_INGEST_ENABLED,
+        dart_ingest_interval_seconds=DART_INGEST_INTERVAL_SECONDS,
     )
     start_ml_automation_scheduler(
         ml_automation_enabled=ML_AUTOMATION_ENABLED,

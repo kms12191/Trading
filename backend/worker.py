@@ -14,9 +14,10 @@ sys.path.append(str(PROJECT_ROOT))
 
 from backend.services.news_repository import NewsRepository
 from backend.services.news_ingest import NewsIngestService
+from backend.services.dart_ingest import DartIngestService
 from backend.services.kis_market_universe import KISMarketUniverseService
 from backend.services.market_snapshot_scheduler import start_market_snapshot_scheduler
-from backend.services.ml_scheduler import start_news_ingest_scheduler, start_ml_automation_scheduler
+from backend.services.ml_scheduler import start_dart_ingest_scheduler, start_news_ingest_scheduler, start_ml_automation_scheduler
 
 def main():
     print("[Worker] 백그라운드 스케줄러 배치 프로세스를 시작합니다...")
@@ -31,6 +32,8 @@ def main():
     
     NEWS_INGEST_ENABLED = os.getenv("NEWS_INGEST_ENABLED", "false").lower() == "true"
     NEWS_INGEST_INTERVAL_SECONDS = int(os.getenv("NEWS_INGEST_INTERVAL_SECONDS", "600"))
+    DART_INGEST_ENABLED = os.getenv("DART_INGEST_ENABLED", "false").lower() == "true"
+    DART_INGEST_INTERVAL_SECONDS = int(os.getenv("DART_INGEST_INTERVAL_SECONDS", "900"))
     ML_AUTOMATION_ENABLED = os.getenv("ML_AUTOMATION_ENABLED", "true").lower() == "true"
     HOME_MARKET_SNAPSHOT_ENABLED = os.getenv("HOME_MARKET_SNAPSHOT_ENABLED", "true").lower() == "true"
     HOME_MARKET_OPEN_INTERVAL_SECONDS = int(os.getenv("HOME_MARKET_OPEN_INTERVAL_SECONDS", "60"))
@@ -39,6 +42,7 @@ def main():
     HOME_MARKET_SNAPSHOT_WORKERS = int(os.getenv("HOME_MARKET_SNAPSHOT_WORKERS", "2"))
     
     news_ingest_service = NewsIngestService()
+    dart_ingest_service = DartIngestService()
     kis_market_universe_service = KISMarketUniverseService()
     
     # 1. 뉴스 수집 스케줄러 기동
@@ -47,6 +51,13 @@ def main():
         news_ingest_service=news_ingest_service,
         news_ingest_enabled=NEWS_INGEST_ENABLED,
         news_ingest_interval_seconds=NEWS_INGEST_INTERVAL_SECONDS
+    )
+
+    print(f"[Worker] DART Ingest Scheduler (Enabled: {DART_INGEST_ENABLED}) 기동 시도")
+    start_dart_ingest_scheduler(
+        dart_ingest_service=dart_ingest_service,
+        dart_ingest_enabled=DART_INGEST_ENABLED,
+        dart_ingest_interval_seconds=DART_INGEST_INTERVAL_SECONDS,
     )
     
     # 2. ML 자동화 스케줄러 기동

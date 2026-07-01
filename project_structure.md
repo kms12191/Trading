@@ -102,6 +102,15 @@ backend/
 
 ## frontend
 
+## 2026-07-01 OpenDART 공시 연동 추가 모듈
+
+- `backend/routes/disclosures.py`: 종목 상세 공시 목록 조회 및 수동 공시 동기화 API
+- `backend/services/dart_repository.py`: Supabase `dart_*` 테이블 조회/upsert 저장소
+- `backend/services/dart_ingest.py`: OpenDART 전체 공시 목록 수집, 최근 1년 백필, `CORPCODE.xml` 매핑 동기화 서비스
+- `backend/scripts/sync_dart_corp_codes.py`: 루트 `CORPCODE.xml`을 `dart_corp_codes`에 업서트하는 스크립트
+- `backend/scripts/backfill_dart_disclosures.py`: 최근 1년 공시를 날짜 구간별로 수집해 `dart_disclosures`에 업서트하는 스크립트
+- `supabase/migrations/20260701093000_create_dart_disclosures.sql`: DART 공시 캐시 테이블, 로그 테이블, RLS 정책 생성
+
 ```text
 frontend/
 ├── package.json

@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 # 모듈 수준의 전역 상태 변수
 _news_ingest_started = False
+_dart_ingest_started = False
 _ml_automation_started = False
 
 def resolve_model_version_from_config(config_path: str) -> str | None:
@@ -165,6 +166,37 @@ def start_news_ingest_scheduler(news_ingest_service, news_ingest_enabled: bool, 
             )
             sleep_seconds = news_ingest_interval_seconds if is_market_hours else max(news_ingest_interval_seconds * 3, 1800)
             time.sleep(sleep_seconds)
+
+    thread = threading.Thread(target=_loop, daemon=True)
+    thread.start()
+
+def start_dart_ingest_scheduler(dart_ingest_service, dart_ingest_enabled: bool, dart_ingest_interval_seconds: int) -> None:
+    """OpenDART 전체 공시 목록을 주기적으로 수집합니다."""
+    global _dart_ingest_started
+    if _dart_ingest_started or not dart_ingest_enabled:
+        if not dart_ingest_enabled:
+            logger.info("[DartIngestScheduler] disabled")
+        return
+    _dart_ingest_started = True
+    logger.info("[DartIngestScheduler] started interval=%ss", dart_ingest_interval_seconds)
+
+    def _loop() -> None:
+        while True:
+            try:
+                with distributed_lock("dart_ingest", max(dart_ingest_interval_seconds, 900)) as locked:
+                    if locked:
+                        result = dart_ingest_service.run_incremental()
+                        logger.info(
+                            "[DartIngestScheduler] run complete fetched=%s saved=%s requests=%s",
+                            result.get("fetched"),
+                            result.get("saved"),
+                            result.get("request_count"),
+                        )
+                    else:
+                        logger.info("[DartIngestScheduler] lock not acquired")
+            except Exception as error:
+                logger.exception("[DartIngestScheduler] run failed: %s", error)
+            time.sleep(dart_ingest_interval_seconds)
 
     thread = threading.Thread(target=_loop, daemon=True)
     thread.start()

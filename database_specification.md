@@ -207,6 +207,43 @@ erDiagram
     *   `started_at` (TIMESTAMPTZ)
     *   `error_message` (TEXT)
 
+### 2.6.1 dart_corp_codes
+*   **용도**: OpenDART 고유번호(`corp_code`)와 국내 주식 종목코드(`stock_code`)를 매핑하는 상장사 사전 테이블입니다.
+*   **주요 컬럼**:
+    *   `corp_code` (TEXT, PK) - DART 기업 고유번호
+    *   `corp_name` (TEXT) - 기업명
+    *   `stock_code` (TEXT, UNIQUE) - 국내 주식 6자리 종목코드
+    *   `modify_date` (DATE) - DART 사전 수정일
+    *   `raw_payload` (JSONB) - 원본 사전 데이터
+*   **RLS**:
+    *   일반 조회는 허용하고, 생성/수정은 `service_role`만 수행합니다.
+
+### 2.6.2 dart_disclosures
+*   **용도**: OpenDART 전체 공시 목록 API에서 `stock_code`가 있는 상장사 공시만 수집해 저장하는 공시 캐시 테이블입니다.
+*   **주요 컬럼**:
+    *   `rcept_no` (TEXT, UNIQUE) - 공시 접수번호, 중복 upsert 기준
+    *   `corp_code` (TEXT) - DART 기업 고유번호
+    *   `stock_code` (TEXT) - 국내 주식 종목코드
+    *   `corp_name` (TEXT) - 기업명
+    *   `report_nm` (TEXT) - 공시명
+    *   `flr_nm` (TEXT) - 제출인
+    *   `rcept_dt` (DATE) - 접수일
+    *   `url` (TEXT) - DART 원문 URL
+    *   `summary` (TEXT) - 목록 기반 간단 요약
+    *   `raw_payload` (JSONB) - OpenDART 원본 응답
+*   **RLS**:
+    *   활성 공시는 공개 조회 가능하고, 수집/수정은 `service_role`만 수행합니다.
+
+### 2.6.3 dart_fetch_logs
+*   **용도**: OpenDART 전체 공시 목록 수집 및 최근 1년 백필 작업의 실행 결과를 기록합니다.
+*   **주요 컬럼**:
+    *   `query_key` (TEXT) - `incremental` 또는 백필 날짜 구간
+    *   `status` (TEXT) - `SUCCESS`, `FAILED`, `SKIPPED`
+    *   `fetched_count` (INTEGER)
+    *   `inserted_count` (INTEGER)
+    *   `request_count` (INTEGER)
+    *   `error_message` (TEXT)
+
 ### 2.7 user_watchlist
 *   **용도**: 사용자가 개별적으로 "하트"를 눌러 즐겨찾기 목록에 등록한 관심 종목 보관 테이블.
 *   **주요 컬럼**:
