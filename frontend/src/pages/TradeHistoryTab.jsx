@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import { buildApiErrorText } from '../lib/apiError.js'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
@@ -45,7 +46,7 @@ const isMissingBrokerHistoryTableError = (error) => {
 const TRADE_HISTORY_SELECT_FIELDS = 'id,exchange,asset_type,ticker,symbol,side,price,volume,order_amount,ord_type,market_country,currency,broker_env,client_order_id,external_order_id,external_order_org_no,status,failure_reason,created_at'
 const BROKER_HISTORY_SELECT_FIELDS = 'id,exchange,broker_env,symbol,market_country,side,price,quantity,order_amount,status,raw_status,currency,client_order_id,external_order_id,filled_quantity,average_filled_price,filled_amount,commission,tax,ordered_at,filled_at,settlement_date'
 
-const isCancelReplaceExchange = (exchange) => ['COINONE', 'BINANCE'].includes(String(exchange || '').toUpperCase())
+const isCancelReplaceExchange = (exchange) => ['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(String(exchange || '').toUpperCase())
 
 const fetchSymbolDisplayNames = async (proposals = []) => {
   const symbols = Array.from(new Set(
@@ -395,14 +396,14 @@ export default function TradeHistoryTab() {
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || !payload.success) {
-        throw new Error(payload.message || '주문 처리 요청에 실패했습니다.')
+        throw payload
       }
       return payload
     } catch (error) {
       if (error?.name === 'AbortError') {
         throw new Error('주문 처리 요청 시간이 초과되었습니다. 백엔드와 거래소 응답 상태를 확인해 주세요.')
       }
-      throw error
+      throw new Error(buildApiErrorText(error, '주문 처리 요청에 실패했습니다.'))
     } finally {
       window.clearTimeout(timeoutId)
     }

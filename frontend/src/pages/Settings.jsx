@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import Header from '../components/Header.jsx'
 import InvestmentSurveyModal from '../components/InvestmentSurveyModal'
+import { getApiErrorMessage } from '../lib/apiError.js'
 
 export default function Settings({ isLoggedIn, userEmail, handleLogout, userProfile, setUserProfile, hideHeader }) {
   // 브로커 연동 현황 상태
@@ -11,7 +12,9 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
     KIS_MOCK: { registered: false },
     KIS_REAL: { registered: false },
     COINONE: { registered: false },
-    BINANCE: { registered: false }
+    BINANCE: { registered: false },
+    BINANCE_REAL: { registered: false },
+    BINANCE_MOCK: { registered: false }
   })
 
   const [activeTab, setActiveTab] = useState('TOSS') // TOSS | KIS | COINONE | BINANCE
@@ -65,6 +68,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
     secret_key: '',
     broker_env: 'REAL'
   })
+  const [binanceMarketType, setBinanceMarketType] = useState('SPOT') // SPOT | UM_FUTURES
 
   //
   // 투자성향분석결과 (나중에 DB 연결하면 하드코딩 제거)
@@ -99,7 +103,9 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
         const processed = {
           ...raw,
           KIS_MOCK: { registered: false },
-          KIS_REAL: { registered: false }
+          KIS_REAL: { registered: false },
+          BINANCE_REAL: { registered: false },
+          BINANCE_MOCK: { registered: false }
         }
         if (raw.KIS && raw.KIS.accounts) {
           raw.KIS.accounts.forEach(acc => {
@@ -107,6 +113,15 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
               processed.KIS_MOCK = acc
             } else if (acc.broker_env === 'REAL') {
               processed.KIS_REAL = acc
+            }
+          })
+        }
+        if (raw.BINANCE && raw.BINANCE.accounts) {
+          raw.BINANCE.accounts.forEach(acc => {
+            if (acc.broker_env === 'MOCK' || acc.broker_env === 'DEMO' || acc.broker_env === 'TESTNET') {
+              processed.BINANCE_MOCK = acc
+            } else if (acc.broker_env === 'REAL') {
+              processed.BINANCE_REAL = acc
             }
           })
         }
@@ -134,7 +149,8 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
       return
     }
 
-    let payload = { exchange }
+    const testExchange = exchange === 'BINANCE' && binanceMarketType === 'UM_FUTURES' ? 'BINANCE_UM_FUTURES' : exchange
+    let payload = { exchange: testExchange }
     if (exchange === 'TOSS') {
       payload = {
         ...payload,
@@ -182,10 +198,12 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
       if (resData.success) {
         setMessage({ text: resData.message, isError: false })
       } else {
-        setMessage({ text: resData.message || '연결 테스트에 실패했습니다.', isError: true })
+        const message = getApiErrorMessage(resData, '연결 테스트에 실패했습니다.')
+        setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
       }
     } catch (error) {
-      setMessage({ text: `서버 통신 실패: ${error.message}`, isError: true })
+      const message = getApiErrorMessage(error, '서버 통신에 실패했습니다.')
+      setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
     } finally {
       setLoading(false)
     }
@@ -208,10 +226,12 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
         setMessage({ text: resData.message, isError: false })
         loadKeysStatus() // 현황 즉시 갱신
       } else {
-        setMessage({ text: resData.message || '저장에 실패했습니다.', isError: true })
+        const message = getApiErrorMessage(resData, '저장에 실패했습니다.')
+        setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
       }
     } catch (error) {
-      setMessage({ text: `서버 저장 실패: ${error.message}`, isError: true })
+      const message = getApiErrorMessage(error, '서버 저장에 실패했습니다.')
+      setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
     }
   }
 
@@ -227,7 +247,8 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
     }
 
     let payload = { exchange }
-    let testPayload = { exchange }
+    const saveTestExchange = exchange === 'BINANCE' && binanceMarketType === 'UM_FUTURES' ? 'BINANCE_UM_FUTURES' : exchange
+    let testPayload = { exchange: saveTestExchange }
 
     if (exchange === 'TOSS') {
       if (!tossForm.client_id || !tossForm.client_secret) {
@@ -304,7 +325,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
         broker_env: binanceForm.broker_env
       }
       testPayload = {
-        exchange,
+        exchange: saveTestExchange,
         api_key: binanceForm.api_key,
         secret_key: binanceForm.secret_key,
         broker_env: binanceForm.broker_env
@@ -398,10 +419,12 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
         }
         setMessage({ text: 'Toss 계좌 목록을 조회했습니다. 아래에서 사용할 계좌를 선택해 주세요.', isError: false })
       } else {
-        setMessage({ text: resData.message || 'Toss 계좌 조회 실패.', isError: true })
+        const message = getApiErrorMessage(resData, 'Toss 계좌 조회에 실패했습니다.')
+        setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
       }
     } catch (error) {
-      setMessage({ text: `계좌 조회 중 오류: ${error.message}`, isError: true })
+      const message = getApiErrorMessage(error, '계좌 조회 중 오류가 발생했습니다.')
+      setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
     } finally {
       setTossAccLoading(false)
     }
@@ -492,11 +515,27 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
                   {status.BINANCE && status.BINANCE.registered ? '등록됨' : '미등록'}
                 </span>
               </div>
-              {status.BINANCE && status.BINANCE.registered && (
-                <div className="text-[11px] font-mono text-slate-400 flex flex-col gap-1">
-                  <div><span className="text-ai-cyan font-bold">api_key:</span> {status.BINANCE.access_key}</div>
+              <div className="grid grid-cols-1 gap-2 text-[11px] font-mono text-slate-400 sm:grid-cols-2">
+                <div className={`rounded border px-2 py-2 ${status.BINANCE_REAL?.registered ? 'border-amber-800/60 bg-amber-950/20' : 'border-slate-800 bg-slate-950/20'}`}>
+                  <div className="mb-1 font-bold text-slate-300">REAL 실거래</div>
+                  {status.BINANCE_REAL?.registered ? (
+                    <div><span className="text-ai-cyan font-bold">api_key:</span> {status.BINANCE_REAL.access_key}</div>
+                  ) : (
+                    <div className="text-slate-600">미등록</div>
+                  )}
                 </div>
-              )}
+                <div className={`rounded border px-2 py-2 ${status.BINANCE_MOCK?.registered ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-slate-800 bg-slate-950/20'}`}>
+                  <div className="mb-1 font-bold text-slate-300">MOCK 모의투자</div>
+                  {status.BINANCE_MOCK?.registered ? (
+                    <div><span className="text-ai-cyan font-bold">api_key:</span> {status.BINANCE_MOCK.access_key}</div>
+                  ) : (
+                    <div className="text-slate-600">미등록</div>
+                  )}
+                </div>
+              </div>
+              <p className="mt-2 text-[10px] leading-4 text-slate-500">
+                USD-M 선물은 별도 키 슬롯을 만들지 않고 위 바이낸스 REAL/MOCK 키를 재사용합니다. 선물 REAL 주문은 서버 안전 플래그가 켜져 있을 때만 허용됩니다.
+              </p>
             </div>
 
           </div>
@@ -773,6 +812,64 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
           {/* Binance 설정 탭 */}
           {activeTab === 'BINANCE' && (
             <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-800 bg-[#0F172A]/60 p-1">
+                {[
+                  { key: 'SPOT', label: '현물 Spot', desc: '현물 잔고/주문' },
+                  { key: 'UM_FUTURES', label: 'USD-M 선물', desc: '같은 바이낸스 키 사용' },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => {
+                      setBinanceMarketType(item.key)
+                      setBinanceForm(prev => ({
+                        ...prev,
+                        broker_env: item.key === 'UM_FUTURES' ? 'MOCK' : prev.broker_env,
+                      }))
+                    }}
+                    className={`rounded px-3 py-2 text-left transition-all ${
+                      binanceMarketType === item.key
+                        ? 'border border-ai-cyan bg-ai-cyan/10 text-white'
+                        : 'border border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-white'
+                    }`}
+                  >
+                    <div className="text-xs font-extrabold">{item.label}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-500">{item.desc}</div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-800 bg-[#0F172A]/60 p-1">
+                {[
+                  { key: 'REAL', label: '실거래 REAL', desc: '실제 바이낸스 계정' },
+                  { key: 'MOCK', label: '모의 MOCK', desc: 'Binance Demo API' },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setBinanceForm(prev => ({ ...prev, broker_env: item.key }))}
+                    className={`rounded px-3 py-2 text-left transition-all ${
+                      binanceForm.broker_env === item.key
+                        ? 'border border-ai-cyan bg-ai-cyan/10 text-white'
+                        : 'border border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-white'
+                    }`}
+                  >
+                    <div className="text-xs font-extrabold">{item.label}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-500">{item.desc}</div>
+                  </button>
+                ))}
+              </div>
+
+              {binanceForm.broker_env === 'MOCK' ? (
+                <div className="rounded border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-[11px] leading-5 text-emerald-100">
+                  MOCK은 바이낸스 모의 환경 키를 저장합니다. 현물/선물 선택은 저장 슬롯을 나누지 않고 연결 테스트에 사용할 엔드포인트만 바꿉니다.
+                </div>
+              ) : (
+                <div className="rounded border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-100">
+                  실거래 키는 실제 바이낸스 계정에 연결됩니다. 출금 주소 조회와 입금 추적은 이 REAL 키만 사용합니다.
+                </div>
+              )}
+
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 mb-1">API KEY</label>
                 <input
@@ -854,8 +951,6 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
             <InvestmentSurveyModal
               onClose={() => setShowSurveyModal(false)}
               onSuccess={(type, score) => {
-                console.log("onSuccess 시작");
-
                 setUserProfile(prev => prev ? {
                   ...prev,
                   invest_type: type,
@@ -863,12 +958,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
                   updated_at: new Date().toISOString()
                 } : null);
 
-                console.log("setUserProfile 완료");
-
                 setShowSurveyModal(false);
-
-                console.log("모달 닫기 완료");
-
               }}
                             
             />

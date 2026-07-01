@@ -25,7 +25,7 @@ try:
         print(f"Total API Keys in DB: {len(data)}")
         for row in data:
             print(
-                f"Exchange: {row.get('exchange')} | Env: {row.get('broker_env')}\n"
+                f"User ID: {row.get('user_id')} | Exchange: {row.get('exchange')} | Env: {row.get('broker_env')}\n"
                 f"  Account No: {row.get('kis_account_no')} | Code: {row.get('kis_account_code')}\n"
                 f"  Toss Account No: {row.get('toss_account_no')} | Toss Seq: {row.get('toss_account_seq')}\n"
                 f"  Created: {row.get('created_at')}\n"

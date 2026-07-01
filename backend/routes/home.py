@@ -6,9 +6,10 @@ from backend.services.home_service import build_home_overview, fetch_coinone_ove
 from backend.services.kis_client import KISClient
 from backend.services.toss_client import TossClient
 from backend.services.coinone_client import CoinoneClient
-from backend.services.binance_client import BinanceClient
+from backend.services.binance_client import BinanceClient, BinanceFuturesClient
 from backend.services.auth_service import get_user_id_from_header
 from backend.services.supabase_client import query_supabase
+from backend.services.error_message_service import format_error_payload
 
 home_bp = Blueprint("home", __name__)
 
@@ -234,14 +235,15 @@ def get_dashboard_balance():
     try:
         user_id, token = get_user_id_from_header(auth_header)
         
+        credential_exchange = "BINANCE" if exchange == "BINANCE_UM_FUTURES" else exchange
         params = {
             "user_id": f"eq.{user_id}",
-            "exchange": f"eq.{exchange}",
+            "exchange": f"eq.{credential_exchange}",
             "broker_env": f"eq.{broker_env}"
         }
         records = query_supabase(auth_header, "user_api_keys", "GET", params=params)
         if not records or len(records) == 0:
-            return jsonify({"success": False, "message": f"등록된 {exchange} ({broker_env}) API 키가 없습니다."}), 404
+            return jsonify({"success": False, "message": f"등록된 {credential_exchange} ({broker_env}) API 키가 없습니다."}), 404
 
         record = records[0]
         crypto_helper = current_app.crypto
@@ -279,7 +281,15 @@ def get_dashboard_balance():
         elif exchange == "BINANCE":
             client = BinanceClient(
                 api_key=access_key,
-                secret_key=secret_key
+                secret_key=secret_key,
+                env=broker_env,
+            )
+            balance = client.get_balance()
+        elif exchange == "BINANCE_UM_FUTURES":
+            client = BinanceFuturesClient(
+                api_key=access_key,
+                secret_key=secret_key,
+                env=broker_env,
             )
             balance = client.get_balance()
         else:
@@ -296,7 +306,4 @@ def get_dashboard_balance():
             "data": balance
         })
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": f"잔고 조회 실패: {str(e)}"
-        }), 500
+        return jsonify(format_error_payload(e, "잔고 조회 실패", exchange=exchange)), 500

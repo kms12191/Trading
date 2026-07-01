@@ -71,6 +71,10 @@
    * 사용자의 API 인증 정보는 DB에 평문으로 저장하지 않고, 반드시 백엔드 내부의 대칭키(AES-256 GCM) 암호화 기능을 거쳐 저장합니다.
 6. **에러 응답 처리**:
    * 거래소 API 에러 시 `trade_proposals.status`를 `FAILED`로 변경하고 `failure_reason`에 에러 정보와 에러 코드를 기록하여 추적 가능하게 관리합니다.
+   * 사용자가 직접 보는 API 응답에는 원문 예외(`str(e)`, 거래소 raw payload, stack trace)를 그대로 노출하지 말고, 반드시 `backend/services/error_message_service.py`의 `format_error_payload()`를 사용해 `message`, `error.title`, `error.action`, `error.code`, `error.raw_message` 구조로 반환하십시오.
+   * 거래소/외부 API 신규 에러 코드를 발견하면 해당 코드의 의미, 사용자에게 보여줄 원인, 사용자가 다음에 해야 할 행동을 `ERROR_GUIDES` 또는 `KEYWORD_GUIDES`에 추가한 뒤 라우트에서 재사용하십시오.
+   * 프론트엔드는 실패 응답 표시 시 `frontend/src/lib/apiError.js`의 `getApiErrorMessage()` 또는 `buildApiErrorText()`를 우선 사용하고, 화면에는 `error.title`과 `error.action`을 중심으로 표시해야 합니다. 원문 로그는 디버깅용으로만 보존하고 주요 사용자 문구로 사용하지 않습니다.
+   * 에러 메시지는 "실패했습니다"에서 끝내지 말고, 사용자가 이해할 수 있는 원인과 다음 행동을 포함해야 합니다. 예: "코인원 API 출금주소록 등록이 필요합니다. 코인원 Open API > API 출금주소록에서 주소와 Destination Tag/Memo를 등록하고 추가 채널 인증을 완료한 뒤 다시 시도하세요."
 
 ---
 
@@ -180,7 +184,13 @@ AI 에이전트는 데이터 변경이나 조회 쿼리를 작성할 때 다음 
    * 주식과 코인은 `asset_type`과 `model_version`을 기준으로 별도 모델 파일을 로드합니다.
    * 모델 출력은 `up_probability`, `risk_probability`, `signal_score`, `model_version` 형태로 표준화합니다.
    * 모델 점수는 주문 실행 근거가 아니라 챗봇 설명과 매매 제안 후보 선별에만 사용합니다.
-5. **오류 대응 및 로깅**: Toss API의 응답 지연이나 에러 발생 시, `trade_proposals` 테이블의 `status`를 `FAILED`로 변경하고 `failure_reason` 컬럼에 반드시 원인을 상세히 기록하도록 코딩하십시오.
+5. **오류 대응 및 로깅**:
+   * Toss API의 응답 지연이나 에러 발생 시, `trade_proposals` 테이블의 `status`를 `FAILED`로 변경하고 `failure_reason` 컬럼에 반드시 원인을 상세히 기록하도록 코딩하십시오.
+   * 신규 라우트 또는 기존 라우트의 `except Exception` 응답을 추가/수정할 때는 `jsonify({"success": False, "message": f"...{str(e)}"})` 형태를 금지합니다. 사용자 화면에 노출될 수 있는 API는 `format_error_payload(e, "작업명 실패", exchange=exchange)`를 사용해 표준 에러 payload로 반환하십시오.
+   * 사용자 친화 에러 문구는 다음 3요소를 포함해야 합니다: `무슨 일이 발생했는지`, `왜 발생했을 가능성이 높은지`, `사용자가 다음에 무엇을 해야 하는지`.
+   * 거래소/브로커별 에러 코드는 원문 코드를 숨기지 말고 `error.code`와 `error.raw_message`에 보존하되, 화면 기본 문구는 한국어 안내형 문장으로 작성하십시오.
+   * 프론트엔드에서 API 실패를 처리할 때는 `payload.message`만 직접 출력하지 말고 `getApiErrorMessage()`를 거쳐 `title`과 `detail/action`을 함께 보여주십시오.
+   * 관리자/ML 작업처럼 원문 로그가 필요한 화면도 사용자 기본 문구는 친화적으로 유지하고, 상세 원문은 접힘 영역, 작업 로그, `raw_message` 등 디버깅 맥락에만 표시하십시오.
 6. **디자인 시스템 엄격 준수**: UI를 개발할 때 [design.md](design.md)에 명시된 Obsidian Navy 배경, JetBrains Mono 폰트 사용처, Glassmorphism, 2px Cyan 매매 승인 카드 왼쪽 강조 테두리 등 모든 스타일 토큰을 정교하게 적용하십시오.
 7. **모바일 우선 반응형 UI 필수 적용**:
    * 모든 신규 페이지, 컴포넌트, 모달, 카드, 표, 차트, 폼, 버튼 그룹은 **모바일 화면을 기본 기준으로 먼저 설계**하고 `sm`, `md`, `lg`, `xl` 브레이크포인트로 확장하십시오.

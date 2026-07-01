@@ -11,9 +11,10 @@
   - 코인원 가상자산 상세 페이지 지정가 주문 UI
   - ML 운영 콘솔과 활성 신호 확인 UI
 - 백엔드
-  - `home`, `keys`, `ml`, `news`, `trade` Blueprint API
+  - `home`, `keys`, `ml`, `news`, `trade`, `transfer` Blueprint API
   - Toss/KIS/Coinone/Binance 클라이언트
   - 코인원 계좌 잔고 조회, 현재가 조회, 지정가 주문, 미체결 주문 취소
+  - 코인원에서 바이낸스로 가상자산 출금 사전검증, 사용자 승인, 상태 추적
   - 뉴스 수집/요약
   - ML 자동 수집/학습 스케줄러, 승격 검증, serving 감사
 - ML
@@ -127,6 +128,15 @@ python src/run_pipeline_bundle.py \
 - `GET /api/chart/trades`
 - `GET /api/symbol/lookup`
 - `GET /api/symbol/search`
+
+### 가상자산 이동
+
+- `GET /api/transfer/binance/deposit-address`
+- `POST /api/transfer/withdraw/precheck`
+- `POST /api/transfer/withdraw/approve`
+- `GET /api/transfer/withdraw/status`
+
+현재 출금 플로우는 대시보드 자산 탭에서 코인원 보유 코인을 바이낸스 입금 주소로 이동하는 경로만 지원합니다. 실제 출금은 사전검증 후 사용자가 최종 승인 체크를 완료했을 때만 실행됩니다.
 
 ### 뉴스
 

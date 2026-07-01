@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { createChart, CandlestickSeries } from 'lightweight-charts'
 import { supabase, deleteUserWatchlistItem, fetchUserWatchlist, upsertUserWatchlistItem } from '../supabaseClient'
 import Header from '../components/Header.jsx'
+import { getApiErrorMessage } from '../lib/apiError.js'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
@@ -14,7 +15,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
 
   const getCurrencySign = () => {
     if (exchange === 'COINONE') return '₩';
-    if (exchange === 'BINANCE') return '$';
+    if (exchange === 'BINANCE' || exchange === 'BINANCE_UM_FUTURES') return '$';
     if (resolvedAssetType === 'STOCK') {
       return /^\d+$/.test(symbol) ? '₩' : '$';
     }
@@ -23,7 +24,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
 
   const getCurrencyDigits = () => {
     if (exchange === 'COINONE') return 0;
-    if (exchange === 'BINANCE') return 4;
+    if (exchange === 'BINANCE' || exchange === 'BINANCE_UM_FUTURES') return 4;
     if (resolvedAssetType === 'STOCK') {
       return /^\d+$/.test(symbol) ? 0 : 4;
     }
@@ -54,6 +55,20 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const [autoExit, setAutoExit] = useState(false)
   const [targetProfitRate, setTargetProfitRate] = useState(5.0)
   const [stopLossRate, setStopLossRate] = useState(-3.0)
+  const [futuresIntent, setFuturesIntent] = useState('LONG_OPEN')
+  const [futuresLeverage, setFuturesLeverage] = useState(1)
+  const [futuresMarginType, setFuturesMarginType] = useState('CROSSED')
+
+  const isFuturesOrder = exchange === 'BINANCE_UM_FUTURES'
+  const futuresIntentMeta = {
+    LONG_OPEN: { label: '롱 진입', side: 'BUY', reduceOnly: false, tone: 'red' },
+    LONG_CLOSE: { label: '롱 청산', side: 'SELL', reduceOnly: true, tone: 'slate' },
+    SHORT_OPEN: { label: '숏 진입', side: 'SELL', reduceOnly: false, tone: 'blue' },
+    SHORT_CLOSE: { label: '숏 청산', side: 'BUY', reduceOnly: true, tone: 'slate' },
+  }
+  const currentFuturesIntent = futuresIntentMeta[futuresIntent] || futuresIntentMeta.LONG_OPEN
+  const effectiveSide = isFuturesOrder ? currentFuturesIntent.side : side
+  const effectiveReduceOnly = isFuturesOrder ? currentFuturesIntent.reduceOnly : false
 
   // 5. 트랜잭션 UI 상태
   const [submitting, setSubmitting] = useState(false)
@@ -850,13 +865,14 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         setUserBalance(resData.data)
         setBalanceMessage('')
       } else {
+        const message = getApiErrorMessage(resData, `${exchange} (${brokerEnv}) 잔고를 불러오지 못했습니다.`)
         setUserBalance(null)
-        setBalanceMessage(resData.message || `${exchange} (${brokerEnv}) 잔고를 불러오지 못했습니다.`)
+        setBalanceMessage(message.detail ? `${message.title} ${message.detail}` : message.title)
       }
     } catch (error) {
-      console.error('잔고 로드 실패:', error)
+      const message = getApiErrorMessage(error, '잔고를 불러오지 못했습니다.')
       setUserBalance(null)
-      setBalanceMessage(`잔고 로드 실패: ${error.message}`)
+      setBalanceMessage(message.detail ? `${message.title} ${message.detail}` : message.title)
     }
   }
 
@@ -893,23 +909,29 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         body: JSON.stringify({
           exchange,
           symbol,
-          action: side,
+          action: effectiveSide,
           order_type: orderType,
           quantity: Number(quantity),
           price: orderType === 'LIMIT' ? Number(price) : null,
           broker_env: brokerEnv,
+          position_side: exchange === 'BINANCE_UM_FUTURES' ? 'BOTH' : null,
+          reduce_only: exchange === 'BINANCE_UM_FUTURES' ? effectiveReduceOnly : false,
+          leverage: exchange === 'BINANCE_UM_FUTURES' ? Number(futuresLeverage) : null,
+          margin_type: exchange === 'BINANCE_UM_FUTURES' ? futuresMarginType : null,
         }),
       })
       const resData = await response.json()
       if (resData.success) {
         setOrderPrecheck(resData.data)
       } else {
+        const message = getApiErrorMessage(resData, '주문 사전검증에 실패했습니다.')
         setOrderPrecheck(null)
-        setPrecheckMessage(resData.message || '주문 사전검증에 실패했습니다.')
+        setPrecheckMessage(message.detail ? `${message.title} ${message.detail}` : message.title)
       }
     } catch (error) {
+      const message = getApiErrorMessage(error, '주문 사전검증에 실패했습니다.')
       setOrderPrecheck(null)
-      setPrecheckMessage(`주문 사전검증 오류: ${error.message}`)
+      setPrecheckMessage(message.detail ? `${message.title} ${message.detail}` : message.title)
     } finally {
       setPrecheckLoading(false)
     }
@@ -1016,10 +1038,10 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       return
     }
 
-    if (!['COINONE', 'BINANCE'].includes(exchange)) {
+    if (!['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(exchange)) {
       setExchange('COINONE')
     }
-    if (brokerEnv !== 'REAL') {
+    if (exchange !== 'BINANCE_UM_FUTURES' && brokerEnv !== 'REAL') {
       setBrokerEnv('REAL')
     }
     if (!['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1M'].includes(chartInterval)) {
@@ -1075,7 +1097,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     }, isStockAsset ? 800 : 250)
 
     return () => window.clearTimeout(timeoutId)
-  }, [exchange, symbol, side, orderType, price, quantity, brokerEnv, isStockAsset])
+  }, [exchange, symbol, effectiveSide, orderType, price, quantity, brokerEnv, isStockAsset, effectiveReduceOnly, futuresLeverage, futuresMarginType])
 
   // 3. TradingView Lightweight Charts 차트 초기 생성 및 리사이즈 대응
   useEffect(() => {
@@ -1217,6 +1239,15 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       return
     }
 
+    if (exchange === 'BINANCE_UM_FUTURES') {
+      const leverage = Number(futuresLeverage)
+      if (!Number.isInteger(leverage) || leverage < 1 || leverage > 125) {
+        setTradeMessage({ text: '선물 레버리지는 1~125 사이 정수로 입력해 주세요.', isError: true })
+        setSubmitting(false)
+        return
+      }
+    }
+
     if (brokerEnv === 'REAL' && orderPrecheck?.exceeds_real_order_limit) {
       setTradeMessage({ text: '실거래 1회 주문 한도를 초과했습니다. 수량 또는 단가를 조정해 주세요.', isError: true })
       setSubmitting(false)
@@ -1239,14 +1270,18 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       const payload = {
         exchange,
         symbol,
-        action: side,
+        action: effectiveSide,
         order_type: orderType,
         quantity: parseFloat(quantity),
         price: orderType === 'LIMIT' ? parseFloat(price) : null,
         broker_env: brokerEnv,
         auto_exit: autoExit,
         target_profit_rate: autoExit ? parseFloat(targetProfitRate) : null,
-        stop_loss_rate: autoExit ? parseFloat(stopLossRate) : null
+        stop_loss_rate: autoExit ? parseFloat(stopLossRate) : null,
+        position_side: exchange === 'BINANCE_UM_FUTURES' ? 'BOTH' : null,
+        reduce_only: exchange === 'BINANCE_UM_FUTURES' ? effectiveReduceOnly : false,
+        leverage: exchange === 'BINANCE_UM_FUTURES' ? Number(futuresLeverage) : null,
+        margin_type: exchange === 'BINANCE_UM_FUTURES' ? futuresMarginType : null
       }
 
       const response = await fetch(`${API_BASE_URL}/api/trade/order`, {
@@ -1269,14 +1304,16 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         setQuantity('')
         fetchUserBalance() // 주문 성공 시 보유 자산 즉시 갱신
       } else {
+        const message = getApiErrorMessage(resData, '주문 전송에 실패했습니다.')
         setTradeMessage({
-          text: resData.message || '주문 전송에 실패했습니다.',
+          text: message.detail ? `${message.title} ${message.detail}` : message.title,
           isError: true
         })
       }
     } catch (error) {
+      const message = getApiErrorMessage(error, '네트워크 오류가 발생했습니다.')
       setTradeMessage({
-        text: `네트워크 오류가 발생했습니다: ${error.message}`,
+        text: message.detail ? `${message.title} ${message.detail}` : message.title,
         isError: true
       })
     } finally {
@@ -1297,9 +1334,14 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const dbEstimatedHolding = !myHolding && tradeHoldingContext?.estimatedQty > 0
     ? tradeHoldingContext
     : null
+  const myHoldingQty = Number(myHolding?.qty || 0)
+  const myHoldingAbsQty = Math.abs(myHoldingQty)
+  const myHoldingEvalAmount = Number(myHolding?.eval_amount ?? (Number(myHolding?.current_price || 0) * myHoldingAbsQty))
+  const myHoldingDirection = myHolding?.position_direction || (myHoldingQty < 0 ? 'SHORT' : 'LONG')
   const overallFeedStatus = getOverallFeedStatus()
   const isOrderBlocked = brokerEnv === 'REAL' && (
     orderPrecheck?.exceeds_real_order_limit ||
+    orderPrecheck?.futures_real_blocked ||
     orderPrecheck?.insufficient_cash ||
     orderPrecheck?.insufficient_holding
   )
@@ -1752,23 +1794,50 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                 <span className="text-[9px] font-bold text-slate-500">Human-in-the-Loop</span>
               </div>
 
-              {/* 매수/매도 토스형 2분할 버튼 */}
-              <div className="grid grid-cols-2 gap-1 bg-[#1b253b] p-0.5 rounded border border-[#2b395b]">
-                <button
-                  type="button"
-                  onClick={() => setSide('BUY')}
-                  className={`text-xs font-bold py-1.5 rounded transition-all cursor-pointer ${side === 'BUY' ? 'bg-[#ef4444] text-white' : 'text-slate-400 hover:text-white'}`}
-                >
-                  구매
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSide('SELL')}
-                  className={`text-xs font-bold py-1.5 rounded transition-all cursor-pointer ${side === 'SELL' ? 'bg-[#3b82f6] text-white' : 'text-slate-400 hover:text-white'}`}
-                >
-                  판매
-                </button>
-              </div>
+              {exchange === 'BINANCE_UM_FUTURES' ? (
+                <div className="grid grid-cols-2 gap-1 bg-[#1b253b] p-0.5 rounded border border-[#2b395b]">
+                  {Object.entries(futuresIntentMeta).map(([key, item]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setFuturesIntent(key)}
+                      className={`text-xs font-bold py-1.5 rounded transition-all cursor-pointer ${
+                        futuresIntent === key
+                          ? item.tone === 'red'
+                            ? 'bg-[#ef4444] text-white'
+                            : item.tone === 'blue'
+                              ? 'bg-[#3b82f6] text-white'
+                              : 'bg-slate-600 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-1 bg-[#1b253b] p-0.5 rounded border border-[#2b395b]">
+                  <button
+                    type="button"
+                    onClick={() => setSide('BUY')}
+                    className={`text-xs font-bold py-1.5 rounded transition-all cursor-pointer ${side === 'BUY' ? 'bg-[#ef4444] text-white' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    구매
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSide('SELL')}
+                    className={`text-xs font-bold py-1.5 rounded transition-all cursor-pointer ${side === 'SELL' ? 'bg-[#3b82f6] text-white' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    판매
+                  </button>
+                </div>
+              )}
+              {exchange === 'BINANCE_UM_FUTURES' && (
+                <p className="text-[9px] leading-relaxed text-slate-500">
+                  청산 버튼은 Reduce Only로 전송되어 포지션이 반대로 뒤집히는 것을 방지합니다.
+                </p>
+              )}
 
               {/* 지정가/시장가 선택 */}
               <div className="flex justify-between items-center text-xs">
@@ -1805,6 +1874,56 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                 <p className="text-[10px] leading-relaxed text-slate-500">
                   코인원 실주문은 안전 검증이 완료된 지정가 주문만 지원합니다.
                 </p>
+              )}
+              {exchange === 'BINANCE_UM_FUTURES' && (
+                <div className="rounded border border-cyan-900/50 bg-cyan-950/20 p-3 text-[10px] leading-relaxed text-cyan-100">
+                  <div className="mb-2 font-bold text-cyan-300">바이낸스 USD-M 선물 주문 옵션</div>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[9px] font-bold text-slate-400">레버리지 배수</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="125"
+                          step="1"
+                          value={futuresLeverage}
+                          onChange={(event) => setFuturesLeverage(event.target.value)}
+                          className="w-full rounded border border-slate-700 bg-[#070b19] px-2 py-1.5 font-mono text-xs text-white focus:border-cyan-400 focus:outline-none"
+                        />
+                        <span className="font-mono font-bold text-cyan-300">x</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[9px] font-bold text-slate-400">마진 모드</label>
+                      <div className="grid grid-cols-2 gap-1">
+                        {[
+                          { key: 'CROSSED', label: '교차' },
+                          { key: 'ISOLATED', label: '격리' },
+                        ].map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => setFuturesMarginType(item.key)}
+                            className={`rounded border px-2 py-1.5 font-bold transition ${
+                              futuresMarginType === item.key
+                                ? 'border-cyan-400 bg-cyan-400/15 text-white'
+                                : 'border-slate-700 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 rounded border border-slate-800 bg-slate-950/40 px-2 py-1.5 text-slate-300">
+                    주문 방식: {effectiveReduceOnly ? '청산 전용 Reduce Only' : '신규 진입 또는 포지션 추가'}
+                  </div>
+                  <div className="mt-2 text-[9px] text-slate-400">
+                    앱은 기본적으로 One-way 호환 주문을 전송합니다. Hedge Mode 전용 LONG/SHORT 슬롯 주문은 별도 고급 옵션으로 분리하는 편이 안전합니다.
+                  </div>
+                </div>
               )}
 
               {/* 주문 제출 폼 */}
@@ -1864,7 +1983,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                       </button>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-1 bg-[#070b19] p-0.5 rounded border border-[#1f2945]">
+                    <div className="grid grid-cols-3 gap-1 bg-[#070b19] p-0.5 rounded border border-[#1f2945]">
                       <button
                         type="button"
                         onClick={() => handleExchangeChange('COINONE', 'REAL')}
@@ -1877,7 +1996,14 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                         onClick={() => handleExchangeChange('BINANCE', 'REAL')}
                         className={`text-[10px] font-bold py-1.5 rounded transition-all cursor-pointer ${exchange === 'BINANCE' ? 'bg-[#1b253b] text-cyan-400 border border-cyan-900/60' : 'text-slate-400 hover:text-white'}`}
                       >
-                        바이낸스
+                        바이낸스 현물
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleExchangeChange('BINANCE_UM_FUTURES', 'MOCK')}
+                        className={`text-[10px] font-bold py-1.5 rounded transition-all cursor-pointer ${exchange === 'BINANCE_UM_FUTURES' ? 'bg-[#1b253b] text-cyan-400 border border-cyan-900/60' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        선물 모의
                       </button>
                     </div>
                   )}
@@ -1910,6 +2036,42 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                         <span>금액 산정 기준</span>
                         <span className="text-white">{orderPrecheck.price_source}</span>
                       </div>
+                      {exchange === 'BINANCE_UM_FUTURES' && orderPrecheck.futures_options && (
+                        <>
+                          <div className="flex justify-between text-slate-300">
+                            <span>선물 옵션</span>
+                            <span className="text-white">
+                              {currentFuturesIntent.label} · {orderPrecheck.futures_options.margin_type} · {orderPrecheck.futures_options.leverage}x
+                            </span>
+                          </div>
+                          {orderPrecheck.futures_options.max_leverage && (
+                            <div className="flex justify-between text-slate-300">
+                              <span>심볼 최대 레버리지</span>
+                              <span className="text-white">{orderPrecheck.futures_options.max_leverage}x</span>
+                            </div>
+                          )}
+                          {orderPrecheck.futures_options.position_mode && (
+                            <div className="flex justify-between text-slate-300">
+                              <span>계정 포지션 모드</span>
+                              <span className="text-white">
+                                {orderPrecheck.futures_options.position_mode === 'HEDGE' ? 'Hedge Mode' : 'One-way Mode'}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex justify-between text-slate-300">
+                            <span>명목 주문금액</span>
+                            <span className="text-white">
+                              {getCurrencySign()}{Number(orderPrecheck.estimated_amount || 0).toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-slate-300">
+                            <span>예상 필요 증거금</span>
+                            <span className="text-white">
+                              {getCurrencySign()}{Number(orderPrecheck.required_margin || 0).toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
+                            </span>
+                          </div>
+                        </>
+                      )}
                       {orderPrecheck.available_cash != null && (
                         <div className="flex justify-between text-slate-300">
                           <span>주문 가능 현금</span>
@@ -1943,7 +2105,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                 </div>
 
                 {/* 5. 자동 감시 조건 체크박스 */}
-                {side === 'BUY' && (
+                {!isFuturesOrder && side === 'BUY' && (
                   <div className="border-t border-[#1f2945] pt-3 mt-1 flex flex-col gap-2.5">
                     <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer select-none">
                       <input
@@ -2009,9 +2171,19 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                 <button
                   type="submit"
                   disabled={submitting || precheckLoading || isOrderBlocked}
-                  className={`w-full py-2.5 rounded font-black text-[#070b19] text-xs tracking-wider transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50 ${side === 'BUY' ? 'bg-[#ef4444] text-white hover:bg-red-600' : 'bg-[#3b82f6] text-white hover:bg-blue-600'}`}
+                  className={`w-full py-2.5 rounded font-black text-[#070b19] text-xs tracking-wider transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50 ${
+                    isFuturesOrder
+                      ? currentFuturesIntent.tone === 'red'
+                        ? 'bg-[#ef4444] text-white hover:bg-red-600'
+                        : currentFuturesIntent.tone === 'blue'
+                          ? 'bg-[#3b82f6] text-white hover:bg-blue-600'
+                          : 'bg-slate-600 text-white hover:bg-slate-500'
+                      : side === 'BUY'
+                        ? 'bg-[#ef4444] text-white hover:bg-red-600'
+                        : 'bg-[#3b82f6] text-white hover:bg-blue-600'
+                  }`}
                 >
-                  {submitting ? '주문 전송 중...' : `${side === 'BUY' ? '구매' : '판매'}하기`}
+                  {submitting ? '주문 전송 중...' : `${isFuturesOrder ? currentFuturesIntent.label : side === 'BUY' ? '구매' : '판매'}하기`}
                 </button>
               </form>
             </div>
@@ -2023,28 +2195,39 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                 <span className="text-xs font-bold text-white">내 보유 현황</span>
               </div>
 
-              {myHolding && myHolding.qty > 0 ? (
+              {myHolding && myHoldingAbsQty > 0 ? (
                 <div className="flex flex-col gap-2.5 text-xs">
+                  {exchange === 'BINANCE_UM_FUTURES' && (
+                    <div className="flex justify-between border-b border-[#1f2945]/30 py-1">
+                      <span className="text-slate-400">포지션 방향</span>
+                      <span className={myHoldingDirection === 'SHORT' ? 'font-bold text-[#3b82f6]' : 'font-bold text-[#ef4444]'}>
+                        {myHoldingDirection === 'SHORT' ? '숏' : '롱'}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between border-b border-[#1f2945]/30 py-1">
                     <span className="text-slate-400">보유 수량</span>
-                    <span className="text-white font-bold">{myHolding.qty.toLocaleString()} 주</span>
+                    <span className="text-white font-bold">{myHoldingAbsQty.toLocaleString()} {exchange === 'BINANCE_UM_FUTURES' ? '계약' : '주'}</span>
                   </div>
                   <div className="flex justify-between border-b border-[#1f2945]/30 py-1">
                     <span className="text-slate-400">평균 단가</span>
                     <span className="text-white font-bold">
-                      {getCurrencySign()}{myHolding.avg_price.toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
+                      {getCurrencySign()}{Number(myHolding.avg_price || 0).toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
+                      {exchange === 'BINANCE_UM_FUTURES' && myHolding.avg_price_source === 'ACCOUNT_FALLBACK' && (
+                        <span className="ml-1 text-[9px] text-amber-300">추정</span>
+                      )}
                     </span>
                   </div>
                   <div className="flex justify-between border-b border-[#1f2945]/30 py-1">
                     <span className="text-slate-400">현재 평가금</span>
                     <span className="text-white font-bold">
-                      {getCurrencySign()}{(myHolding.current_price * myHolding.qty).toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
+                      {getCurrencySign()}{myHoldingEvalAmount.toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}
                     </span>
                   </div>
                   <div className="flex justify-between py-1 font-bold">
                     <span className="text-slate-400">평가 손익</span>
-                    <span className={myHolding.profit >= 0 ? 'text-[#ef4444]' : 'text-[#3b82f6]'}>
-                      {myHolding.profit >= 0 ? '+' : ''}{myHolding.profit.toLocaleString()} ({myHolding.profit_rate.toFixed(2)}%)
+                    <span className={Number(myHolding.profit || 0) >= 0 ? 'text-[#ef4444]' : 'text-[#3b82f6]'}>
+                      {Number(myHolding.profit || 0) >= 0 ? '+' : ''}{Number(myHolding.profit || 0).toLocaleString()} ({Number(myHolding.profit_rate || 0).toFixed(2)}%)
                     </span>
                   </div>
                 </div>

@@ -2,6 +2,7 @@ import requests
 from datetime import datetime
 from flask import Blueprint, request, jsonify, current_app
 from backend.services.symbol_metadata import SYMBOL_METADATA
+from backend.services.error_message_service import format_error_payload
 
 news_bp = Blueprint("news", __name__)
 
@@ -80,15 +81,9 @@ def get_news_feed():
             }
         })
     except requests.exceptions.HTTPError as e:
-        return jsonify({
-            "success": False,
-            "message": f"News provider error: {str(e)}"
-        }), 502
+        return jsonify(format_error_payload(e, "뉴스 제공자 호출 실패")), 502
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": f"Failed to retrieve news feed: {str(e)}"
-        }), 500
+        return jsonify(format_error_payload(e, "뉴스 피드 조회 실패")), 500
 
 @news_bp.route("/api/news/sync", methods=["POST"])
 def sync_news_feed():
@@ -112,10 +107,7 @@ def sync_news_feed():
             "data": result,
         })
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": f"Failed to sync news feed: {str(e)}"
-        }), 500
+        return jsonify(format_error_payload(e, "뉴스 수집 실패")), 500
 
 @news_bp.route("/api/news/summaries/ensure", methods=["POST"])
 def ensure_news_summaries():

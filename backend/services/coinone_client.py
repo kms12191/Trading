@@ -71,7 +71,7 @@ class CoinoneClient:
 
         data = res.json()
         if data.get("result") != "success":
-            err_code = data.get("errorCode", "알 수 없음")
+            err_code = data.get("error_code") or data.get("errorCode") or "알 수 없음"
             raise Exception(f"코인원 API 에러 응답 (코드 {err_code}): {data}")
         return data
 
@@ -281,5 +281,46 @@ class CoinoneClient:
         return {
             "order_id": order_id,
             "status": "CANCELED",
+            "raw": data,
+        }
+
+    def withdraw_coin(
+        self,
+        currency: str,
+        amount: float | str,
+        address: str,
+        secondary_address: str | None = None,
+    ) -> dict:
+        """
+        코인원에 사전 등록 및 2차 인증이 완료된 주소로 가상자산 출금을 요청합니다.
+        """
+        normalized_currency = self._normalize_symbol(currency)
+        if not normalized_currency:
+            raise ValueError("출금 가상자산 심볼이 필요합니다.")
+        if amount is None or float(amount) <= 0:
+            raise ValueError("출금 수량은 0보다 커야 합니다.")
+        if not str(address or "").strip():
+            raise ValueError("출금 주소가 필요합니다.")
+
+        payload = {
+            "currency": normalized_currency,
+            "amount": str(amount),
+            "address": str(address).strip(),
+        }
+        if secondary_address is not None and str(secondary_address).strip():
+            payload["secondary_address"] = str(secondary_address).strip()
+
+        data = self._private_post("/v2.1/transaction/coin/withdrawal", payload)
+        transaction = data.get("transaction") if isinstance(data.get("transaction"), dict) else {}
+        transaction_id = transaction.get("id") or data.get("id")
+        status = transaction.get("status") or data.get("status") or "WITHDRAWAL_REGISTER"
+
+        return {
+            "transaction_id": transaction_id,
+            "status": status,
+            "currency": transaction.get("currency") or normalized_currency,
+            "amount": transaction.get("amount") or str(amount),
+            "address": transaction.get("address") or str(address).strip(),
+            "secondary_address": transaction.get("secondary_address") or secondary_address,
             "raw": data,
         }

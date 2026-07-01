@@ -12,6 +12,7 @@ from backend.services.supabase_client import (
 from backend.services.ml_job_service import create_job, list_jobs, run_ml_pipeline, update_job, run_ml_tuning
 from backend.services.ml_automation_service import list_automation_presets, resolve_automation_preset
 from backend.services.ml_registry_service import list_model_registry, set_serving_model
+from backend.services.error_message_service import format_error_payload
 from backend.services.ml_model_service import (
     build_active_signal_payload,
     build_dataset_quality_report,
@@ -189,10 +190,7 @@ def export_ml_candles():
             )
             if failed_job:
                 sync_dataset_job_to_supabase(auth_header, failed_job)
-        return jsonify({
-            "success": False,
-            "message": f"학습용 캔들 CSV 생성 실패: {str(e)}"
-        }), 500
+        return jsonify(format_error_payload(e, "학습용 캔들 CSV 생성 실패")), 500
 
 @ml_bp.route("/api/ml/jobs", methods=["GET"])
 def get_ml_jobs():
@@ -302,10 +300,7 @@ def run_ml_training_job():
             }
         }), status_code
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": f"ML 학습 작업 실행 실패: {str(e)}"
-        }), 500
+        return jsonify(format_error_payload(e, "ML 학습 작업 실행 실패")), 500
 
 @ml_bp.route("/api/ml/jobs/tune", methods=["POST"])
 def run_ml_tuning_job():
@@ -366,10 +361,7 @@ def run_ml_tuning_job():
             }
         }), status_code
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": f"ML 튜닝 작업 실행 실패: {str(e)}"
-        }), 500
+        return jsonify(format_error_payload(e, "ML 튜닝 작업 실행 실패")), 500
 
 @ml_bp.route("/api/ml/automation/presets", methods=["GET"])
 def get_ml_automation_presets():
@@ -594,10 +586,7 @@ def run_ml_full_pipeline_job():
             )
             if failed_train_job:
                 sync_training_job_to_supabase(auth_header, failed_train_job)
-        return jsonify({
-            "success": False,
-            "message": f"자동 수집+학습 실행 실패: {str(e)}"
-        }), 500
+        return jsonify(format_error_payload(e, "자동 수집+학습 실행 실패")), 500
 
 @ml_bp.route("/api/ml/model-results", methods=["GET"])
 def get_ml_model_results():

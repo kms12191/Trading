@@ -7,9 +7,10 @@ import WatchlistTab from './WatchlistTab.jsx'
 import AssetsTab from './AssetsTab.jsx'
 import TradeHistoryTab from './TradeHistoryTab.jsx'
 import AdminMlData from './AdminMlData.jsx'
+import { getApiErrorMessage } from '../lib/apiError.js'
 
 const DASHBOARD_API_BASE_URL = 'http://localhost:5050'
-const BALANCE_EXCHANGE_ORDER = ['TOSS', 'KIS', 'COINONE', 'BINANCE']
+const BALANCE_EXCHANGE_ORDER = ['TOSS', 'KIS', 'COINONE', 'BINANCE', 'BINANCE_UM_FUTURES']
 const TRADE_PROPOSAL_HOLDING_FIELDS = 'id,exchange,asset_type,ticker,symbol,side,price,volume,order_amount,market_country,currency,status,broker_env,created_at'
 
 const toNumber = (value) => {
@@ -72,6 +73,7 @@ const getAccountTone = (exchange = '') => {
   if (normalized.includes('TOSS')) return 'border-cyan-500/30 bg-cyan-950/20'
   if (normalized.includes('KIS')) return 'border-blue-500/30 bg-blue-950/20'
   if (normalized.includes('COINONE')) return 'border-amber-500/30 bg-amber-950/20'
+  if (normalized.includes('BINANCE_UM_FUTURES')) return 'border-cyan-500/30 bg-cyan-950/20'
   if (normalized.includes('BINANCE')) return 'border-emerald-500/30 bg-emerald-950/20'
   return 'border-slate-700/80 bg-slate-900/70'
 }
@@ -223,7 +225,7 @@ const getHoldingEvaluationKrw = (holding = {}, exchangeRate = 1500) => {
   const rate = toNumber(exchangeRate) || 1500
   const rawValue = toNumber(holding.eval_amount) > 0
     ? toNumber(holding.eval_amount)
-    : toNumber(holding.current_price) * toNumber(holding.qty)
+    : toNumber(holding.current_price) * Math.abs(toNumber(holding.qty))
 
   return currency === 'USD' || currency === 'USDT' ? rawValue * rate : rawValue
 }
@@ -304,6 +306,7 @@ const mergeAccountBalances = (items, showMockAssets = true) => {
     return (item.holdings || []).map((holding) => ({
       ...holding,
       exchange: holding.exchange || exchange,
+      raw_exchange: holding.raw_exchange || item.raw_exchange || exchange,
       account_type: holding.account_type || exchange,
       env: item.env || 'REAL',
     }))
@@ -329,10 +332,11 @@ const getHoldingIdentity = (holding = {}) => {
   const rawExchange = exchangeText.includes('KIS') ? 'KIS'
     : exchangeText.includes('TOSS') ? 'TOSS'
       : exchangeText.includes('COINONE') ? 'COINONE'
-        : exchangeText.includes('BINANCE') ? 'BINANCE'
-          : exchangeText
+        : exchangeText.includes('BINANCE_UM_FUTURES') ? 'BINANCE_UM_FUTURES'
+          : exchangeText.includes('BINANCE') ? 'BINANCE'
+            : exchangeText
   const env = String(holding.env || (exchangeText.includes('모의') ? 'MOCK' : exchangeText.includes('실전') ? 'REAL' : 'REAL')).toUpperCase()
-  const assetType = String(holding.asset_type || (['COINONE', 'BINANCE'].includes(rawExchange) ? 'CRYPTO' : 'STOCK')).toUpperCase()
+  const assetType = String(holding.asset_type || (['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(rawExchange) ? 'CRYPTO' : 'STOCK')).toUpperCase()
   return symbol ? `${assetType}:${rawExchange}:${env}:${symbol}` : ''
 }
 
@@ -378,7 +382,7 @@ const buildEstimatedHoldingsFromTrades = (tradeRows = [], liveHoldings = [], sho
     if (!symbol) return
 
     const exchange = String(row.exchange || '').toUpperCase()
-    const assetType = String(row.asset_type || (['COINONE', 'BINANCE'].includes(exchange) ? 'CRYPTO' : 'STOCK')).toUpperCase()
+    const assetType = String(row.asset_type || (['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(exchange) ? 'CRYPTO' : 'STOCK')).toUpperCase()
     const key = `${assetType}:${exchange}:${env}:${symbol}`
     const side = String(row.side || '').toUpperCase()
     const price = toNumber(row.price)
@@ -393,7 +397,7 @@ const buildEstimatedHoldingsFromTrades = (tradeRows = [], liveHoldings = [], sho
       raw_exchange: exchange || '-',
       account_type: exchange ? `${exchange} ${env === 'MOCK' ? '모의' : '실전'}` : '-',
       env,
-      currency: row.currency || (exchange === 'BINANCE' ? 'USD' : 'KRW'),
+      currency: row.currency || (['BINANCE', 'BINANCE_UM_FUTURES'].includes(exchange) ? 'USD' : 'KRW'),
       qty: 0,
       buyQty: 0,
       buyAmount: 0,
@@ -448,6 +452,12 @@ const getBalanceRequestLabel = (exchange, env) => {
   if (exchange === 'KIS') {
     return `KIS ${env === 'REAL' ? '실전' : '모의'}`
   }
+  if (exchange === 'BINANCE') {
+    return `BINANCE 현물 ${env === 'REAL' ? '실거래' : '모의'}`
+  }
+  if (exchange === 'BINANCE_UM_FUTURES') {
+    return `BINANCE 선물 ${env === 'REAL' ? '실거래' : '모의'}`
+  }
 
   return exchange
 }
@@ -464,7 +474,8 @@ const getBalanceAccountLabel = (exchange, env, account = {}) => {
 
 const buildBalanceRequests = (keyStatus) =>
   BALANCE_EXCHANGE_ORDER.flatMap((exchange) => {
-    const status = keyStatus[exchange]
+    const statusExchange = exchange === 'BINANCE_UM_FUTURES' ? 'BINANCE' : exchange
+    const status = keyStatus[statusExchange]
     if (!status?.registered) return []
 
     const accounts = Array.isArray(status.accounts) && status.accounts.length > 0
@@ -556,10 +567,12 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
         setEncrypted(resData.data.encrypted)
         setBalance(resData.data.balance)
       } else {
-        setMessage({ text: resData.message || 'Key validation failed.', isError: true })
+        const message = getApiErrorMessage(resData, 'Key validation failed.')
+        setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
       }
     } catch (error) {
-      setMessage({ text: `Failed to connect to backend server: ${error.message}`, isError: true })
+      const message = getApiErrorMessage(error, 'Failed to connect to backend server.')
+      setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
     } finally {
       setLoading(false)
     }
@@ -590,7 +603,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
       const statusPayload = await statusResponse.json()
 
       if (!statusResponse.ok || !statusPayload.success) {
-        throw new Error(statusPayload.message || '계정 API 연동 상태를 불러오지 못했습니다.')
+        throw statusPayload
       }
 
       const keyStatus = statusPayload.data || {}
@@ -616,19 +629,21 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
             const payload = await response.json()
 
             if (!response.ok || !payload.success) {
+              const message = getApiErrorMessage(payload, `${exchange} 잔고 조회 실패`)
               return {
                 exchange: label,
                 env,
-                error: payload.message || `${exchange} 잔고 조회 실패`,
+                error: message.detail ? `${message.title} ${message.detail}` : message.title,
               }
             }
 
             return { ...payload.data, exchange: label, raw_exchange: exchange, env }
           } catch (error) {
+            const message = getApiErrorMessage(error, `${exchange} 잔고 조회 실패`)
             return {
               exchange: label,
               env,
-              error: error.message || `${exchange} 잔고 조회 실패`,
+              error: message.detail ? `${message.title} ${message.detail}` : message.title,
             }
           }
         }),
@@ -707,8 +722,9 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
         setBalanceError(`일부 계정 조회 실패: ${failedResults.map((item) => item.exchange).join(', ')}`)
       }
     } catch (error) {
+      const message = getApiErrorMessage(error, '계정 자산 조회에 실패했습니다.')
       setBalance(null)
-      setBalanceError(`계정 자산 조회 실패: ${error.message}`)
+      setBalanceError(message.detail ? `${message.title} ${message.detail}` : message.title)
     } finally {
       setBalanceLoading(false)
     }

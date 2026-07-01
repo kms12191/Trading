@@ -44,7 +44,7 @@ erDiagram
 *   **주요 컬럼**:
     *   `id` (UUID, PK)
     *   `user_id` (UUID, FK) - `profiles.id` 참조
-    *   `exchange` (TEXT) - `TOSS`, `COINONE`, `BINANCE`, `KIS` 등 허용
+    *   `exchange` (TEXT) - `TOSS`, `COINONE`, `BINANCE`, `KIS` 등 허용. 바이낸스 USD-M 선물도 별도 키 레코드를 만들지 않고 `BINANCE` 키를 재사용합니다.
     *   `broker_env` (TEXT) - `MOCK`(모의투자), `REAL`(실거래)
     *   `encrypted_access_key` (TEXT) - 암호화된 API Key / Client ID
     *   `encrypted_secret_key` (TEXT) - 암호화된 Secret Key / Client Secret
@@ -63,7 +63,7 @@ erDiagram
 *   **주요 컬럼**:
     *   `id` (UUID, PK)
     *   `user_id` (UUID, FK) - `profiles.id` 참조
-    *   `exchange` (TEXT) - `TOSS`, `COINONE`, `BINANCE`, `KIS` 등
+    *   `exchange` (TEXT) - `TOSS`, `COINONE`, `BINANCE`, `BINANCE_UM_FUTURES`, `KIS` 등. `BINANCE_UM_FUTURES`는 주문/이력 식별값이며 인증 키는 `user_api_keys.exchange=BINANCE`를 사용합니다.
     *   `asset_type` (TEXT) - `STOCK`(주식), `CRYPTO`(가상자산)
     *   `symbol` (TEXT) - 종목 코드 (예: 6자리 코드 또는 코인 식별명)
     *   `ticker` (TEXT) - KIS/Toss용 티커
@@ -87,6 +87,8 @@ erDiagram
 *   **현재 구현 메모**:
     *   `COINONE` 실주문은 백엔드 `trade` 라우트에서 지정가(`LIMIT`) 매수/매도와 미체결 주문 취소까지 연결되어 있습니다.
     *   `COINONE` 시장가(`MARKET`) 주문은 API 정책 검증 전까지 프론트엔드와 백엔드에서 차단합니다.
+    *   `BINANCE` 현물 주문은 `REAL`과 `MOCK` 환경을 분리해 지원합니다. `MOCK`은 Binance Spot Demo API를 사용하며 실제 입출금성 API는 호출하지 않습니다.
+    *   `BINANCE_UM_FUTURES`는 USD-M 선물 계좌/포지션 조회와 `MOCK` 주문을 지원합니다. 인증 키는 `BINANCE` 레코드를 재사용하며, 주문 전 레버리지(`1~125x`)와 마진 타입(`CROSSED`/`ISOLATED`)을 심볼 단위로 설정한 뒤 주문을 전송합니다. `REAL` 선물 주문은 `BINANCE_FUTURES_REAL_ENABLED=true` 환경변수 없이는 백엔드에서 차단합니다.
 
 ### 2.4 auto_trading_rules
 *   **용도**: 사용자가 자연어로 설정하거나 명시적으로 승인한 감시 조건식(익절 %, 손절 % 등)을 보관하는 테이블.
@@ -112,7 +114,7 @@ erDiagram
 *   **주요 컬럼**:
     *   `id` (UUID, PK)
     *   `user_id` (UUID, FK) - `profiles.id` 참조
-    *   `exchange` (TEXT) - `TOSS`, `KIS`, `COINONE`, `BINANCE`
+    *   `exchange` (TEXT) - `TOSS`, `KIS`, `COINONE`, `BINANCE`, `BINANCE_UM_FUTURES`
     *   `broker_env` (TEXT) - `MOCK`, `REAL`
     *   `account_ref` (TEXT) - 브로커 계좌 식별값
     *   `external_order_id` (TEXT) - 거래소 원주문번호
@@ -147,6 +149,30 @@ erDiagram
 *   **RLS & Realtime**:
     *   `auth.uid() = user_id` 조건으로 사용자별 원장만 조회/관리 가능
     *   Supabase Realtime publication에 포함되어 거래내역 탭에서 즉시 반영 가능
+
+### 2.4.2 asset_transfer_proposals
+*   **용도**: 코인원에서 바이낸스로 이동하는 가상자산 출금 요청의 사전검증, 사용자 승인, 외부 거래소 응답, 바이낸스 입금 확인 상태를 추적합니다.
+*   **주요 컬럼**:
+    *   `id` (UUID, PK)
+    *   `user_id` (UUID, FK) - `profiles.id` 참조
+    *   `from_exchange` (TEXT) - 현재 `COINONE`
+    *   `to_exchange` (TEXT) - 현재 `BINANCE`
+    *   `currency` (TEXT) - 출금 코인 심볼
+    *   `network` (TEXT) - 바이낸스 입금 네트워크
+    *   `amount` (NUMERIC) - 출금 수량
+    *   `address` (TEXT) - 바이낸스 입금 주소
+    *   `secondary_address` (TEXT) - XRP/XLM/EOS Destination Tag 또는 Memo
+    *   `status` (TEXT) - `PENDING`, `APPROVED`, `SUBMITTED`, `COMPLETED`, `FAILED`, `NEEDS_REVIEW` 등
+    *   `external_transaction_id` (TEXT) - 코인원 출금 거래 식별 ID
+    *   `raw_request` / `precheck_payload` / `raw_response` / `binance_deposit_payload` (JSONB)
+    *   `failure_reason` (TEXT)
+    *   `approved_at`, `submitted_at`, `completed_at`, `created_at`, `updated_at` (TIMESTAMPTZ)
+*   **RLS & Realtime**:
+    *   `auth.uid() = user_id` 조건으로 사용자별 출금 요청만 조회/관리 가능
+    *   Supabase Realtime publication에 포함되어 상태 추적 UI에 즉시 반영 가능
+*   **현재 구현 메모**:
+    *   실제 출금 API는 `/api/transfer/withdraw/approve`에서만 호출됩니다.
+    *   승인 단계에서 바이낸스 API 조회 입금 주소 및 Tag와 입력값이 다르면 출금을 차단합니다.
 
 ### 2.5 news_articles
 *   **용도**: 실시간 수집된 뉴스 및 종목 키워드, 그리고 AI 요약(Sentiment, Summary) 정보를 적재하여 RAG 챗봇 및 종목 상세 뉴스에 데이터를 급지함.
@@ -188,7 +214,7 @@ erDiagram
     *   `user_id` (UUID, FK) - `profiles.id` 참조
     *   `symbol` (TEXT) - 관심 종목 코드
     *   `name` (TEXT) - 종목 한글 표시명
-    *   `exchange` (TEXT) - `TOSS`, `COINONE`, `BINANCE`, `KIS` 등
+    *   `exchange` (TEXT) - `TOSS`, `COINONE`, `BINANCE`, `BINANCE_UM_FUTURES`, `KIS` 등. 바이낸스 선물 주문 이력은 `BINANCE_UM_FUTURES`로 남기되 키 저장은 `BINANCE`를 사용합니다.
     *   `asset_type` (TEXT) - `STOCK` 또는 `CRYPTO`
     *   `latest_price` (NUMERIC) - 최종 조회 시세 캐시
     *   `change_rate` (NUMERIC) - 당일 변동률

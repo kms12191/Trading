@@ -6,9 +6,11 @@ from backend.services.keys_service import classify_error
 from backend.services.toss_client import TossClient
 from backend.services.kis_client import KISClient
 from backend.services.coinone_client import CoinoneClient
-from backend.services.binance_client import BinanceClient
+from backend.services.binance_client import BinanceClient, BinanceFuturesClient
+from backend.services.error_message_service import format_error_payload
 
 keys_bp = Blueprint("keys", __name__)
+SUPPORTED_EXCHANGES = ("TOSS", "KIS", "COINONE", "BINANCE", "BINANCE_UM_FUTURES")
 
 @keys_bp.route("/api/keys/status", methods=["GET"])
 def get_keys_status():
@@ -32,6 +34,8 @@ def get_keys_status():
         crypto_helper = current_app.crypto
         for record in records:
             ex = str(record.get("exchange") or "").upper()
+            if ex == "BINANCE_UM_FUTURES":
+                ex = "BINANCE"
             if ex not in result:
                 continue
                 
@@ -74,7 +78,7 @@ def get_keys_status():
             
         return jsonify({"success": True, "data": result})
     except Exception as e:
-        return jsonify({"success": False, "message": f"API Key 현황 조회 실패: {str(e)}"}), 500
+        return jsonify(format_error_payload(e, "API Key 현황 조회 실패")), 500
 
 @keys_bp.route("/api/keys/save", methods=["POST"])
 def save_api_keys():
@@ -87,12 +91,14 @@ def save_api_keys():
     exchange = data.get("exchange")
     broker_env = data.get("broker_env", "REAL")
 
-    if not exchange or exchange not in ("TOSS", "KIS", "COINONE", "BINANCE"):
+    if not exchange or exchange not in SUPPORTED_EXCHANGES:
         return jsonify({"success": False, "message": "올바르지 않은 exchange 구분값입니다."}), 400
+    # USD-M 선물도 바이낸스 API Key 권한으로 접근하므로 별도 키 레코드를 만들지 않습니다.
+    storage_exchange = "BINANCE" if exchange == "BINANCE_UM_FUTURES" else exchange
 
     try:
         db_data = {
-            "exchange": exchange,
+            "exchange": storage_exchange,
             "broker_env": broker_env
         }
 
@@ -136,7 +142,7 @@ def save_api_keys():
             db_data["encrypted_access_key"] = crypto_helper.encrypt(access_token)
             db_data["encrypted_secret_key"] = crypto_helper.encrypt(secret_key)
 
-        elif exchange == "BINANCE":
+        elif storage_exchange == "BINANCE":
             api_key = data.get("api_key")
             secret_key = data.get("secret_key")
 
@@ -147,9 +153,9 @@ def save_api_keys():
             db_data["encrypted_secret_key"] = crypto_helper.encrypt(secret_key)
 
         upsert_user_api_key(auth_header, db_data)
-        return jsonify({"success": True, "message": f"{exchange} API Key가 안전하게 저장되었습니다."})
+        return jsonify({"success": True, "message": f"{storage_exchange} API Key가 안전하게 저장되었습니다."})
     except Exception as e:
-        return jsonify({"success": False, "message": f"API Key 저장 실패: {str(e)}"}), 500
+        return jsonify(format_error_payload(e, "API Key 저장 실패", exchange=exchange)), 500
 
 @keys_bp.route("/api/keys/toss/accounts", methods=["POST"])
 def get_toss_accounts():
@@ -188,14 +194,14 @@ def get_toss_accounts():
             client_id = crypto_helper.decrypt(records[0].get("encrypted_access_key"))
             client_secret = crypto_helper.decrypt(records[0].get("encrypted_secret_key"))
         except Exception as e:
-            return jsonify({"success": False, "message": f"DB 조회 실패: {str(e)}"}), 500
+            return jsonify(format_error_payload(e, "DB 조회 실패")), 500
 
     try:
         client = TossClient(client_id=client_id, client_secret=client_secret, env=broker_env, user_id=user_id)
         accounts = client.get_accounts()
         return jsonify({"success": True, "data": accounts})
     except Exception as e:
-        return jsonify({"success": False, "message": f"Toss 계좌 조회 실패: {str(e)}"}), 500
+        return jsonify(format_error_payload(e, "Toss 계좌 조회 실패", exchange="TOSS")), 500
 
 @keys_bp.route("/api/keys/test", methods=["POST"])
 def test_keys():
@@ -237,14 +243,15 @@ def test_keys():
         try:
             # user_id가 이미 선언되어 있으므로 재할당
             token = auth_header.split(" ")[1] if " " in auth_header else auth_header
+            credential_exchange = "BINANCE" if exchange == "BINANCE_UM_FUTURES" else exchange
             params = {
                 "user_id": f"eq.{user_id}",
-                "exchange": f"eq.{exchange}",
+                "exchange": f"eq.{credential_exchange}",
                 "broker_env": f"eq.{broker_env}"
             }
             records = query_supabase(auth_header, "user_api_keys", "GET", params=params)
             if not records or len(records) == 0:
-                return jsonify({"success": False, "message": f"저장된 {exchange} API 크리덴셜 정보가 없습니다."}), 400
+                return jsonify({"success": False, "message": f"저장된 {credential_exchange} ({broker_env}) API 크리덴셜 정보가 없습니다."}), 400
             
             record = records[0]
             client_id = crypto_helper.decrypt(record.get("encrypted_access_key"))
@@ -255,7 +262,7 @@ def test_keys():
             elif exchange == "TOSS":
                 toss_account_seq = record.get("toss_account_seq")
         except Exception as e:
-            return jsonify({"success": False, "message": f"DB에서 인증정보 로드 실패: {str(e)}"}), 500
+            return jsonify(format_error_payload(e, "DB에서 인증정보 로드 실패", exchange=exchange)), 500
 
     try:
         if exchange == "TOSS":
@@ -273,9 +280,13 @@ def test_keys():
             client.get_balance()
             message = "코인원 API 연결에 성공했습니다."
         elif exchange == "BINANCE":
-            client = BinanceClient(api_key=client_id, secret_key=client_secret)
+            client = BinanceClient(api_key=client_id, secret_key=client_secret, env=broker_env)
             client.get_balance()
-            message = "바이낸스 API 연결에 성공했습니다."
+            message = f"바이낸스 API 연결에 성공했습니다. ({broker_env})"
+        elif exchange == "BINANCE_UM_FUTURES":
+            client = BinanceFuturesClient(api_key=client_id, secret_key=client_secret, env=broker_env)
+            client.get_balance()
+            message = f"바이낸스 USD-M 선물 API 연결에 성공했습니다. ({broker_env})"
         else:
             return jsonify({"success": False, "message": f"지원하지 않는 브로커: {exchange}"}), 400
 
@@ -285,8 +296,6 @@ def test_keys():
         })
     except Exception as e:
         error_type = classify_error(exchange, e)
-        return jsonify({
-            "success": False,
-            "error_type": error_type,
-            "message": f"연결 테스트 실패: {str(e)}"
-        }), 500
+        payload = format_error_payload(e, "연결 테스트 실패", exchange=exchange)
+        payload["error_type"] = error_type
+        return jsonify(payload), 500
