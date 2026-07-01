@@ -214,11 +214,13 @@ class CoinoneClient:
         payload = {
             "quote_currency": "KRW",
             "target_currency": target_currency,
-            "type": side_upper,
+            "type": "LIMIT",
+            "side": side_upper,
             "price": str(price),
             "qty": str(qty),
+            "post_only": False,
         }
-        data = self._private_post("/v2.1/order/limit", payload)
+        data = self._private_post("/v2.1/order", payload)
         order_payload = data.get("order") if isinstance(data.get("order"), dict) else {}
         order_id = (
             data.get("order_id")
