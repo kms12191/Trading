@@ -497,7 +497,7 @@ def resolve_kis_credentials(data: dict) -> dict:
     }
 
 
-def fetch_toss_price(symbol: str) -> dict:
+def fetch_toss_price(symbol: str, user_id: str | None = None) -> dict:
     toss = get_toss_env_credentials()
     if not (toss["client_id"] and toss["client_secret"]):
         raise Exception("TOSS_API_KEY 또는 TOSS_SECRET_KEY가 설정되지 않았습니다.")
@@ -506,11 +506,12 @@ def fetch_toss_price(symbol: str) -> dict:
         client_id=toss["client_id"],
         client_secret=toss["client_secret"],
         env="REAL",
+        user_id=user_id,
     )
     return client.get_price(symbol)
 
 
-def enrich_stock_rows_with_toss(rows: list[dict]) -> list[dict]:
+def enrich_stock_rows_with_toss(rows: list[dict], user_id: str | None = None) -> list[dict]:
     enriched_rows = []
 
     for row in rows or []:
@@ -526,7 +527,7 @@ def enrich_stock_rows_with_toss(rows: list[dict]) -> list[dict]:
 
         if symbol:
             try:
-                quote = fetch_toss_price(symbol)
+                quote = fetch_toss_price(symbol, user_id)
                 current_price = to_float(quote.get("current_price"))
                 prev_close = to_float(quote.get("previous_close"))
                 change_rate = to_float(quote.get("change_rate"))
@@ -603,7 +604,7 @@ def build_home_overview(data: dict, auth_header: str | None = None) -> dict:
             horizon=filters.get("horizon", "실시간"),
             force_refresh=bool(filters.get("forceRefresh") or data.get("forceRefresh")),
         )
-        result["stocks"] = enrich_stock_rows_with_toss(stock_rows)
+        result["stocks"] = enrich_stock_rows_with_toss(stock_rows, user_id=user_id)
         result["market_snapshot"] = build_snapshot_meta(result["stocks"])
         if not result["stocks"]:
             empty_reason = "해외 주식 랭킹 스냅샷 데이터가 아직 없습니다." if normalize_market_segment(filters.get("region")) == "US" else "주식 거래대금 스냅샷 데이터가 아직 없습니다."
