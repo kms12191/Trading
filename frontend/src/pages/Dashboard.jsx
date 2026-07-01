@@ -121,6 +121,74 @@ const getWatchlistCurrentPrice = (item = {}) => {
   )
 }
 
+const getDashboardWatchlistAssetType = (item = {}) => {
+  const assetType = String(item.assetType || item.asset_type || '').toUpperCase()
+  const market = String(item.market || '').toUpperCase()
+  const account = String(item.account || item.exchange || '').toUpperCase()
+  return assetType === 'CRYPTO' || /COIN|CRYPTO|BINANCE|COINONE|BTC|ETH|USDT/.test(`${market} ${account}`) ? 'CRYPTO' : 'STOCK'
+}
+
+const getDashboardWatchlistChartConfig = (item = {}) => {
+  const assetType = getDashboardWatchlistAssetType(item)
+  const sourcePayload = item.sourcePayload || {}
+  const exchange = String(
+    item.exchange
+      || item.account
+      || sourcePayload.exchange
+      || (assetType === 'CRYPTO' ? 'COINONE' : 'TOSS'),
+  ).toUpperCase()
+  const brokerEnv = String(
+    sourcePayload.broker_env
+      || sourcePayload.env
+      || (exchange === 'KIS' ? 'REAL' : 'REAL'),
+  ).toUpperCase()
+
+  return {
+    exchange,
+    brokerEnv,
+    interval: assetType === 'CRYPTO' ? '1h' : '1d',
+  }
+}
+
+const fetchDashboardWatchlistCurrentPrice = async (item = {}, authHeader = '') => {
+  if (!item.id) return null
+
+  const { exchange, brokerEnv, interval } = getDashboardWatchlistChartConfig(item)
+  const params = new URLSearchParams({
+    exchange,
+    symbol: item.id,
+    interval,
+    broker_env: brokerEnv,
+    count: '1',
+  })
+  const headers = authHeader ? { Authorization: authHeader } : {}
+  const response = await fetch(`${DASHBOARD_API_BASE_URL}/api/chart/candles?${params.toString()}`, { headers })
+  const payload = await response.json()
+
+  if (!response.ok || !payload.success || !Array.isArray(payload.data) || payload.data.length === 0) {
+    return null
+  }
+
+  const latestCandle = payload.data[payload.data.length - 1]
+  return parsePriceNumber(latestCandle?.close)
+}
+
+const RefreshIcon = ({ className = '' }) => (
+  <svg
+    className={className}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+    <path d="M21 3v6h-6" />
+  </svg>
+)
+
 const formatSignedRate = (value) => {
   const numericValue = toNumber(value)
   return `${numericValue >= 0 ? '+' : ''}${numericValue.toFixed(2)}%`
@@ -665,7 +733,19 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
     setWatchlistError('')
     try {
       const items = await fetchUserWatchlist()
-      setDashboardWatchlist(items)
+      const { data: { session } } = await supabase.auth.getSession()
+      const authHeader = session?.access_token ? `Bearer ${session.access_token}` : ''
+      const itemsWithCurrentPrice = await Promise.all(
+        items.map(async (item) => {
+          try {
+            const currentPrice = await fetchDashboardWatchlistCurrentPrice(item, authHeader)
+            return currentPrice === null ? item : { ...item, currentPrice }
+          } catch {
+            return item
+          }
+        }),
+      )
+      setDashboardWatchlist(itemsWithCurrentPrice)
     } catch (error) {
       setDashboardWatchlist([])
       setWatchlistError(error.message || '관심종목을 불러오지 못했습니다.')
@@ -683,37 +763,6 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
       ))
     }
   }, [rawBalances, showMockAssets, executedTradeRows])
-
-  const refreshBalance = async () => {
-    if (!encrypted) {
-      await loadAccountBalance()
-      return
-    }
-
-    setLoading(true)
-    try {
-      const response = await fetch('http://localhost:5050/api/dashboard/balance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...encrypted,
-          env: inputs.env
-        })
-      })
-      const resData = await response.json()
-      if (resData.success) {
-        const freshData = { ...resData.data, exchange: encrypted.exchange || 'KIS', env: inputs.env }
-        setRawBalances([freshData])
-        setBalance(mergeAccountBalances([freshData], showMockAssets))
-      } else {
-        setMessage({ text: resData.message || 'Failed to refresh balance.', isError: true })
-      }
-    } catch (error) {
-      setMessage({ text: `Refresh error: ${error.message}`, isError: true })
-    } finally {
-      setLoading(false)
-    }
-  }
 
   // 자산 배분 데이터
   const getAllocationData = () => {
@@ -967,11 +1016,12 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                     <h2 className="text-sm font-bold text-white uppercase tracking-wider">관심 종목 명단 (시세 모니터링)</h2>
                     <div className="flex shrink-0 gap-2">
                       <button
-                        className="rounded border border-slate-700 px-2 py-1 text-[10px] font-bold text-slate-400 transition-all hover:border-ai-cyan hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[10px] font-bold text-slate-400 transition-all hover:border-ai-cyan hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                         type="button"
                         disabled={watchlistLoading}
                         onClick={loadDashboardWatchlist}
                       >
+                        <RefreshIcon className={`h-3 w-3 ${watchlistLoading ? 'animate-spin' : ''}`} />
                         {watchlistLoading ? '갱신 중' : '새로 고침'}
                       </button>
                       <button
@@ -1046,15 +1096,15 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                     <span />
                     보유 주식 자산 현황
                   </h2>
-                  {encrypted && (
-                    <button
-                      onClick={refreshBalance}
-                      disabled={loading}
-                      className="text-xs border border-slate-700 hover:border-slate-500 rounded px-2.5 py-1 text-slate-300 font-medium transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      {loading ? 'LOADING...' : 'REFRESH'}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={loadAccountBalance}
+                    disabled={!isLoggedIn || balanceLoading}
+                    className="inline-flex items-center gap-1 text-xs border border-slate-700 hover:border-ai-cyan hover:text-white rounded px-2.5 py-1 text-slate-300 font-medium transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RefreshIcon className={`h-3.5 w-3.5 ${balanceLoading ? 'animate-spin' : ''}`} />
+                    {balanceLoading ? '갱신 중' : '새로 고침'}
+                  </button>
                 </div>
 
                 {balance && balance.holdings.length > 0 ? (
