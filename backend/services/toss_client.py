@@ -30,12 +30,17 @@ class TossClient(ExchangeClient):
     토스증권 Open API 연동 및 연결 검증을 담당하는 클라이언트 클래스입니다.
     """
     def __init__(self, client_id: str, client_secret: str, account_seq: str = None, env: str = "MOCK", user_id: str | None = None):
+        import hashlib
         self.client_id = client_id
         self.client_secret = client_secret
         self.account_seq = account_seq
         self.env = env.upper()
         self.base_url = "https://openapi.tossinvest.com"
         self.user_id = user_id
+        if self.client_id:
+            self.credential_hash = hashlib.sha256(self.client_id.encode("utf-8")).hexdigest()
+        else:
+            self.credential_hash = None
         # 토큰 캐시 상태를 마지막 호출 결과와 함께 보관한다.
         self._last_token_cache_info = {
             "source": "token_cache_service",
@@ -205,7 +210,7 @@ class TossClient(ExchangeClient):
         """
         from backend.services.token_cache_service import clear_db_token
         try:
-            clear_db_token("TOSS", self.env, self.user_id)
+            clear_db_token("TOSS", self.env, self.user_id, self.credential_hash)
         except Exception:
             pass
         self._access_token_cache = {
@@ -241,7 +246,7 @@ class TossClient(ExchangeClient):
                 return cached_token
         
         # DB에서 유효한 공용 토큰 획득 시도
-        cache_state = get_db_token_with_status("TOSS", self.env, self.user_id)
+        cache_state = get_db_token_with_status("TOSS", self.env, self.user_id, self.credential_hash)
         self._last_token_cache_info = {
             "source": "token_cache_service",
             "cacheStatus": cache_state.get("cache_status", "MISS"),
@@ -269,7 +274,7 @@ class TossClient(ExchangeClient):
 
         # DB 캐시 테이블에 신규 토큰 저장 (Upsert)
         try:
-            set_db_token("TOSS", self.env, new_token, expires_in, self.user_id)
+            set_db_token("TOSS", self.env, new_token, expires_in, self.user_id, self.credential_hash)
         except Exception:
             pass
         self._access_token_cache = {

@@ -1141,11 +1141,12 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                       </thead>
                       <tbody className="divide-y divide-slate-800 font-mono">
                         {getSortedHoldings(balance.holdings).map((stock, index) => {
-                          const isForeign = /[a-zA-Z]/.test(stock.symbol) && !/^[0-9a-zA-Z]{6,7}$/.test(stock.symbol)
+                          const exchangeName = stock.exchange || stock.account_type || '-'
+                          const isCoinone = String(exchangeName).toUpperCase() === 'COINONE'
+                          const isForeign = /[a-zA-Z]/.test(stock.symbol) && !/^[0-9a-zA-Z]{6,7}$/.test(stock.symbol) && !isCoinone
                           const stockCurrency = stock.currency || (isForeign ? 'USD' : 'KRW')
                           const exchangeRate = balance.exchange_rate || 1380
                           const currentDisplayCurrency = isForeign ? displayCurrency : 'KRW'
-                          const exchangeName = stock.exchange || stock.account_type || '-'
                           const profitRate = Number(stock.profit_rate)
 
                           return (

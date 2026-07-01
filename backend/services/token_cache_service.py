@@ -11,7 +11,12 @@ ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "default-dev-encryption-key-32bytes
 crypto = CryptoHelper(ENCRYPTION_KEY)
 
 
-def get_db_token_with_status(exchange: str, env: str, user_id: str | None = None) -> dict:
+def get_db_token_with_status(
+    exchange: str,
+    env: str,
+    user_id: str | None = None,
+    credential_hash: str | None = None,
+) -> dict:
     """
     Returns a DB token together with cache metadata.
     """
@@ -32,8 +37,13 @@ def get_db_token_with_status(exchange: str, env: str, user_id: str | None = None
     }
     if user_id:
         params["user_id"] = f"eq.{user_id}"
+        params["credential_hash"] = "is.null"
+    elif credential_hash:
+        params["user_id"] = "is.null"
+        params["credential_hash"] = f"eq.{credential_hash}"
     else:
         params["user_id"] = "is.null"
+        params["credential_hash"] = "is.null"
 
     try:
         records = safe_query_supabase_as_service_role("token_caches", "GET", params=params)
@@ -68,16 +78,28 @@ def get_db_token_with_status(exchange: str, env: str, user_id: str | None = None
         return result
 
 
-def get_db_token(exchange: str, env: str, user_id: str | None = None) -> str | None:
+def get_db_token(
+    exchange: str,
+    env: str,
+    user_id: str | None = None,
+    credential_hash: str | None = None,
+) -> str | None:
     """
     Returns a valid token from Supabase token_caches.
     """
     # 기존 호출부는 토큰 값만 필요하므로 기존 반환형을 유지한다.
     # 새 메타데이터가 필요하면 get_db_token_with_status를 직접 쓰면 된다.
-    return get_db_token_with_status(exchange, env, user_id).get("token")
+    return get_db_token_with_status(exchange, env, user_id, credential_hash).get("token")
 
 
-def set_db_token(exchange: str, env: str, token: str, expires_in: int, user_id: str | None = None) -> None:
+def set_db_token(
+    exchange: str,
+    env: str,
+    token: str,
+    expires_in: int,
+    user_id: str | None = None,
+    credential_hash: str | None = None,
+) -> None:
     """
     Store the freshly issued token into Supabase token_caches.
     """
@@ -97,8 +119,13 @@ def set_db_token(exchange: str, env: str, token: str, expires_in: int, user_id: 
     }
     if user_id:
         payload["user_id"] = user_id
+        payload["credential_hash"] = None
+    elif credential_hash:
+        payload["user_id"] = None
+        payload["credential_hash"] = credential_hash
     else:
         payload["user_id"] = None
+        payload["credential_hash"] = None
 
     params = {
         "exchange": f"eq.{exchange_upper}",
@@ -106,8 +133,13 @@ def set_db_token(exchange: str, env: str, token: str, expires_in: int, user_id: 
     }
     if user_id:
         params["user_id"] = f"eq.{user_id}"
+        params["credential_hash"] = "is.null"
+    elif credential_hash:
+        params["user_id"] = "is.null"
+        params["credential_hash"] = f"eq.{credential_hash}"
     else:
         params["user_id"] = "is.null"
+        params["credential_hash"] = "is.null"
 
     existing = safe_query_supabase_as_service_role("token_caches", "GET", params=params)
     if existing and len(existing) > 0:
@@ -117,7 +149,12 @@ def set_db_token(exchange: str, env: str, token: str, expires_in: int, user_id: 
         query_supabase_as_service_role("token_caches", "POST", json_data=payload)
 
 
-def clear_db_token(exchange: str, env: str, user_id: str | None = None) -> None:
+def clear_db_token(
+    exchange: str,
+    env: str,
+    user_id: str | None = None,
+    credential_hash: str | None = None,
+) -> None:
     """
     Force-expire a stored token so the next request refreshes it.
     """
@@ -130,8 +167,13 @@ def clear_db_token(exchange: str, env: str, user_id: str | None = None) -> None:
     }
     if user_id:
         params["user_id"] = f"eq.{user_id}"
+        params["credential_hash"] = "is.null"
+    elif credential_hash:
+        params["user_id"] = "is.null"
+        params["credential_hash"] = f"eq.{credential_hash}"
     else:
         params["user_id"] = "is.null"
+        params["credential_hash"] = "is.null"
 
     existing = safe_query_supabase_as_service_role("token_caches", "GET", params=params)
     if existing and len(existing) > 0:

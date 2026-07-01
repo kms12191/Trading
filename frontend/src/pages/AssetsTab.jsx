@@ -61,6 +61,15 @@ export default function AssetsTab({ balance, allocation, displayCurrency = 'KRW'
           val = balance.available_cash ?? null
           currency = 'USD'
         }
+      } else if (account.id === 'coin-wallet') {
+        const cryptoHoldings = (balance.holdings || []).filter(h => ['COINONE', 'BINANCE'].includes(String(h.exchange || '').toUpperCase()))
+        const cryptoEval = cryptoHoldings.reduce((sum, h) => sum + (parseNumeric(h.qty) * parseNumeric(h.current_price)), 0)
+        // available_cash_breakdown에서 KRW 또는 USDT 등 가상자산에 묶인 현금자산 추출
+        const krwCash = parseNumeric(balance.available_cash_breakdown?.KRW)
+        const usdtCash = parseNumeric(balance.available_cash_breakdown?.USDT)
+        const rate = Number(exchangeRate) || 1500
+        val = cryptoEval + krwCash + (usdtCash * rate)
+        currency = 'KRW'
       }
     }
 
@@ -71,10 +80,11 @@ export default function AssetsTab({ balance, allocation, displayCurrency = 'KRW'
   })
   const rawHoldings = balance?.holdings?.length
     ? balance.holdings.map((stock, index) => {
-      const isForeign = /[a-zA-Z]/.test(stock.symbol) && !/^[0-9a-zA-Z]{6,7}$/.test(stock.symbol)
+      const exchangeName = stock.exchange || stock.account_type || '-'
+      const isCoinone = String(exchangeName).toUpperCase() === 'COINONE'
+      const isForeign = /[a-zA-Z]/.test(stock.symbol) && !/^[0-9a-zA-Z]{6,7}$/.test(stock.symbol) && !isCoinone
       const stockCurrency = stock.currency || (isForeign ? 'USD' : 'KRW')
       const currentDisplayCurrency = isForeign ? displayCurrency : 'KRW'
-      const exchangeName = stock.exchange || stock.account_type || (isForeign ? 'TOSS' : 'KIS')
       const rawExchange = String(stock.raw_exchange || exchangeName || '').toUpperCase()
       const assetType = stock.asset_type || (['COINONE', 'BINANCE'].includes(rawExchange) ? 'CRYPTO' : 'STOCK')
       const symbol = stock.symbol || stock.id || `holding-${index}`
@@ -93,14 +103,15 @@ export default function AssetsTab({ balance, allocation, displayCurrency = 'KRW'
       }
     })
     : FALLBACK_HOLDINGS.map((stock) => {
-      const isForeign = (/[a-zA-Z]/.test(stock.id || stock.symbol || '') && !/^[0-9a-zA-Z]{6,7}$/.test(stock.id || stock.symbol || '')) || stock.account.includes('해외') || stock.account.includes('코인')
+      const isCoin = stock.account.includes('코인')
+      const isForeign = ((/[a-zA-Z]/.test(stock.id || stock.symbol || '') && !/^[0-9a-zA-Z]{6,7}$/.test(stock.id || stock.symbol || '')) || stock.account.includes('해외')) && !isCoin
       const stockCurrency = isForeign ? 'USD' : 'KRW'
       const rawAvg = parseFloat(stock.average.replace(/[^0-9.-]/g, '')) || 0
       const currentDisplayCurrency = isForeign ? displayCurrency : 'KRW'
       const returnRateNum = parseFloat(stock.returnRate.replace(/[^0-9.-]/g, '')) || 0
       const qtyNum = parseFloat(stock.quantity.replace(/[^0-9.-]/g, '')) || 0
       const mockProfit = (rawAvg * qtyNum * returnRateNum) / 100
-      const exchangeName = stock.account.includes('코인') ? 'COINONE' : (isForeign ? 'TOSS' : 'KIS')
+      const exchangeName = isCoin ? 'COINONE' : (isForeign ? 'TOSS' : 'KIS')
       return {
         ...stock,
         exchange: exchangeName,
