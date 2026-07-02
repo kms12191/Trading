@@ -22,6 +22,7 @@ from backend.services.dart_ingest import DartIngestService
 from backend.services.kis_market_universe import KISMarketUniverseService
 from backend.services.market_snapshot_scheduler import start_market_snapshot_scheduler
 from backend.services.ml_scheduler import start_dart_ingest_scheduler, start_news_ingest_scheduler, start_ml_automation_scheduler
+from backend.services.auto_trading_rule_engine import start_auto_trading_rule_scheduler
 
 from backend.routes.home import home_bp
 from backend.routes.keys import keys_bp
@@ -62,6 +63,8 @@ HOME_MARKET_OPEN_INTERVAL_SECONDS = int(os.getenv("HOME_MARKET_OPEN_INTERVAL_SEC
 HOME_MARKET_CLOSED_INTERVAL_SECONDS = int(os.getenv("HOME_MARKET_CLOSED_INTERVAL_SECONDS", "600"))
 HOME_MARKET_SNAPSHOT_LIMIT = int(os.getenv("HOME_MARKET_SNAPSHOT_LIMIT", "300"))
 HOME_MARKET_SNAPSHOT_WORKERS = int(os.getenv("HOME_MARKET_SNAPSHOT_WORKERS", "2"))
+AUTO_TRADING_RULES_ENABLED = os.getenv("AUTO_TRADING_RULES_ENABLED", "false").lower() == "true"
+AUTO_TRADING_RULES_INTERVAL_SECONDS = int(os.getenv("AUTO_TRADING_RULES_INTERVAL_SECONDS", "30"))
 
 # Flask Config에 값 바인딩
 app.config["KIS_APPKEY"] = KIS_APPKEY
@@ -134,6 +137,10 @@ if is_scheduler_host and SCHEDULER_RUN_IN_GATEWAY:
         closed_interval_seconds=HOME_MARKET_CLOSED_INTERVAL_SECONDS,
         quote_limit=HOME_MARKET_SNAPSHOT_LIMIT,
         max_workers=HOME_MARKET_SNAPSHOT_WORKERS,
+    )
+    start_auto_trading_rule_scheduler(
+        enabled=AUTO_TRADING_RULES_ENABLED,
+        interval_seconds=AUTO_TRADING_RULES_INTERVAL_SECONDS,
     )
 if __name__ == "__main__":
     # Flask 서버 구동 (python backend/app.py 로 기동할 때만 타며, flask run 시에는 타지 않음)

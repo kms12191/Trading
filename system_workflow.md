@@ -1,7 +1,7 @@
 # 시스템 흐름 문서
 
 본 문서는 현재 코드 기준의 실제 시스템 흐름을 정리합니다.
-특히 `app.py`와 `worker.py`의 역할 분리, `active_locks` 분산 락, `token_caches` 토큰 캐시, `NAVER/FINNHUB` 뉴스 수집 흐름을 기준으로 작성했습니다.
+특히 `app.py`와 `worker.py`의 역할 분리, `active_locks` 분산 락, `token_caches` 토큰 캐시, `NAVER/FINNHUB` 뉴스 수집, DART 공시 수집, 조건감시 자동/반자동 매도 흐름을 기준으로 작성했습니다.
 
 ## 1. 전체 아키텍처
 
@@ -14,13 +14,14 @@ graph TD
 
     subgraph Gateway ["Flask API Gateway"]
         App["backend/app.py"]
-        Routes["home / keys / ml / news / trade"]
+        Routes["home / keys / ml / news / disclosures / trade / transfer"]
     end
 
     subgraph Worker ["Background Worker"]
         WorkerMain["backend/worker.py"]
         MLScheduler["ml_scheduler.py"]
         MarketScheduler["market_snapshot_scheduler.py"]
+        AutoExitScheduler["auto_trading_rule_engine.py"]
     end
 
     subgraph Supabase ["Supabase"]
@@ -30,6 +31,8 @@ graph TD
         Locks["active_locks"]
         NewsArticles["news_articles"]
         Registry["ml_model_registry"]
+        AutoRules["auto_trading_rules"]
+        TradeProposals["trade_proposals"]
     end
 
     subgraph External ["External APIs"]
@@ -52,6 +55,7 @@ graph TD
 
     WorkerMain --> MLScheduler
     WorkerMain --> MarketScheduler
+    WorkerMain --> AutoExitScheduler
 
     MLScheduler --> Locks
     MLScheduler --> TokenCaches
@@ -60,6 +64,15 @@ graph TD
     MLScheduler --> Binance
 
     MarketScheduler --> KIS
+
+    AutoExitScheduler --> Locks
+    AutoExitScheduler --> AutoRules
+    AutoExitScheduler --> UserKeys
+    AutoExitScheduler --> TradeProposals
+    AutoExitScheduler --> Toss
+    AutoExitScheduler --> KIS
+    AutoExitScheduler --> Coinone
+    AutoExitScheduler --> Binance
 
     Routes --> NewsArticles
     MLScheduler --> NewsArticles
@@ -86,8 +99,10 @@ graph TD
 현재 worker는 다음 스케줄러를 모두 등록합니다.
 
 1. 뉴스 수집 스케줄러
-2. ML 자동화 스케줄러
-3. 홈 마켓 스냅샷 스케줄러
+2. DART 공시 수집 스케줄러
+3. ML 자동화 스케줄러
+4. 홈 마켓 스냅샷 스케줄러
+5. 조건감시 자동/반자동 매도 스케줄러
 
 운영 문서에서는 "스케줄러는 app.py에서 항상 돈다"라고 적으면 사실과 다릅니다.
 
@@ -124,6 +139,43 @@ sequenceDiagram
     API->>SB: trade_proposals 상태 갱신
     API-->>FE: 실행 결과 반환
 ```
+
+### 조건감시 자동/반자동 매도 흐름
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 사용자
+    participant FE as AssetDetail.jsx
+    participant API as Flask trade routes
+    participant SB as Supabase
+    participant Worker as auto_trading_rule_engine.py
+    participant EX as Exchange API
+
+    User->>FE: 매수 주문 + 자동감시 체크
+    FE->>API: POST /api/trade/order
+    API->>SB: auto_trading_rules RUNNING 등록
+
+    Worker->>SB: RUNNING 규칙 조회
+    Worker->>EX: 현재가 조회
+    alt 익절/손절 조건 미도달
+        Worker->>SB: last_checked_at 갱신
+    else 조건 도달 + PROPOSAL
+        Worker->>SB: trade_proposals PENDING 매도 제안 생성
+        Worker->>SB: auto_trading_rules COMPLETED 갱신
+    else 조건 도달 + AUTO
+        Worker->>EX: 지정가 매도 주문 전송
+        Worker->>SB: trade_proposals 주문 결과 기록
+        Worker->>SB: auto_trading_rules COMPLETED 갱신
+    end
+```
+
+현재 구현 기준 사실:
+
+- `execution_mode=PROPOSAL`은 조건 도달 시 매도 제안만 생성합니다.
+- `execution_mode=AUTO`는 조건 도달 시 워커가 매도 주문을 직접 전송합니다.
+- 실거래(`REAL`) 자동매도 추정 금액이 내부 1회 한도 10만 원을 넘으면 자동 주문 대신 제안 생성으로 우회합니다.
+- Binance USD-M 선물은 롱 포지션 청산 방향(`BOTH + reduceOnly SELL`)만 자동매도 흐름에 맞습니다. 숏 청산은 매수 청산이므로 별도 정책으로 분리해야 합니다.
 
 ## 4. 뉴스 수집 흐름
 
@@ -210,7 +262,9 @@ sequenceDiagram
 현재 `backend/services/lock_service.py`는 Supabase `active_locks` 테이블 기반 분산 락을 사용합니다.
 
 - 뉴스 수집: `news_ingest`
+- DART 공시 수집: `dart_ingest`
 - 코인 자동화: `crypto_automation`
 - 주식 자동화: 코드 내부 주기별 락 키 사용
+- 조건감시 자동/반자동 매도: `auto_trading_rules`
 
 락 획득 실패 시 예외로 중단하기보다, 해당 주기의 작업을 건너뛰고 다음 사이클을 기다리는 방식입니다.

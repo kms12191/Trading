@@ -35,16 +35,24 @@ backend/
 │   ├── keys.py
 │   ├── ml.py
 │   ├── news.py
+│   ├── disclosures.py
 │   ├── trade.py
 │   └── transfer.py
 ├── scripts/
+│   ├── backfill_dart_disclosures.py
 │   ├── export_news_features.py
 │   ├── export_training_candles.py
+│   ├── sync_dart_corp_codes.py
 │   └── sync_kis_market_universe.py
 ├── services/
 │   ├── auth_service.py
+│   ├── auto_trading_rule_engine.py
 │   ├── binance_client.py
+│   ├── broker_order_history_service.py
 │   ├── coinone_client.py
+│   ├── dart_ingest.py
+│   ├── dart_repository.py
+│   ├── error_message_service.py
 │   ├── exchange_client.py
 │   ├── home_service.py
 │   ├── keys_service.py
@@ -82,10 +90,13 @@ backend/
   - 일부 스케줄러를 gateway 내부에서 돌릴지 결정
 - `worker.py`
   - 뉴스 수집
+  - DART 공시 수집
   - ML 자동화
   - 홈 마켓 스냅샷
+  - 조건감시 자동/반자동 매도 스케줄러
 - `routes/`
   - HTTP API 입구
+  - `disclosures.py`는 OpenDART 공시 목록 조회 및 수동 동기화 API를 담당
   - `transfer.py`는 코인원에서 바이낸스로 이동하는 가상자산 출금 사전검증, 승인, 상태 추적 API를 담당
 - `services/`
   - 거래소 연동, Supabase, 스케줄러, ML 운영 로직
@@ -98,6 +109,9 @@ backend/
 - 토큰 캐시는 현재 `token_cache_service.py`와 Supabase `token_caches`를 기준으로 보는 것이 맞습니다.
 - `coinone_client.py`는 코인원 잔고/현재가/지정가 주문/미체결 주문 취소를 담당하며, 시장가 주문은 아직 운영 경로가 아닙니다.
 - `binance_client.py`는 `BinanceSpotClient`와 `BinanceFuturesClient`를 포함합니다. API Key 저장은 `BINANCE` 레코드 하나를 사용하고, `BINANCE_UM_FUTURES`는 USD-M 선물 잔고/주문/이력 요청 식별자로만 사용합니다. 선물 주문은 레버리지와 교차/격리 마진 타입을 주문 직전에 반영하며, 선물 REAL 주문은 `BINANCE_FUTURES_REAL_ENABLED=true` 환경변수 없이는 차단됩니다.
+- `auto_trading_rule_engine.py`는 Supabase `auto_trading_rules`의 `RUNNING` 규칙을 감시하고, 조건 도달 시 `trade_proposals`에 매도 제안을 생성하거나 사용자가 `AUTO`로 선택한 규칙에 한해 자동 매도 주문을 전송합니다.
+- `error_message_service.py`는 거래소 원문 에러를 사용자 친화적인 `message`, `error.title`, `error.action`, `error.code`, `error.raw_message` 구조로 변환하는 표준 에러 메시지 레이어입니다.
+- `broker_order_history_service.py`는 Toss/KIS/Coinone/Binance 주문 원장 동기화 및 미체결/체결 상태 보정 흐름을 담당합니다.
 - `upbit_client.py`는 남아 있지만 현재 핵심 운영 경로는 아닙니다.
 
 ## frontend
@@ -131,6 +145,7 @@ frontend/
     │   ├── InvestmentSurveyModal.jsx
     │   └── SymbolSearch.jsx
     ├── lib/
+    │   ├── apiError.js
     │   └── supabaseClient.js
     └── pages/
         ├── AdminMlData.jsx
@@ -140,6 +155,7 @@ frontend/
         ├── Home.jsx
         ├── Login.jsx
         ├── News.jsx
+        ├── SearchNotFound.jsx
         ├── Settings.jsx
         ├── Signup.jsx
         ├── TradeHistoryTab.jsx

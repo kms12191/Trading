@@ -4,6 +4,8 @@ import time
 import requests
 from urllib.parse import urlencode
 
+_FUTURES_EXCHANGE_INFO_CACHE = {}
+
 
 def _normalize_spot_symbol(symbol: str) -> str:
     normalized = str(symbol or "").strip().upper().replace("_", "").replace("-", "").replace("/", "")
@@ -226,7 +228,15 @@ class BinanceSpotClient:
             "raw": data,
         }
 
-    def test_order(self, symbol: str, qty: float, side: str, ord_type: str, price: float = None) -> dict:
+    def test_order(
+        self,
+        symbol: str,
+        qty: float,
+        side: str,
+        ord_type: str,
+        price: float = None,
+        compute_commission_rates: bool = False,
+    ) -> dict:
         """
         매칭 엔진에 넣지 않는 바이낸스 현물 주문 검증 요청을 전송합니다.
         """
@@ -246,8 +256,15 @@ class BinanceSpotClient:
             if price is None or float(price) <= 0:
                 raise ValueError("바이낸스 지정가 테스트 주문에는 0보다 큰 가격이 필요합니다.")
             params.update({"price": f"{float(price):.12g}", "timeInForce": "GTC"})
+        if compute_commission_rates:
+            params["computeCommissionRates"] = "true"
         data = self._signed_request("POST", "/api/v3/order/test", params)
-        return {"success": True, "raw": data}
+        return {
+            "success": True,
+            "commission_rates_requested": compute_commission_rates,
+            "commission_rates": data if compute_commission_rates else None,
+            "raw": data,
+        }
 
     def get_order_status(self, order_id: str, symbol: str = None) -> dict:
         normalized_symbol = _normalize_spot_symbol(symbol)
@@ -343,6 +360,46 @@ class BinanceFuturesClient:
         self.secret_key = secret_key.encode("utf-8")
         self.env = str(env or "TESTNET").upper()
         self.base_url = self.BASE_URLS.get(self.env, self.BASE_URLS["TESTNET"])
+
+    def get_futures_symbol_filters(self, symbol: str) -> dict:
+        """
+        선물 주문 수량/가격 필터를 조회합니다. 주문 전 Binance -4005 같은 수량 초과 오류를 차단하는 데 사용합니다.
+        """
+        normalized_symbol = _normalize_spot_symbol(symbol)
+        if not normalized_symbol:
+            raise ValueError("바이낸스 선물 심볼이 비어 있습니다.")
+
+        cache_key = (self.env, normalized_symbol)
+        if cache_key in _FUTURES_EXCHANGE_INFO_CACHE:
+            return _FUTURES_EXCHANGE_INFO_CACHE[cache_key]
+
+        res = requests.get(f"{self.base_url}/fapi/v1/exchangeInfo", timeout=5)
+        if res.status_code != 200:
+            raise Exception(f"바이낸스 선물 거래 규칙 조회 실패 (상태 코드 {res.status_code}): {res.text}")
+
+        for item in res.json().get("symbols", []) or []:
+            if str(item.get("symbol") or "").upper() != normalized_symbol:
+                continue
+
+            filters = {row.get("filterType"): row for row in item.get("filters", []) or []}
+            lot_size = filters.get("LOT_SIZE") or {}
+            market_lot_size = filters.get("MARKET_LOT_SIZE") or {}
+            price_filter = filters.get("PRICE_FILTER") or {}
+            payload = {
+                "symbol": normalized_symbol,
+                "min_qty": _to_float(lot_size.get("minQty")),
+                "max_qty": _to_float(lot_size.get("maxQty")),
+                "step_size": _to_float(lot_size.get("stepSize")),
+                "market_min_qty": _to_float(market_lot_size.get("minQty")),
+                "market_max_qty": _to_float(market_lot_size.get("maxQty")),
+                "market_step_size": _to_float(market_lot_size.get("stepSize")),
+                "tick_size": _to_float(price_filter.get("tickSize")),
+                "raw": item,
+            }
+            _FUTURES_EXCHANGE_INFO_CACHE[cache_key] = payload
+            return payload
+
+        raise ValueError(f"{normalized_symbol} 바이낸스 선물 거래 규칙을 찾을 수 없습니다.")
 
     def _sign(self, query_params: dict) -> str:
         query_string = urlencode(query_params)
@@ -579,6 +636,15 @@ class BinanceFuturesClient:
                     "msg": "margin type already set",
                     "symbol": normalized_symbol,
                     "marginType": normalized_margin_type,
+                }
+            # 포지션이 이미 열려 있으면 Binance는 마진 모드 변경을 거부합니다. 주문 자체는 기존 모드로 계속 진행할 수 있습니다.
+            if "-4048" in str(error) or "Margin type cannot be changed if there exists position" in str(error):
+                return {
+                    "code": -4048,
+                    "msg": "margin type change skipped because an open position exists",
+                    "symbol": normalized_symbol,
+                    "marginType": normalized_margin_type,
+                    "skipped": True,
                 }
             raise
 

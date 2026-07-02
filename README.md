@@ -1,7 +1,7 @@
 # Toss 메인 AI 트레이딩 프로젝트
 
 이 저장소는 `React + Vite` 프론트엔드, `Flask` 백엔드, `Supabase` DB/Auth, `LightGBM` 기반 ML 파이프라인으로 구성된 트레이딩 보조 시스템입니다.
-현재 코드는 Toss 주식, KIS 레거시 주식, Coinone 코인, Binance 코인 데이터 조회/주문 보조/ML 운영까지 포함하고 있으며, 챗봇 오케스트레이터 자체는 아직 구현되어 있지 않습니다.
+현재 코드는 Toss 주식, KIS 레거시 주식, Coinone 코인, Binance 현물/Usd-M 선물 데이터 조회/주문 보조/조건감시 자동매도/ML 운영까지 포함하고 있으며, 챗봇 오케스트레이터 자체는 아직 구현되어 있지 않습니다.
 
 ## 현재 구현 범위
 
@@ -9,11 +9,14 @@
   - 대시보드, 자산 탭, 뉴스 화면, 설정 화면
   - 종목 상세 페이지 차트/호가/체결/주문 사전검증
   - 코인원 가상자산 상세 페이지 지정가 주문 UI
+  - 조건감시 익절/손절 등록 및 `매도 제안만 생성`/`조건 도달 시 자동 매도` 선택 UI
   - ML 운영 콘솔과 활성 신호 확인 UI
 - 백엔드
   - `home`, `keys`, `ml`, `news`, `trade`, `transfer` Blueprint API
   - Toss/KIS/Coinone/Binance 클라이언트
   - 코인원 계좌 잔고 조회, 현재가 조회, 지정가 주문, 미체결 주문 취소
+  - 바이낸스 현물/Usd-M 선물 주문 사전검증, 테스트 주문 검증, 미체결 주문 관리
+  - 조건감시 자동/반자동 매도 워커
   - 코인원에서 바이낸스로 가상자산 출금 사전검증, 사용자 승인, 상태 추적
   - 뉴스 수집/요약
   - ML 자동 수집/학습 스케줄러, 승격 검증, serving 감사
@@ -57,6 +60,7 @@ python app.py
   - 스케줄러 전용 프로세스: `backend/worker.py`
 - 기본 설정상 `SCHEDULER_RUN_IN_GATEWAY=false` 이므로, 스케줄러 운영은 `worker.py`를 별도로 띄우는 구조가 기준입니다.
 - 코인원 실주문은 현재 지정가 주문만 연결되어 있으며, 시장가 주문은 API 정책 검증 전까지 차단합니다.
+- 조건감시 자동/반자동 매도는 기본 설정상 `AUTO_TRADING_RULES_ENABLED=false`입니다. 실제 감시를 켜려면 `backend/.env`에서 이 값을 `true`로 바꾸고 `worker.py`를 실행해야 합니다.
 
 ### 2. 프론트엔드
 
@@ -123,6 +127,8 @@ python src/run_pipeline_bundle.py \
 - `POST /api/trade/order/cancel`
 - `POST /api/trade/order/modify`
 - `POST /api/trade/order/cancel-replace`
+- `POST /api/trade/orders/sync-status`
+- `POST /api/trade/estimated-holdings`
 - `GET /api/chart/candles`
 - `GET /api/chart/orderbook`
 - `GET /api/chart/trades`
@@ -188,6 +194,7 @@ python src/run_pipeline_bundle.py \
 - Toss/KIS OAuth 토큰의 현재 기준 캐시 경로는 Supabase `token_caches` 테이블입니다.
 - 저장소에 `.toss_token_cache.json`, `.kis_token_cache.json` 파일이 남아 있어도 현재 운영 기준의 1차 토큰 소스라고 가정하면 안 됩니다.
 - 분산 환경에서 뉴스/ML 자동화 중복 실행 방지를 위해 `active_locks` 기반 분산 락을 사용합니다.
+- 조건감시 자동매도는 사용자가 `AUTO`를 선택한 규칙만 직접 주문을 전송합니다. 실거래 추정 금액이 내부 1회 한도 10만 원을 넘으면 자동 주문 대신 매도 제안으로 우회합니다.
 
 ## 같이 보면 좋은 문서
 

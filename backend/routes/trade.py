@@ -931,6 +931,65 @@ def _normalize_futures_order_options(position_side=None, reduce_only=False, leve
     }
 
 
+def _validate_futures_order_quantity(client, symbol: str, order_type: str, qty: float) -> dict:
+    """
+    바이낸스 USD-M 선물 심볼별 주문 수량 제한을 사전 검증합니다.
+    """
+    filters = client.get_futures_symbol_filters(symbol)
+    is_market = str(order_type or "").upper() == "MARKET"
+    min_qty = filters.get("market_min_qty") if is_market else filters.get("min_qty")
+    max_qty = filters.get("market_max_qty") if is_market else filters.get("max_qty")
+    step_size = filters.get("market_step_size") if is_market else filters.get("step_size")
+
+    if min_qty and qty < min_qty:
+        raise ValueError(f"{symbol} 바이낸스 선물 최소 주문 수량은 {min_qty:g}입니다. 수량을 늘려 다시 시도하세요.")
+    if max_qty and qty > max_qty:
+        raise ValueError(f"{symbol} 바이낸스 선물 최대 주문 수량은 {max_qty:g}입니다. 현재 입력 수량 {qty:g}를 {max_qty:g} 이하로 낮춰 다시 시도하세요.")
+    if step_size and step_size > 0:
+        ratio = qty / step_size
+        if abs(ratio - round(ratio)) > 1e-8:
+            raise ValueError(f"{symbol} 바이낸스 선물 주문 수량은 {step_size:g} 단위로 입력해야 합니다.")
+
+    return {
+        "min_qty": min_qty,
+        "max_qty": max_qty,
+        "step_size": step_size,
+        "tick_size": filters.get("tick_size"),
+    }
+
+
+def _run_binance_order_test(
+    client,
+    exchange: str,
+    symbol: str,
+    action: str,
+    order_type: str,
+    qty: float,
+    price: float,
+) -> dict | None:
+    """
+    Binance 테스트 주문 API로 실제 매칭 엔진 투입 전 주문 유효성을 검증합니다.
+    """
+    if exchange == "BINANCE":
+        return client.test_order(
+            symbol=symbol,
+            qty=qty,
+            side=action,
+            ord_type=order_type,
+            price=price,
+            compute_commission_rates=True,
+        )
+    if exchange == "BINANCE_UM_FUTURES":
+        return client.test_order(
+            symbol=symbol,
+            qty=qty,
+            side=action,
+            ord_type=order_type,
+            price=price,
+        )
+    return None
+
+
 def _build_precheck_payload(
     exchange: str,
     symbol: str,
@@ -967,6 +1026,7 @@ def _build_precheck_payload(
         normalized_futures_options["max_leverage"] = max_leverage
         if max_leverage and normalized_futures_options["leverage"] > max_leverage:
             raise ValueError(f"{symbol} 바이낸스 선물에서 현재 허용되는 최대 레버리지는 {max_leverage}x입니다. 레버리지를 {max_leverage}x 이하로 낮춰 다시 시도하세요.")
+        normalized_futures_options["quantity_filter"] = _validate_futures_order_quantity(client, symbol, order_type, qty)
     estimated_amount = reference_price * qty
     required_margin = (
         estimated_amount / normalized_futures_options["leverage"]
@@ -1009,6 +1069,7 @@ def _build_precheck_payload(
     asset_type = "STOCK" if exchange in ("TOSS", "KIS") else "CRYPTO"
     currency = "KRW" if exchange in ("TOSS", "KIS", "COINONE") else "USD"
     warnings = []
+    exchange_order_test = None
     futures_real_blocked = (
         exchange == "BINANCE_UM_FUTURES"
         and broker_env == "REAL"
@@ -1022,6 +1083,16 @@ def _build_precheck_payload(
         warnings.append("예수금 대비 주문 예정 증거금이 큽니다." if exchange == "BINANCE_UM_FUTURES" else "예수금 대비 주문 예정 금액이 큽니다.")
     if insufficient_holding:
         warnings.append("보유 수량보다 많은 매도 주문입니다.")
+    if exchange in ("BINANCE", "BINANCE_UM_FUTURES"):
+        exchange_order_test = _run_binance_order_test(
+            client,
+            exchange=exchange,
+            symbol=symbol,
+            action=action,
+            order_type=order_type,
+            qty=qty,
+            price=reference_price,
+        )
 
     return {
         "exchange": exchange,
@@ -1046,6 +1117,7 @@ def _build_precheck_payload(
         "holding_value": balance_snapshot["holding_value"],
         "insufficient_cash": insufficient_cash,
         "insufficient_holding": insufficient_holding,
+        "exchange_order_test": exchange_order_test,
         "warnings": warnings,
         "checked_at": datetime.utcnow().isoformat() + "Z",
     }
@@ -1266,6 +1338,9 @@ def place_manual_order():
     if auto_exit and action.upper() == "BUY":
         target_profit_rate = float(data.get("target_profit_rate", 5.0))
         stop_loss_rate = float(data.get("stop_loss_rate", -3.0))
+        execution_mode = str(data.get("auto_exit_execution_mode") or "PROPOSAL").upper()
+        if execution_mode not in ("PROPOSAL", "AUTO"):
+            execution_mode = "PROPOSAL"
         
         # asset_type 및 market_country 판정
         asset_type = "STOCK" if exchange in ("TOSS", "KIS") else "CRYPTO"
@@ -1280,16 +1355,38 @@ def place_manual_order():
                 "asset_type": asset_type,
                 "ticker": symbol,
                 "symbol": symbol,
+                "broker_env": broker_env,
                 "market_country": market_country,
                 "entry_price": order_price,
                 "investment_amount": total_amount,
+                "quantity": qty,
                 "target_profit_rate": target_profit_rate,
                 "stop_loss_rate": stop_loss_rate,
+                "execution_mode": execution_mode,
                 "status": "RUNNING"
             }
             # Supabase에 감시 조건 등록
-            query_supabase(auth_header, "auto_trading_rules", "POST", json_data=rule_data)
-            auto_exit_result = "감시 조건 등록 완료"
+            try:
+                query_supabase(auth_header, "auto_trading_rules", "POST", json_data=rule_data)
+                auto_exit_result = "감시 조건 등록 완료" if execution_mode == "PROPOSAL" else "자동매도 감시 조건 등록 완료"
+            except Exception:
+                legacy_rule_data = {
+                    key: rule_data[key]
+                    for key in (
+                        "user_id",
+                        "exchange",
+                        "asset_type",
+                        "ticker",
+                        "entry_price",
+                        "investment_amount",
+                        "target_profit_rate",
+                        "stop_loss_rate",
+                        "status",
+                    )
+                    if key in rule_data
+                }
+                query_supabase(auth_header, "auto_trading_rules", "POST", json_data=legacy_rule_data)
+                auto_exit_result = "감시 조건 등록 완료 - DB 마이그레이션 적용 전이라 자동매도 실행 모드는 저장되지 않았습니다."
         except Exception as e:
             auto_exit_result = f"감시 조건 등록 실패: {str(e)}"
 

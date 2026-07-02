@@ -96,18 +96,32 @@ erDiagram
     *   `id` (UUID, PK)
     *   `user_id` (UUID, FK) - `profiles.id` 참조
     *   `exchange` (TEXT)
+    *   `broker_env` (TEXT) - `MOCK`, `REAL`
     *   `asset_type` (TEXT) - `STOCK` / `CRYPTO`
     *   `symbol` (TEXT)
     *   `ticker` (TEXT)
     *   `entry_price` (NUMERIC) - 진입 가격 (기본 평단가)
     *   `investment_amount` (NUMERIC) - 할당 투자 금액
+    *   `quantity` (NUMERIC) - 조건 도달 시 매도할 수량. 없으면 `investment_amount / entry_price`로 보정
     *   `target_profit_rate` (NUMERIC) - 익절 비율 백분율 (%)
     *   `stop_loss_rate` (NUMERIC) - 손절 비율 백분율 (%)
+    *   `execution_mode` (TEXT) - `PROPOSAL`(매도 제안만 생성), `AUTO`(조건 도달 시 자동 매도 주문 전송)
+    *   `trigger_side` (TEXT) - `TAKE_PROFIT`, `STOP_LOSS`
+    *   `trigger_price` (NUMERIC) - 조건 도달 시 확인된 현재가
+    *   `triggered_at` (TIMESTAMPTZ) - 조건 도달 시각
+    *   `last_checked_at` (TIMESTAMPTZ) - 워커의 마지막 감시 확인 시각
+    *   `last_error` (TEXT) - 최근 감시/주문 실패 사유
+    *   `exit_order_proposal_id` (UUID) - 조건 도달 후 생성된 `trade_proposals.id`
+    *   `exit_order_payload` (JSONB) - 자동매도 주문 응답 또는 제안 생성 메타데이터
     *   `status` (TEXT) - `RUNNING`(감시 중), `COMPLETED`(익손절 완료), `STOPPED`(정지)
     *   `created_at` (TIMESTAMPTZ)
     *   `updated_at` (TIMESTAMPTZ)
 *   **RLS**:
     *   `auth.uid() = user_id` 기반 RLS 적용.
+*   **실행 정책**:
+    *   `backend/services/auto_trading_rule_engine.py`가 `RUNNING` 규칙을 조회해 현재가가 익절/손절 가격에 도달했는지 확인합니다.
+    *   `execution_mode=PROPOSAL`이면 `trade_proposals`에 `PENDING` 매도 제안만 생성합니다.
+    *   `execution_mode=AUTO`이면 워커가 매도 주문을 직접 전송하고 `trade_proposals`에 결과를 기록합니다. 단, 실거래(`REAL`) 주문 추정 원화 금액이 내부 1회 한도 10만 원을 초과하면 자동 주문 대신 제안 생성으로 우회합니다.
 
 ### 2.4.1 broker_order_history
 *   **용도**: 외부 브로커(Toss/KIS/Coinone/Binance)의 실제 주문 원장을 주기적으로 동기화해 저장하는 테이블입니다. 앱 내부 제안 흐름(`trade_proposals`)과 분리하여 실제 미체결/부분체결/체결/취소 결과를 추적합니다.

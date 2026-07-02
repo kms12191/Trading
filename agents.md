@@ -13,10 +13,10 @@
   * **주식 메인**: Toss증권 Open API (`TOSS`)
   * **주식 보류/레거시**: 한국투자증권 API (`KIS`)
   * **가상자산 메인**: 코인원 API (`COINONE`)
-  * **가상자산 추후 확장**: 바이낸스 API (`BINANCE`)
+  * **가상자산 확장/선물**: 바이낸스 API (`BINANCE`, `BINANCE_UM_FUTURES`)
 * **사용자 통제 원칙 (Human-in-the-Loop)**: AI가 시장을 독자적으로 판단하여 즉흥적으로 실거래 주문을 실행하는 것은 원천적으로 차단합니다.
   * 일반 매매 주문: **챗봇의 제안 -> 사전 검증 및 시뮬레이션 보고 -> 사용자의 명시적 승인 -> 실행**
-  * 자동 트레이딩(Phase 4): 사용자가 자연어로 설정한 **수치적 조건식(예: 익절 +5%, 손절 -3%)만** 백그라운드 워커가 기계적으로 감시 및 실행합니다.
+  * 조건감시 자동/반자동 매도: 사용자가 명시적으로 설정한 **수치적 조건식(예: 익절 +5%, 손절 -3%)만** 백그라운드 워커가 기계적으로 감시합니다. `PROPOSAL` 모드는 매도 제안만 만들고, `AUTO` 모드는 사용자가 자동 실행을 선택한 규칙에 한해 주문을 전송합니다.
 * **독립 격리 환경**: 실거래 자금이 움직이는 백엔드(Flask) 및 DB(Supabase)는 기존 웹 서비스 인프라와 완전히 분리하여 운영합니다.
 * **현재 구현 기준**: 현재 저장소는 Vite React 프론트엔드, Flask 백엔드, Supabase DB 구조입니다. 문서와 코드 변경 시 실제 구현 상태를 기준으로 업데이트하며, 아직 구현되지 않은 모듈은 목표 구조로만 명시합니다.
 
@@ -29,12 +29,12 @@
   [React Frontend] (Vite + Tailwind CSS)
          |
          +-- (1) Supabase SDK: 사용자 인증(Auth) & 승인 상태 실시간 구독(Realtime)
-         +-- (2) REST API: LLM 챗봇 질의, Toss/코인원 시세/계좌 조회, 수동 매매 승인, 자동 매매 규칙 등록
+         +-- (2) REST API: Toss/KIS/코인원/바이낸스 시세·계좌 조회, 수동 매매, 조건감시 규칙 등록
          |
          v
   [Flask Backend] (API Gateway & Worker)
          |
-         +-- [routes/home.py, keys.py, ml.py, news.py] : Blueprint 기반 API 라우트 레이어
+         +-- [routes/home.py, keys.py, ml.py, news.py, disclosures.py, trade.py, transfer.py] : Blueprint 기반 API 라우트 레이어
          +-- [utils/crypto_helper.py, file_helpers.py] : 암호화 및 파일 처리 공통 유틸리티
          +-- [services/auth_service.py]                  : Authorization 헤더 디코딩
          +-- [services/supabase_client.py]              : Supabase DB 및 작업 동기화
@@ -43,10 +43,10 @@
          +-- [services/kis_client.py]                    : KIS 레거시/보류 주식 클라이언트
          +-- [services/coinone_client.py]                : 코인원 메인 가상자산 클라이언트
          +-- [services/binance_client.py]                : 바이낸스 확장 가상자산 클라이언트
+         +-- [services/auto_trading_rule_engine.py]      : 조건감시 자동/반자동 매도 워커
+         +-- [services/error_message_service.py]         : 사용자 친화 에러 메시지 표준화
          +-- [services/ml_model_service.py]              : ML 모델 정보 조회 및 실험 리포트 기동
          +-- [services/ml_scheduler.py]                  : 백그라운드 스레드 기반 스케줄러 워커
-         +-- [services/agent.py]                         : LangChain 활용 LLM Tool-calling 오케스트레이터
-         +-- [services/trading_engine.py]                : Background Thread Pool 기반 조건 감시 엔진
          |
          v
   [Supabase DB] & [External APIs] (Toss / Coinone / Binance / Tavily News / KIS API)
@@ -87,7 +87,7 @@ AI 에이전트는 데이터 변경이나 조회 쿼리를 작성할 때 다음 
 * `paper_portfolios`: 페이퍼 트레이딩 및 시뮬레이션용 가상 잔고와 보유 종목을 저장합니다.
 
 * `trade_proposals`: 챗봇이 제안하고 사용자의 승인을 기다리는 주문 내역입니다.
-* `auto_trading_rules`: 사용자가 정의한 실시간 조건 감시 규칙 및 활성화 여부를 저장합니다.
+* `auto_trading_rules`: 사용자가 정의한 익절/손절 조건감시 규칙, 실행 모드(`PROPOSAL`/`AUTO`), 트리거 결과, 자동매도 결과를 저장합니다.
 * `chat_history`: 사용자와 AI 트레이딩 챗봇 간의 대화 이력을 저장합니다.
 * `design.md`: 프론트엔드 UI 컴포넌트, 색상, 타이포그래피, 마진 등 공통 스타일 가이드라인 정보입니다.
 
@@ -158,10 +158,16 @@ AI 에이전트는 데이터 변경이나 조회 쿼리를 작성할 때 다음 
   * 주문 생성 전 `buying-power`, `sellable-quantity`, `commissions`, `stocks/{symbol}/warnings`를 조회해 사용자에게 사전 검증 결과를 제시합니다.
   * Toss 문서상 1억 원 이상 주문에는 `confirmHighValueOrder`가 필요하지만, 본 서비스의 내부 하드캡이 우선 적용되어야 합니다.
 
-### Phase 4: Toss 장 캘린더 기반 조건식 자동 트레이딩
+### Phase 4: 조건식 자동/반자동 트레이딩
 
-* **구현 범위**: 사용자가 기지정한 가격 또는 수익률 조건 도달 시 자동 주문 제안을 생성하거나, 사용자가 사전 승인한 조건식에 한해 주문을 실행하는 백그라운드 워커를 구축합니다.
-* **구조적 제약**: Flask의 웹 서비스 웹훅/API 스레드와 별도 스레드 또는 별도 프로세스로 완전히 격리하여 감시 엔진을 구동합니다.
+* **구현 범위**: 사용자가 기지정한 가격 또는 수익률 조건 도달 시 자동 주문 제안을 생성하거나, 사용자가 `AUTO` 실행을 명시 선택한 조건식에 한해 주문을 실행하는 백그라운드 워커를 구축합니다.
+* **현재 구현 기준**: `backend/services/auto_trading_rule_engine.py`가 Supabase `auto_trading_rules`의 `RUNNING` 규칙을 조회하고, 조건 도달 시 `trade_proposals`에 매도 제안 또는 자동 주문 결과를 기록합니다.
+* **구조적 제약**: Flask의 웹 서비스 웹훅/API 스레드와 별도 스레드 또는 별도 프로세스로 완전히 격리하여 감시 엔진을 구동합니다. 기본 운영은 `backend/worker.py` 단독 프로세스이며, `SCHEDULER_RUN_IN_GATEWAY=true`일 때만 gateway 내부 기동을 허용합니다.
+* **안전 정책**:
+  * `execution_mode=PROPOSAL`은 조건 도달 시 매도 제안만 생성합니다.
+  * `execution_mode=AUTO`는 조건 도달 시 워커가 매도 주문을 직접 전송합니다.
+  * 실거래(`REAL`) 자동매도 추정 원화 금액이 내부 1회 한도 10만 원을 초과하면 자동 주문 대신 제안 생성으로 우회합니다.
+  * Binance USD-M 선물 자동매도는 롱 포지션 청산(`BOTH + reduceOnly SELL`) 중심으로 취급합니다. 숏 포지션 청산은 매수 청산이므로 별도 자동청산 정책이 필요합니다.
 * **최적화**:
   * 국내 주식은 `GET /api/v1/market-calendar/KR`의 장 운영 정보를 사용합니다.
   * 미국 주식은 `GET /api/v1/market-calendar/US`의 데이마켓, 프리마켓, 정규장, 애프터마켓 정보를 사용합니다.

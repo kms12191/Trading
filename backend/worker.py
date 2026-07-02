@@ -18,6 +18,7 @@ from backend.services.dart_ingest import DartIngestService
 from backend.services.kis_market_universe import KISMarketUniverseService
 from backend.services.market_snapshot_scheduler import start_market_snapshot_scheduler
 from backend.services.ml_scheduler import start_dart_ingest_scheduler, start_news_ingest_scheduler, start_ml_automation_scheduler
+from backend.services.auto_trading_rule_engine import start_auto_trading_rule_scheduler
 
 def main():
     print("[Worker] 백그라운드 스케줄러 배치 프로세스를 시작합니다...")
@@ -40,6 +41,8 @@ def main():
     HOME_MARKET_CLOSED_INTERVAL_SECONDS = int(os.getenv("HOME_MARKET_CLOSED_INTERVAL_SECONDS", "600"))
     HOME_MARKET_SNAPSHOT_LIMIT = int(os.getenv("HOME_MARKET_SNAPSHOT_LIMIT", "300"))
     HOME_MARKET_SNAPSHOT_WORKERS = int(os.getenv("HOME_MARKET_SNAPSHOT_WORKERS", "2"))
+    AUTO_TRADING_RULES_ENABLED = os.getenv("AUTO_TRADING_RULES_ENABLED", "false").lower() == "true"
+    AUTO_TRADING_RULES_INTERVAL_SECONDS = int(os.getenv("AUTO_TRADING_RULES_INTERVAL_SECONDS", "30"))
     
     news_ingest_service = NewsIngestService()
     dart_ingest_service = DartIngestService()
@@ -83,6 +86,13 @@ def main():
         closed_interval_seconds=HOME_MARKET_CLOSED_INTERVAL_SECONDS,
         quote_limit=HOME_MARKET_SNAPSHOT_LIMIT,
         max_workers=HOME_MARKET_SNAPSHOT_WORKERS,
+    )
+
+    # 4. 조건감시 자동매도 스케줄러 기동
+    print(f"[Worker] Auto Trading Rule Scheduler (Enabled: {AUTO_TRADING_RULES_ENABLED}) 기동 시도")
+    start_auto_trading_rule_scheduler(
+        enabled=AUTO_TRADING_RULES_ENABLED,
+        interval_seconds=AUTO_TRADING_RULES_INTERVAL_SECONDS,
     )
     
     print("[Worker] 모든 스케줄러가 성공적으로 등록되었습니다. 무한 대기 상태로 진입합니다.")
