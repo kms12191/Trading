@@ -2244,7 +2244,17 @@ def _fetch_candles_uncached(cache_key, exchange, symbol, interval, count, broker
             elif interval in ("1h", "60m"):
                 coinone_interval = "1h"
                 
-            url = f"https://api.coinone.co.kr/public/v2/chart/KRW/{symbol.upper()}"
+            symbol_upper = symbol.upper()
+            if symbol_upper.endswith("USDT"):
+                clean_symbol = symbol_upper[:-4]
+            elif symbol_upper.endswith("KRW") and len(symbol_upper) > 3:
+                clean_symbol = symbol_upper[:-3]
+            elif symbol_upper.endswith("_KRW"):
+                clean_symbol = symbol_upper[:-4]
+            else:
+                clean_symbol = symbol_upper
+
+            url = f"https://api.coinone.co.kr/public/v2/chart/KRW/{clean_symbol}"
             res = requests.get(url, params={"interval": coinone_interval})
             if res.status_code != 200:
                 return jsonify({"success": False, "message": f"Coinone 차트 조회 실패: {res.text}"}), 500

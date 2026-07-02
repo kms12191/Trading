@@ -37,8 +37,15 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     return `${getCurrencySign()}${numeric.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}`
   }
 
-  // 1. 거래소 기본값 세팅 (주식은 TOSS 실거래를 기본값으로, 코인은 COINONE)
-  const defaultExchange = normalizedRouteAssetType === 'STOCK' ? 'TOSS' : 'COINONE'
+  // 1. 거래소 기본값 세팅 (주식은 TOSS 실거래를 기본값으로, 코인은 COINONE. 단, USDT 마켓 코인은 BINANCE)
+  const defaultExchange = (() => {
+    if (normalizedRouteAssetType === 'STOCK') return 'TOSS';
+    const symUpper = String(symbol || '').toUpperCase();
+    if (symUpper.endsWith('USDT') || symUpper.endsWith('BUSD')) {
+      return 'BINANCE';
+    }
+    return 'COINONE';
+  })();
   const [exchange, setExchange] = useState(defaultExchange)
   
   // 2. 환경 세팅 (TOSS는 실거래만 지원하므로 기본 REAL 설정)
@@ -1122,17 +1129,27 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       }
       return
     }
+    
+    const symUpper = String(symbol || '').toUpperCase()
+    const isUsdtMarket = symUpper.endsWith('USDT') || symUpper.endsWith('BUSD')
 
-    if (!['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(exchange)) {
-      setExchange('COINONE')
+    if (isUsdtMarket) {
+      if (!['BINANCE', 'BINANCE_UM_FUTURES'].includes(exchange)) {
+        setExchange('BINANCE')
+      }
+    } else {
+      if (!['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(exchange)) {
+        setExchange('COINONE')
+      }
     }
+
     if (exchange !== 'BINANCE_UM_FUTURES' && brokerEnv !== 'REAL') {
       setBrokerEnv('REAL')
     }
     if (!['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1M'].includes(chartInterval)) {
       setChartInterval('1h')
     }
-  }, [resolvedAssetType, exchange, brokerEnv, chartInterval, brokerAvailability, tradeHoldingContext])
+  }, [resolvedAssetType, exchange, brokerEnv, chartInterval, brokerAvailability, tradeHoldingContext, symbol])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
