@@ -17,6 +17,7 @@ HOME_STOCK_SCAN_LIMIT = int(os.getenv("HOME_STOCK_SCAN_LIMIT", "120"))
 HOME_STOCK_SCAN_WORKERS = int(os.getenv("HOME_STOCK_SCAN_WORKERS", "4"))
 HOME_STOCK_CACHE_TTL_SECONDS = int(os.getenv("HOME_STOCK_CACHE_TTL_SECONDS", "300"))
 HOME_MARKET_RANK_LIMIT = int(os.getenv("HOME_MARKET_RANK_LIMIT", "50"))
+HOME_MARKET_SNAPSHOT_COHORT_SECONDS = int(os.getenv("HOME_MARKET_SNAPSHOT_COHORT_SECONDS", "1800"))
 HOME_STOCK_PRIORITY_SYMBOLS = [
     symbol.strip().upper()
     for symbol in os.getenv(
@@ -234,11 +235,23 @@ def fetch_coinone_overview(limit=COINONE_HOME_LIMIT) -> list[dict]:
 
 
 def normalize_market_segment(region: str | None) -> str:
-    if region == "국내":
-        return "KOSPI"
-    if region == "해외":
+    text = str(region or "").strip().upper()
+    if text in {"국내", "KR", "KOR", "KOREA", "DOMESTIC", "KOSPI", "KOSDAQ"}:
+        return "KR"
+    if text in {"해외", "US", "USA", "GLOBAL", "FOREIGN", "NASDAQ", "NYSE", "AMEX"}:
         return "US"
     return "ALL"
+
+
+def normalize_ranking_label(ranking: str | None) -> str:
+    text = str(ranking or "").strip()
+    if text in {"거래량", "volume", "VOLUME"} or "거래량" in text:
+        return "volume"
+    if text in {"상승률", "up", "UP"} or "상승" in text:
+        return "up"
+    if text in {"하락률", "down", "DOWN"} or "하락" in text:
+        return "down"
+    return "turnover"
 
 
 def is_domestic_common_stock_row(row: dict) -> bool:
@@ -254,29 +267,67 @@ def is_foreign_stock_row(row: dict) -> bool:
 
 
 def dedupe_market_rows(rows: list[dict]) -> list[dict]:
-    seen = set()
-    deduped = []
+    by_symbol: dict[str, dict] = {}
     for row in rows or []:
         symbol = str(row.get("symbol") or row.get("code") or "").strip().upper()
-        if not symbol or symbol in seen:
+        if not symbol:
             continue
-        seen.add(symbol)
         updated = dict(row)
         updated["symbol"] = symbol
         if updated.get("name"):
             updated["name"] = clean_stock_name(updated.get("name"))
-        deduped.append(updated)
-    return deduped
+
+        previous = by_symbol.get(symbol)
+        if not previous:
+            by_symbol[symbol] = updated
+            continue
+
+        merged = {**previous, **updated}
+        merged["trading_value"] = max(to_float(previous.get("trading_value")), to_float(updated.get("trading_value")))
+        merged["trading_volume"] = max(to_float(previous.get("trading_volume")), to_float(updated.get("trading_volume")))
+        if not to_float(updated.get("current_price")) and previous.get("current_price") is not None:
+            merged["current_price"] = previous.get("current_price")
+        if not to_float(updated.get("change_rate")) and previous.get("change_rate") is not None:
+            merged["change_rate"] = previous.get("change_rate")
+        previous_as_of = parse_datetime(previous.get("as_of"))
+        updated_as_of = parse_datetime(updated.get("as_of"))
+        if previous_as_of and updated_as_of and previous_as_of > updated_as_of:
+            merged["as_of"] = previous.get("as_of")
+        by_symbol[symbol] = merged
+
+    return list(by_symbol.values())
 
 
 def get_stock_rank_order(ranking: str | None) -> str:
-    if ranking == "거래량":
+    normalized = normalize_ranking_label(ranking)
+    if normalized == "volume":
         return "trading_volume.desc,updated_at.desc"
-    if ranking == "상승률":
+    if normalized == "up":
         return "change_rate.desc,trading_value.desc,updated_at.desc"
-    if ranking == "하락률":
+    if normalized == "down":
         return "change_rate.asc,trading_value.desc,updated_at.desc"
     return "trading_value.desc,updated_at.desc"
+
+
+def latest_snapshot_cutoff(rows: list[dict]) -> datetime | None:
+    parsed_dates = [
+        parsed.astimezone(timezone.utc)
+        for parsed in (parse_datetime(row.get("as_of")) for row in rows or [])
+        if parsed is not None
+    ]
+    if not parsed_dates:
+        return None
+    return max(parsed_dates) - timedelta(seconds=HOME_MARKET_SNAPSHOT_COHORT_SECONDS)
+
+
+def filter_latest_snapshot_rows(rows: list[dict]) -> list[dict]:
+    cutoff = latest_snapshot_cutoff(rows)
+    if cutoff is None:
+        return rows
+    return [
+        row for row in rows
+        if (parse_datetime(row.get("as_of")) or datetime.min.replace(tzinfo=timezone.utc)).astimezone(timezone.utc) >= cutoff
+    ]
 
 
 def build_home_rank_candidate_rows(
@@ -290,11 +341,6 @@ def build_home_rank_candidate_rows(
     except Exception:
         rank_rows = []
 
-    rank_symbols = {
-        str(row.get("symbol") or "").strip().upper()
-        for row in rank_rows
-        if row.get("symbol")
-    }
     master_rows = repository.list_symbols(HOME_STOCK_PRIORITY_SYMBOLS) if repository.is_configured else []
     master_by_symbol = {
         str(row.get("symbol") or "").strip().upper(): row
@@ -312,7 +358,6 @@ def build_home_rank_candidate_rows(
             "market_country": "KR",
         }
         for symbol in HOME_STOCK_PRIORITY_SYMBOLS
-        if symbol not in rank_symbols
     ]
     stock_rows = [
         row for row in dedupe_market_rows(priority_rows)
@@ -328,13 +373,14 @@ def build_home_rank_candidate_rows(
 
 def apply_stock_filters(rows: list[dict], filters: dict, limit: int = HOME_STOCK_LIMIT) -> list[dict]:
     ranking = filters.get("ranking") or filters.get("metric") or "거래대금"
+    normalized_ranking = normalize_ranking_label(ranking)
     filtered = list(rows or [])
 
-    if ranking == "거래량":
+    if normalized_ranking == "volume":
         filtered.sort(key=lambda row: to_float(row.get("trading_volume")), reverse=True)
-    elif ranking == "상승률":
+    elif normalized_ranking == "up":
         filtered.sort(key=parse_change_rate, reverse=True)
-    elif ranking == "하락률":
+    elif normalized_ranking == "down":
         filtered.sort(key=parse_change_rate)
     else:
         filtered.sort(key=lambda row: to_float(row.get("trading_value")), reverse=True)
@@ -373,9 +419,15 @@ def fetch_top_turnover_stock_rows(
             limit=lookup_limit,
             order_by=order_by,
         )
+        latest_rows = filter_latest_snapshot_rows(rows)
+        if latest_rows:
+            rows = latest_rows
+        elif rows:
+            rows = []
     kis = get_kis_env_credentials()
-    meta = build_snapshot_meta(rows)
-    should_refresh = force_refresh or not rows
+    # 일반 필터 조회는 DB 최신 회차 캐시만 사용해 즉시 응답하고,
+    # 거래소 재수집은 사용자가 새로고침을 누른 경우에만 수행한다.
+    should_refresh = force_refresh
     if should_refresh and kis["appkey"] and kis["appsecret"]:
         refresh_limit = min(lookup_limit, max(limit, HOME_MARKET_RANK_LIMIT))
         client = KISClient(
@@ -398,13 +450,14 @@ def fetch_top_turnover_stock_rows(
                 order_by=order_by,
             )
             if stored_rows:
-                rows = stored_rows
+                rows = filter_latest_snapshot_rows(stored_rows) or stored_rows
     elif force_refresh:
         rows = repository.list_turnover_rankings(
             market_segment=market_segment,
             limit=lookup_limit,
             order_by=order_by,
         )
+        rows = filter_latest_snapshot_rows(rows) or rows
 
     normalized_rows = []
     if market_segment == "US":
@@ -422,6 +475,7 @@ def fetch_top_turnover_stock_rows(
         current_price = to_float(row.get("current_price"))
         prefix = "+" if change_rate > 0 else ""
         is_foreign = is_foreign_stock_row(row)
+        normalized_ranking = normalize_ranking_label(ranking)
 
         normalized_rows.append({
             "rank": index,
@@ -429,7 +483,7 @@ def fetch_top_turnover_stock_rows(
             "code": row.get("symbol"),
             "price": f"{current_price:,.2f}" if is_foreign and current_price else f"{current_price:,.0f}" if current_price else "-",
             "change": f"{prefix}{change_rate:.2f}%",
-            "value": "-" if is_foreign and ranking in {"상승률", "하락률"} else format_krw_compact(trading_value) if trading_value else "-",
+            "value": "-" if is_foreign and normalized_ranking in {"up", "down"} else format_krw_compact(trading_value) if trading_value else "-",
             "trading_value": trading_value,
             "trading_volume": to_float(row.get("trading_volume")),
             "market_segment": row.get("market_segment"),

@@ -73,6 +73,66 @@ class DartRepository:
         response.raise_for_status()
         return int(response.headers.get("Content-Range", "0").split("/")[-1])
 
+    def get_disclosure_by_rcept_no(self, rcept_no: str) -> dict[str, Any] | None:
+        if not self.supabase_url or not self.supabase_anon_key:
+            return None
+
+        response = requests.get(
+            f"{self.supabase_url}/rest/v1/dart_disclosures",
+            headers=self._read_headers(),
+            params={
+                "select": "id,rcept_no,corp_code,stock_code,corp_name,corp_cls,report_nm,flr_nm,rcept_dt,rm,url,summary,is_active,fetched_at,raw_payload",
+                "rcept_no": f"eq.{str(rcept_no or '').strip()}",
+                "limit": "1",
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+        rows = response.json()
+        return rows[0] if rows else None
+
+    def get_disclosure_analysis(self, rcept_no: str) -> dict[str, Any] | None:
+        if not self.supabase_url or not self.supabase_anon_key:
+            return None
+
+        try:
+            response = requests.get(
+                f"{self.supabase_url}/rest/v1/dart_disclosure_analyses",
+                headers=self._read_headers(),
+                params={
+                    "select": "id,rcept_no,category,sentiment,sentiment_label,sentiment_message,confidence,headline,key_points,risk_points,metrics,analysis_source,raw_payload,analyzed_at",
+                    "rcept_no": f"eq.{str(rcept_no or '').strip()}",
+                    "limit": "1",
+                },
+                timeout=15,
+            )
+            response.raise_for_status()
+        except HTTPError:
+            if response.status_code == 404:
+                return None
+            raise
+        rows = response.json()
+        return rows[0] if rows else None
+
+    def upsert_disclosure_analysis(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        if not self.is_configured or not row:
+            return None
+
+        response = requests.post(
+            f"{self.supabase_url}/rest/v1/dart_disclosure_analyses?on_conflict=rcept_no",
+            headers={**self._write_headers(), "Prefer": "resolution=merge-duplicates,return=representation"},
+            json=row,
+            timeout=30,
+        )
+        try:
+            self._raise_for_status(response, "dart_disclosure_analyses")
+        except RuntimeError:
+            if response.status_code == 404:
+                return None
+            raise
+        rows = response.json()
+        return rows[0] if rows else None
+
     def upsert_corp_codes(self, rows: list[dict[str, Any]]) -> None:
         if not self.is_configured or not rows:
             return

@@ -62,6 +62,16 @@ def sync_disclosures():
         return jsonify(format_error_payload(error, "공시 수집 실패")), 500
 
 
+@disclosures_bp.route("/api/disclosures/<rcept_no>/analysis", methods=["GET"])
+def get_disclosure_analysis(rcept_no):
+    try:
+        service = current_app.dart_analysis_service
+        result = service.ensure_analysis(rcept_no)
+        return jsonify({"success": True, "data": result})
+    except Exception as error:
+        return jsonify(format_error_payload(error, "공시 요약 분석 실패")), 500
+
+
 def _is_admin_sync_request() -> bool:
     admin_token = os.getenv("DART_SYNC_ADMIN_TOKEN") or os.getenv("MARKET_SYNC_ADMIN_TOKEN", "")
     if not admin_token:

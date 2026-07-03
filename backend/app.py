@@ -19,6 +19,7 @@ from backend.services.news_ingest import NewsIngestService
 from backend.services.news_summary_service import NewsSummaryService
 from backend.services.dart_repository import DartRepository
 from backend.services.dart_ingest import DartIngestService
+from backend.services.dart_analysis_service import DartDisclosureAnalysisService
 from backend.services.kis_market_universe import KISMarketUniverseService
 from backend.services.market_snapshot_scheduler import start_market_snapshot_scheduler
 from backend.services.ml_scheduler import start_dart_ingest_scheduler, start_news_ingest_scheduler, start_ml_automation_scheduler
@@ -85,6 +86,7 @@ news_ingest_service = NewsIngestService()
 news_summary_service = NewsSummaryService()
 dart_repository = DartRepository()
 dart_ingest_service = DartIngestService()
+dart_analysis_service = DartDisclosureAnalysisService()
 kis_market_universe_service = KISMarketUniverseService()
 
 app.crypto = crypto
@@ -93,6 +95,7 @@ app.news_ingest_service = news_ingest_service
 app.news_summary_service = news_summary_service
 app.dart_repository = dart_repository
 app.dart_ingest_service = dart_ingest_service
+app.dart_analysis_service = dart_analysis_service
 app.kis_market_universe_service = kis_market_universe_service
 
 # Blueprint 등록
