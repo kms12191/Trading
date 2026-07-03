@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { DASHBOARD_TABS } from '../dashboardConstants.js'
 
 function Rate({ value }) {
@@ -178,7 +179,10 @@ function SectionHeader({ eyebrow, title, action }) {
 
 // 고정 목업 관심 종목 리스트
 
-function SidebarNav({ activeTab, isOpen, onClose, onOpen, onTabChange }) {
+function SidebarNav({ activeTab, isOpen, isLoggedIn, onClose, onOpen, onTabChange }) {
+  const navigate = useNavigate()
+  const visibleTabs = DASHBOARD_TABS.filter((tab) => !tab.authOnly || isLoggedIn)
+
   if (!isOpen) {
     return (
       <button
@@ -213,7 +217,7 @@ function SidebarNav({ activeTab, isOpen, onClose, onOpen, onTabChange }) {
           </button>
         </div>
 
-        {DASHBOARD_TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.key}
             className={`shrink-0 rounded-lg px-4 py-3 text-left text-sm font-bold transition ${activeTab === tab.key
@@ -224,7 +228,12 @@ function SidebarNav({ activeTab, isOpen, onClose, onOpen, onTabChange }) {
               }`}
             type="button"
             onClick={() => {
-              if (tab.enabled) onTabChange(tab.key)
+              if (!tab.enabled) return
+              if (tab.route) {
+                navigate(tab.route)
+                return
+              }
+              onTabChange(tab.key)
             }}
           >
             {tab.label}

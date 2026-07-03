@@ -928,6 +928,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
         <SidebarNav
           activeTab={activeTab}
           isOpen={isSidebarOpen}
+          isLoggedIn={isLoggedIn}
           onClose={() => setIsSidebarOpen(false)}
           onOpen={() => setIsSidebarOpen(true)}
           onTabChange={setActiveTab}

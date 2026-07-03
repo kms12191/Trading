@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom'
+import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { supabase } from './supabaseClient'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import News from './pages/News'
+import Inquiry from './pages/Inquiry'
 import Settings from './pages/Settings'
 import Home from './pages/Home'
 import AdminMlData from './pages/AdminMlData'
@@ -191,6 +192,20 @@ function AppShell({
                 handleLogout={handleLogout}
               />
             )}
+          />
+          <Route
+            path="/inquiry"
+            element={
+              isLoggedIn ? (
+                <Inquiry
+                  isLoggedIn={isLoggedIn}
+                  userEmail={userEmail}
+                  handleLogout={handleLogout}
+                />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
           />
           <Route
             path="/settings"

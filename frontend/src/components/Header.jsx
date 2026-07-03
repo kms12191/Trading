@@ -8,7 +8,7 @@ export default function Header({ isLoggedIn, userEmail, handleLogout }) {
 
   const navLinks = [
     { to: '/dashboard', label: '대시보드' },
-    { to: '/news',      label: '뉴스'     },
+    { to: '/news', label: '뉴스' }
   ]
 
   return (
