@@ -73,8 +73,11 @@ class MarketRepository:
             "order": order_by,
             "limit": str(limit),
         }
-        if market_segment and market_segment.upper() != "ALL":
-            params["market_segment"] = f"eq.{market_segment.upper()}"
+        normalized_segment = str(market_segment or "ALL").upper()
+        if normalized_segment in {"KR", "KOREA", "DOMESTIC"}:
+            params["market_country"] = "eq.KR"
+        elif normalized_segment != "ALL":
+            params["market_segment"] = f"eq.{normalized_segment}"
 
         response = requests.get(
             f"{self.supabase_url}/rest/v1/kis_stock_turnover_latest",
@@ -93,8 +96,11 @@ class MarketRepository:
             "is_active": "eq.true",
             "symbol": "match.\\d{6}",
         }
-        if market_segment and market_segment.upper() != "ALL":
-            params["market_segment"] = f"eq.{market_segment.upper()}"
+        normalized_segment = str(market_segment or "ALL").upper()
+        if normalized_segment in {"KR", "KOREA", "DOMESTIC"}:
+            params["market_country"] = "eq.KR"
+        elif normalized_segment != "ALL":
+            params["market_segment"] = f"eq.{normalized_segment}"
 
         response = requests.get(
             f"{self.supabase_url}/rest/v1/kis_stock_master",
@@ -119,8 +125,11 @@ class MarketRepository:
             "order": "market_segment.asc,symbol.asc",
             "limit": str(limit),
         }
-        if market_segment and market_segment.upper() != "ALL":
-            params["market_segment"] = f"eq.{market_segment.upper()}"
+        normalized_segment = str(market_segment or "ALL").upper()
+        if normalized_segment in {"KR", "KOREA", "DOMESTIC"}:
+            params["market_country"] = "eq.KR"
+        elif normalized_segment != "ALL":
+            params["market_segment"] = f"eq.{normalized_segment}"
 
         response = requests.get(
             f"{self.supabase_url}/rest/v1/kis_stock_master",

@@ -154,6 +154,48 @@ class KISClient(ExchangeClient):
             "expired_at": None,
         }
 
+    def _is_expired_token_response(self, response: requests.Response) -> bool:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        message = str(payload.get("msg1") or response.text or "")
+        return payload.get("msg_cd") == "EGW00123" or "기간이 만료된 token" in message
+
+    def _request_with_token_retry(
+        self,
+        method: str,
+        url: str,
+        headers: dict,
+        *,
+        params: dict | None = None,
+        json_data: dict | None = None,
+        timeout: int = 10,
+    ) -> requests.Response:
+        for attempt in range(2):
+            token = self._get_cached_token()
+            request_headers = {
+                **headers,
+                "authorization": f"Bearer {token}",
+                "appkey": self.appkey,
+                "appsecret": self.appsecret,
+            }
+            response = requests.request(
+                method,
+                url,
+                headers=request_headers,
+                params=params,
+                json=json_data,
+                timeout=timeout,
+            )
+            if not self._is_expired_token_response(response) or attempt == 1:
+                return response
+
+            logger.warning("[KIS Client] expired token detected. token cache will be refreshed once. path=%s", url)
+            self._clear_token_cache()
+
+        return response
+
     def _get_cached_token(self) -> str:
         from backend.services.lock_service import distributed_lock
         from backend.services.token_cache_service import get_db_token_with_status, set_db_token
@@ -271,18 +313,15 @@ class KISClient(ExchangeClient):
     def get_price(self, symbol: str) -> dict:
         _enforce_kis_mock_rate_limit(self.env)
         url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
-        token = self._get_cached_token()
         headers = {
-            "authorization": f"Bearer {token}",
-            "appkey": self.appkey,
-            "appsecret": self.appsecret,
+            "content-type": "application/json; charset=utf-8",
             "tr_id": "FHKST01010100"
         }
         params = {
             "FID_COND_MRKT_DIV_CODE": "J",
             "FID_INPUT_ISCD": symbol
         }
-        res = requests.get(url, headers=headers, params=params, timeout=10)
+        res = self._request_with_token_retry("GET", url, headers, params=params, timeout=10)
         if res.status_code != 200:
             raise Exception(f"KIS get_price failed: {res.text}")
             
@@ -319,12 +358,8 @@ class KISClient(ExchangeClient):
         홈페이지 랭킹 표 전용 보조 데이터이며, 주문/거래 실행에는 사용하지 않습니다.
         """
         url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/volume-rank"
-        token = self._get_cached_token()
         headers = {
             "content-type": "application/json; charset=utf-8",
-            "authorization": f"Bearer {token}",
-            "appkey": self.appkey,
-            "appsecret": self.appsecret,
             "tr_id": "FHPST01710000",
         }
         params = {
@@ -340,7 +375,7 @@ class KISClient(ExchangeClient):
             "FID_VOL_CNT": "",
             "FID_INPUT_DATE_1": "",
         }
-        res = requests.get(url, headers=headers, params=params, timeout=10)
+        res = self._request_with_token_retry("GET", url, headers, params=params, timeout=10)
         if res.status_code != 200:
             raise Exception(f"KIS turnover ranking failed: {res.text}")
 
@@ -439,15 +474,17 @@ class KISClient(ExchangeClient):
         limit: int,
     ) -> list[dict]:
         _enforce_kis_mock_rate_limit(self.env)
-        token = self._get_cached_token()
         headers = {
             "content-type": "application/json; charset=utf-8",
-            "authorization": f"Bearer {token}",
-            "appkey": self.appkey,
-            "appsecret": self.appsecret,
             "tr_id": tr_id,
         }
-        res = requests.get(f"{self.base_url}{endpoint}", headers=headers, params=params, timeout=15)
+        res = self._request_with_token_retry(
+            "GET",
+            f"{self.base_url}{endpoint}",
+            headers,
+            params=params,
+            timeout=15,
+        )
         if res.status_code != 200:
             raise Exception(f"KIS ranking request failed: {res.text}")
 
