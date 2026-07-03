@@ -121,9 +121,56 @@ class AutoTradingRuleEngine:
         symbol = str(rule.get("symbol") or rule.get("ticker") or "").upper()
         broker_env = str(rule.get("broker_env") or "REAL").upper()
         client = self._build_client(rule, exchange, broker_env)
+
+        # 1. 거래소 잔고/포지션 동기화 및 미보유 가드 로직
+        entry_price = float(rule.get("entry_price") or 0)
+        try:
+            balance_data = client.get_balance()
+            holdings = balance_data.get("holdings") or []
+            
+            # 현재 감시 대상 심볼과 일치하는 보유 자산 찾기
+            matching_holding = next(
+                (h for h in holdings if str(h.get("symbol") or "").upper() == symbol),
+                None
+            )
+            
+            if matching_holding:
+                actual_avg_price = float(matching_holding.get("avg_price") or 0)
+                actual_qty = abs(float(matching_holding.get("qty") or 0))
+                
+                # 거래소 실시간 평단가와 동기화
+                if actual_avg_price > 0:
+                    entry_price = actual_avg_price
+                    
+                # 감시 수량이 실제 보유 수량보다 크다면 실제 보유량 범위로 제한 보정
+                rule_qty = float(rule.get("quantity") or 0)
+                if rule_qty > actual_qty and actual_qty > 0:
+                    rule["quantity"] = actual_qty
+            else:
+                # 거래소에 실제 보유 포지션/자산이 존재하지 않는 경우 (qty == 0)
+                # 감축(Reduce-Only) 무한 리젝트 에러를 방지하기 위해 즉시 FAILED 마감 처리
+                self._update_rule(
+                    rule["id"],
+                    {
+                        "status": "FAILED",
+                        "last_checked_at": _utc_now_iso(),
+                        "last_error": f"감시 대상 자산({symbol})이 거래소 보유 잔고에 존재하지 않아 감시를 중단합니다.",
+                    },
+                )
+                return False
+        except Exception as e:
+            # 잔고 조회가 실패한 경우 룰을 중단하진 않고, 에러 로그만 갱신한 채 다음 턴에 재시도
+            self._update_rule(
+                rule["id"],
+                {
+                    "last_checked_at": _utc_now_iso(),
+                    "last_error": f"거래소 잔고/포지션 정보 동기화 실패: {str(e)[:200]}",
+                },
+            )
+            return False
+
         current_price = _extract_price(client.get_price(symbol))
 
-        entry_price = float(rule.get("entry_price") or 0)
         if entry_price <= 0:
             raise ValueError("조건감시 규칙의 진입가가 올바르지 않습니다.")
 
