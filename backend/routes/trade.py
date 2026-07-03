@@ -3852,3 +3852,109 @@ def search_symbols():
     results.sort(key=lambda x: (len(x["symbol"]), x["display_name"]))
 
     return jsonify({"success": True, "data": results[:10]})
+
+
+@trade_bp.route("/api/trade/auto-trading-rule", methods=["PATCH"])
+def modify_auto_trading_rule():
+    """
+    사용자가 등록한 조건감시 규칙(익절/손절 비율, 수량, 상태)을 수정합니다.
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"success": False, "message": "인증 토큰이 없습니다."}), 401
+
+    try:
+        user_id, _ = get_user_id_from_header(auth_header)
+    except Exception as e:
+        return jsonify({"success": False, "message": f"인증 실패: {str(e)}"}), 401
+
+    data = request.json or {}
+    rule_id = data.get("rule_id")
+    if not rule_id:
+        return jsonify({"success": False, "message": "rule_id가 누락되었습니다."}), 400
+
+    # 본인의 규칙인지 선제 검증
+    try:
+        rules = query_supabase(auth_header, "auto_trading_rules", "GET", params={
+            "id": f"eq.{rule_id}",
+            "user_id": f"eq.{user_id}",
+            "limit": "1"
+        })
+    except Exception as error:
+        current_app.logger.exception("조건감시 규칙 조회 실패")
+        return jsonify(format_error_payload(error, "조건감시 규칙 조회 실패")), 400
+
+    if not rules or len(rules) == 0:
+        return jsonify({"success": False, "message": "해당 조건감시 규칙을 찾을 수 없거나 권한이 없습니다."}), 404
+
+    # 업데이트할 페이로드 구성
+    update_data = {}
+    if "target_profit_rate" in data:
+        update_data["target_profit_rate"] = float(data["target_profit_rate"])
+    if "stop_loss_rate" in data:
+        update_data["stop_loss_rate"] = float(data["stop_loss_rate"])
+    if "quantity" in data:
+        qty = data["quantity"]
+        update_data["quantity"] = float(qty) if qty is not None else None
+    if "status" in data:
+        status = str(data["status"]).upper()
+        if status in ("RUNNING", "COMPLETED", "STOPPED", "FAILED"):
+            update_data["status"] = status
+            
+    if not update_data:
+        return jsonify({"success": False, "message": "수정할 정보가 제공되지 않았습니다."}), 400
+
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    try:
+        result = query_supabase(auth_header, f"auto_trading_rules?id=eq.{rule_id}", "PATCH", json_data=update_data)
+        return jsonify({"success": True, "message": "조건감시 규칙이 정상적으로 수정되었습니다.", "data": result})
+    except Exception as error:
+        current_app.logger.exception("조건감시 규칙 수정 실패")
+        return jsonify(format_error_payload(error, "조건감시 규칙 수정 실패")), 400
+
+
+@trade_bp.route("/api/trade/auto-trading-rule", methods=["DELETE"])
+def stop_auto_trading_rule():
+    """
+    사용자가 등록한 조건감시 규칙을 정지(STOPPED) 처리합니다. (기록 보존을 위해 완전 삭제 대신 상태 변경)
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"success": False, "message": "인증 토큰이 없습니다."}), 401
+
+    try:
+        user_id, _ = get_user_id_from_header(auth_header)
+    except Exception as e:
+        return jsonify({"success": False, "message": f"인증 실패: {str(e)}"}), 401
+
+    rule_id = request.args.get("rule_id") or (request.json or {}).get("rule_id")
+    if not rule_id:
+        return jsonify({"success": False, "message": "rule_id가 누락되었습니다."}), 400
+
+    # 본인의 규칙인지 선제 검증
+    try:
+        rules = query_supabase(auth_header, "auto_trading_rules", "GET", params={
+            "id": f"eq.{rule_id}",
+            "user_id": f"eq.{user_id}",
+            "limit": "1"
+        })
+    except Exception as error:
+        current_app.logger.exception("조건감시 규칙 조회 실패")
+        return jsonify(format_error_payload(error, "조건감시 규칙 조회 실패")), 400
+
+    if not rules or len(rules) == 0:
+        return jsonify({"success": False, "message": "해당 조건감시 규칙을 찾을 수 없거나 권한이 없습니다."}), 404
+
+    # 상태를 STOPPED로 마감
+    update_data = {
+        "status": "STOPPED",
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+
+    try:
+        result = query_supabase(auth_header, f"auto_trading_rules?id=eq.{rule_id}", "PATCH", json_data=update_data)
+        return jsonify({"success": True, "message": "조건감시가 정지되었습니다.", "data": result})
+    except Exception as error:
+        current_app.logger.exception("조건감시 정지 실패")
+        return jsonify(format_error_payload(error, "조건감시 정지 실패")), 400

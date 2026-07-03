@@ -296,6 +296,11 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const [autoRules, setAutoRules] = useState([])
   const [autoRulesLoading, setAutoRulesLoading] = useState(false)
   const [autoRulesMessage, setAutoRulesMessage] = useState('')
+  const [editingRuleId, setEditingRuleId] = useState(null)
+  const [editTargetProfit, setEditTargetProfit] = useState('')
+  const [editStopLoss, setEditStopLoss] = useState('')
+  const [editQuantity, setEditQuantity] = useState('')
+  const [ruleUpdating, setRuleUpdating] = useState(false)
 
   const chartContainerRef = useRef(null)
   const chartRef = useRef(null)
@@ -417,6 +422,84 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       })
     } finally {
       setOpenOrdersLoading(false)
+    }
+  }
+
+  const handleStartEditRule = (rule) => {
+    setEditingRuleId(rule.id)
+    setEditTargetProfit(String(rule.target_profit_rate || 5.0))
+    const rawStopRate = Number(rule.stop_loss_rate || -3.0)
+    setEditStopLoss(String(rawStopRate > 0 ? -Math.abs(rawStopRate) : rawStopRate))
+    setEditQuantity(String(rule.quantity || ''))
+  }
+
+  const handleUpdateRule = async (ruleId) => {
+    if (!editTargetProfit || !editStopLoss) {
+      alert('익절 및 손절 비율을 올바르게 입력해주세요.')
+      return
+    }
+    setRuleUpdating(true)
+    try {
+      const authHeader = await getAuthHeader()
+      if (!authHeader) {
+        alert('로그인이 필요합니다.')
+        return
+      }
+      const response = await fetch(`${API_BASE_URL}/api/trade/auto-trading-rule`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': authHeader,
+        },
+        body: JSON.stringify({
+          rule_id: ruleId,
+          target_profit_rate: parseFloat(editTargetProfit),
+          stop_loss_rate: parseFloat(editStopLoss),
+          quantity: editQuantity ? parseFloat(editQuantity) : null,
+          status: 'RUNNING',
+        }),
+      })
+      const result = await response.json()
+      if (result.success) {
+        setEditingRuleId(null)
+        loadAutoTradingRules()
+      } else {
+        alert(result.message || '조건감시 규칙 수정에 실패했습니다.')
+      }
+    } catch (error) {
+      console.error('Update rule error:', error)
+      alert('서버 통신 오류가 발생했습니다.')
+    } finally {
+      setRuleUpdating(false)
+    }
+  }
+
+  const handleStopRule = async (ruleId) => {
+    if (!confirm('해당 조건감시를 정지하시겠습니까?')) return
+    setRuleUpdating(true)
+    try {
+      const authHeader = await getAuthHeader()
+      if (!authHeader) {
+        alert('로그인이 필요합니다.')
+        return
+      }
+      const response = await fetch(`${API_BASE_URL}/api/trade/auto-trading-rule?rule_id=${ruleId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': authHeader,
+        },
+      })
+      const result = await response.json()
+      if (result.success) {
+        loadAutoTradingRules()
+      } else {
+        alert(result.message || '조건감시 정지에 실패했습니다.')
+      }
+    } catch (error) {
+      console.error('Stop rule error:', error)
+      alert('서버 통신 오류가 발생했습니다.')
+    } finally {
+      setRuleUpdating(false)
     }
   }
 
@@ -2611,61 +2694,137 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                             {rule.created_at ? new Date(rule.created_at).toLocaleString('ko-KR') : '-'}
                           </span>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
-                          <div>
-                            <p className="text-slate-500">진입가</p>
-                            <p className="font-mono font-bold text-white">{entryPrice > 0 ? formatUnitPrice(entryPrice) : '-'}</p>
+                        {editingRuleId === rule.id ? (
+                          <div className="mt-1 rounded border border-slate-700 bg-slate-900/40 p-2.5">
+                            <div className="grid grid-cols-3 gap-2.5 text-xs">
+                              <div>
+                                <label className="block text-[9px] text-slate-500 mb-1 font-bold">익절 비율 (%)</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={editTargetProfit}
+                                  onChange={(e) => setEditTargetProfit(e.target.value)}
+                                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-cyan-400 focus:outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[9px] text-slate-500 mb-1 font-bold">손절 비율 (%)</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={editStopLoss}
+                                  onChange={(e) => setEditStopLoss(e.target.value)}
+                                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-cyan-400 focus:outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[9px] text-slate-500 mb-1 font-bold">수량</label>
+                                <input
+                                  type="number"
+                                  step="0.0001"
+                                  value={editQuantity}
+                                  onChange={(e) => setEditQuantity(e.target.value)}
+                                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-cyan-400 focus:outline-none"
+                                  placeholder="미입력 시 전량"
+                                />
+                              </div>
+                            </div>
+                            <div className="mt-3 flex justify-end gap-2 text-[10px]">
+                              <button
+                                type="button"
+                                onClick={() => setEditingRuleId(null)}
+                                className="rounded border border-slate-700 px-2.5 py-1 text-slate-300 hover:bg-slate-800 transition cursor-pointer"
+                              >
+                                취소
+                              </button>
+                              <button
+                                type="button"
+                                disabled={ruleUpdating}
+                                onClick={() => handleUpdateRule(rule.id)}
+                                className="rounded bg-emerald-500 px-2.5 py-1 font-black text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition cursor-pointer"
+                              >
+                                {ruleUpdating ? '저장 중...' : '저장'}
+                              </button>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-slate-500">익절 조건</p>
-                            <p className="font-mono font-bold text-emerald-300">+{targetRate.toLocaleString()}%</p>
-                            <p className="font-mono text-[10px] text-slate-500">{targetPrice > 0 ? formatUnitPrice(targetPrice) : '-'}</p>
-                          </div>
-                          <div>
-                            <p className="text-slate-500">손절 조건</p>
-                            <p className="font-mono font-bold text-rose-300">{stopRate.toLocaleString()}%</p>
-                            <p className="font-mono text-[10px] text-slate-500">{stopPrice > 0 ? formatUnitPrice(stopPrice) : '-'}</p>
-                          </div>
-                          <div>
-                            <p className="text-slate-500">감시 금액</p>
-                            <p className="font-mono font-bold text-white">
-                              {Number(rule.investment_amount || 0) > 0
-                                ? `${getCurrencySign()}${Number(rule.investment_amount).toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}`
-                                : '-'}
-                            </p>
-                            <p className="font-mono text-[10px] text-slate-500">
-                              수량 {Number(rule.quantity || 0) > 0 ? Number(rule.quantity).toLocaleString(undefined, { maximumFractionDigits: 8 }) : '-'}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="mt-3 grid grid-cols-1 gap-2 border-t border-[#1f2945] pt-3 text-[10px] text-slate-500 sm:grid-cols-4">
-                          <div>
-                            <p>마지막 확인</p>
-                            <p className="font-mono text-slate-300">
-                              {rule.last_checked_at ? new Date(rule.last_checked_at).toLocaleString('ko-KR') : '-'}
-                            </p>
-                          </div>
-                          <div>
-                            <p>현재 수익률</p>
-                            <p className={`font-mono font-bold ${currentReturnClass}`}>
-                              {formatSignedPercentValue(currentReturnRate)}
-                            </p>
-                            <p className="font-mono text-[10px] text-slate-600">
-                              현재가 {activePrice > 0 ? `${formatUnitPrice(activePrice)}${ruleEnv !== brokerEnv ? ` (${ruleEnv})` : ''}` : '-'}
-                            </p>
-                          </div>
-                          <div>
-                            <p>트리거</p>
-                            <p className="font-mono text-slate-300">
-                              {getAutoTriggerLabel(rule.trigger_side)}
-                              {Number(rule.trigger_price || 0) > 0 ? ` · ${formatUnitPrice(rule.trigger_price)}` : ''}
-                            </p>
-                          </div>
-                          <div>
-                            <p>최근 오류</p>
-                            <p className="truncate text-amber-300">{rule.last_error || '-'}</p>
-                          </div>
-                        </div>
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
+                              <div>
+                                <p className="text-slate-500">진입가</p>
+                                <p className="font-mono font-bold text-white">{entryPrice > 0 ? formatUnitPrice(entryPrice) : '-'}</p>
+                              </div>
+                              <div>
+                                <p className="text-slate-500">익절 조건</p>
+                                <p className="font-mono font-bold text-emerald-300">+{targetRate.toLocaleString()}%</p>
+                                <p className="font-mono text-[10px] text-slate-500">{targetPrice > 0 ? formatUnitPrice(targetPrice) : '-'}</p>
+                              </div>
+                              <div>
+                                <p className="text-slate-500">손절 조건</p>
+                                <p className="font-mono font-bold text-rose-300">{stopRate.toLocaleString()}%</p>
+                                <p className="font-mono text-[10px] text-slate-500">{stopPrice > 0 ? formatUnitPrice(stopPrice) : '-'}</p>
+                              </div>
+                              <div>
+                                <p className="text-slate-500">감시 금액</p>
+                                <p className="font-mono font-bold text-white">
+                                  {Number(rule.investment_amount || 0) > 0
+                                    ? `${getCurrencySign()}${Number(rule.investment_amount).toLocaleString(undefined, { maximumFractionDigits: getCurrencyDigits() })}`
+                                    : '-'}
+                                </p>
+                                <p className="font-mono text-[10px] text-slate-500">
+                                  수량 {Number(rule.quantity || 0) > 0 ? Number(rule.quantity).toLocaleString(undefined, { maximumFractionDigits: 8 }) : '-'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-1 gap-2 border-t border-[#1f2945] pt-3 text-[10px] text-slate-500 sm:grid-cols-4">
+                              <div>
+                                <p>마지막 확인</p>
+                                <p className="font-mono text-slate-300">
+                                  {rule.last_checked_at ? new Date(rule.last_checked_at).toLocaleString('ko-KR') : '-'}
+                                </p>
+                              </div>
+                              <div>
+                                <p>현재 수익률</p>
+                                <p className={`font-mono font-bold ${currentReturnClass}`}>
+                                  {formatSignedPercentValue(currentReturnRate)}
+                                </p>
+                                <p className="font-mono text-[10px] text-slate-600">
+                                  현재가 {activePrice > 0 ? `${formatUnitPrice(activePrice)}${ruleEnv !== brokerEnv ? ` (${ruleEnv})` : ''}` : '-'}
+                                </p>
+                              </div>
+                              <div>
+                                <p>트리거</p>
+                                <p className="font-mono text-slate-300">
+                                  {getAutoTriggerLabel(rule.trigger_side)}
+                                  {Number(rule.trigger_price || 0) > 0 ? ` · ${formatUnitPrice(rule.trigger_price)}` : ''}
+                                </p>
+                              </div>
+                              <div>
+                                <p>최근 오류</p>
+                                <p className="truncate text-amber-300">{rule.last_error || '-'}</p>
+                              </div>
+                            </div>
+                            {(isRunning || String(rule.status || '').toUpperCase() === 'FAILED') && (
+                              <div className="mt-3 flex justify-end gap-2 border-t border-[#1f2945]/40 pt-2.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditRule(rule)}
+                                  className="rounded border border-slate-700 bg-slate-900/30 px-2.5 py-1 text-[10px] text-slate-300 hover:border-slate-500 hover:text-white transition cursor-pointer"
+                                >
+                                  조건 수정
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={ruleUpdating}
+                                  onClick={() => handleStopRule(rule.id)}
+                                  className="rounded border border-rose-900/60 bg-rose-950/10 px-2.5 py-1 text-[10px] text-rose-300 hover:border-rose-700 hover:bg-rose-950/20 transition cursor-pointer disabled:opacity-50"
+                                >
+                                  감시 정지
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     )
                   })}
