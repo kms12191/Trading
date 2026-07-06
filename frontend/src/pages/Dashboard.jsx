@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { fetchUserWatchlist, supabase } from '../supabaseClient'
+import { deleteUserWatchlistItem, fetchUserWatchlist, supabase } from '../supabaseClient'
 import Header from '../components/Header.jsx'
 import Settings from './Settings'
 import { Rate, SectionHeader, SidebarNav } from '../components/DashboardComponents.jsx'
@@ -119,7 +119,13 @@ const buildCashEntriesFromItem = (item = {}) => {
   return rawComponents
     .map((component) => {
       const currency = String(component?.currency || cashCurrency).toUpperCase()
-      const amount = Number(component?.cash_buying_power)
+      const amount = Number(
+        component?.cash_buying_power
+        ?? component?.amount
+        ?? component?.available
+        ?? component?.free
+        ?? component?.balance
+      )
       if (!currency || !Number.isFinite(amount)) return null
       return {
         currency,
@@ -218,9 +224,31 @@ const RefreshIcon = ({ className = '' }) => (
   </svg>
 )
 
+const HeartIcon = ({ className = '', filled = false }) => (
+  <svg
+    className={className}
+    viewBox="0 0 24 24"
+    fill={filled ? 'currentColor' : 'none'}
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78Z" />
+  </svg>
+)
+
 const formatSignedRate = (value) => {
   const numericValue = toNumber(value)
   return `${numericValue >= 0 ? '+' : ''}${numericValue.toFixed(2)}%`
+}
+
+const formatAllocationPercent = (item = {}) => {
+  const rawPercent = Number(item.rawPercent ?? item.value)
+  if (rawPercent > 0 && rawPercent < 1) return '1% 미만'
+  if (rawPercent <= 0) return '0%'
+  return `${rawPercent.toFixed(1)}%`
 }
 
 const getHoldingMarketType = (holding = {}) => {
@@ -255,6 +283,44 @@ const getHoldingEvaluationKrw = (holding = {}, exchangeRate = 1500) => {
     : toNumber(holding.current_price) * Math.abs(toNumber(holding.qty))
 
   return currency === 'USD' || currency === 'USDT' ? rawValue * rate : rawValue
+}
+
+const getAccountExchangeCode = (account = {}) => {
+  const exchangeText = String(account.raw_exchange || account.exchange || '').toUpperCase()
+  if (exchangeText.includes('BINANCE_UM_FUTURES')) return 'BINANCE_UM_FUTURES'
+  if (exchangeText.includes('BINANCE')) return 'BINANCE'
+  if (exchangeText.includes('COINONE')) return 'COINONE'
+  if (exchangeText.includes('TOSS')) return 'TOSS'
+  if (exchangeText.includes('KIS')) return 'KIS'
+  return exchangeText
+}
+
+const isCryptoAccount = (account = {}) => ['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(getAccountExchangeCode(account))
+
+const toKrwAmount = (value, currency = 'KRW', exchangeRate = 1500) => {
+  const numeric = toNumber(value)
+  const rate = toNumber(exchangeRate) || 1500
+  const normalizedCurrency = String(currency || 'KRW').toUpperCase()
+  return normalizedCurrency === 'USD' || normalizedCurrency === 'USDT' ? numeric * rate : numeric
+}
+
+const toPositiveKrwAmount = (value, currency = 'KRW', exchangeRate = 1500) => Math.max(0, toKrwAmount(value, currency, exchangeRate))
+
+const getAccountCashKrw = (account = {}, exchangeRate = 1500) => {
+  const cashEntries = buildCashEntriesFromItem(account)
+  if (cashEntries.length > 0) {
+    return cashEntries.reduce((sum, entry) => sum + toPositiveKrwAmount(entry.amount, entry.currency, exchangeRate), 0)
+  }
+
+  if (account.available_cash === null || account.available_cash === undefined || account.available_cash === '') {
+    return 0
+  }
+
+  return toPositiveKrwAmount(
+    account.available_cash,
+    account.available_cash_currency || account.currency || 'KRW',
+    exchangeRate,
+  )
 }
 
 const getPortfolioProfitRate = (accountBalance) => {
@@ -542,6 +608,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   const [watchlistLoading, setWatchlistLoading] = useState(false)
   const [watchlistError, setWatchlistError] = useState('')
   const [watchlistRefreshCooldown, setWatchlistRefreshCooldown] = useState(0)
+  const [removingWatchlistIds, setRemovingWatchlistIds] = useState(new Set())
   const [balanceRefreshCooldown, setBalanceRefreshCooldown] = useState(0)
 
   const [holdingsSort, setHoldingsSort] = useState({ key: null, direction: 'asc' })
@@ -837,6 +904,28 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
     }
   }
 
+  const handleRemoveDashboardWatchlistItem = async (item) => {
+    if (!item?.id || removingWatchlistIds.has(item.id)) return
+
+    const previousItems = dashboardWatchlist
+    setRemovingWatchlistIds((current) => new Set(current).add(item.id))
+    setWatchlistError('')
+    setDashboardWatchlist((current) => current.filter((watchItem) => watchItem.id !== item.id))
+
+    try {
+      await deleteUserWatchlistItem(item)
+    } catch (error) {
+      setDashboardWatchlist(previousItems)
+      setWatchlistError(error.message || '관심종목 해제에 실패했습니다.')
+    } finally {
+      setRemovingWatchlistIds((current) => {
+        const next = new Set(current)
+        next.delete(item.id)
+        return next
+      })
+    }
+  }
+
   useEffect(() => {
     if (balanceRefreshCooldown <= 0) return undefined
 
@@ -858,45 +947,83 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   }, [rawBalances, showMockAssets, executedTradeRows])
 
   // 자산 배분 데이터
-  const getAllocationData = () => {
-    if (!balance || !balance.holdings || balance.holdings.length === 0) {
-      return [
-        { id: 'domestic', label: '국내 주식', value: 0, color: 'bg-institutional-blue' },
-        { id: 'overseas', label: '해외 주식', value: 0, color: 'bg-ai-cyan' },
-        { id: 'coin', label: '코인', value: 0, color: 'bg-amber-400' },
-        { id: 'cash', label: '현금', value: 100, color: 'bg-slate-500' }
-      ]
-    }
 
+  const getAccountBasedAllocationData = () => {
     let domesticValue = 0
     let overseasValue = 0
     let coinValue = 0
+    let cashValue = 0
 
-    balance.holdings.forEach((stock) => {
-      const symbol = String(stock.symbol || '').toUpperCase()
-      const accountType = String(stock.account || stock.account_type || stock.asset_type || stock.exchange || '').toUpperCase()
-      const isCoin = /BTC|ETH|XRP|SOL|USDT|KRW|COINONE|BINANCE|CRYPTO|코인/.test(`${symbol} ${accountType}`)
-      const isOverseas = getHoldingMarketType(stock) === 'overseas' && !isCoin
-      const stockEval = getHoldingEvaluationKrw(stock, balance.exchange_rate)
+    if (rawBalances.length > 0) {
+      rawBalances
+        .filter((account) => showMockAssets || String(account.env || '').toUpperCase() !== 'MOCK')
+        .forEach((account) => {
+          const rate = account.exchange_rate || balance?.exchange_rate || 1500
+          const holdings = Array.isArray(account.holdings) ? account.holdings : []
+          const holdingEvaluationKrw = holdings.reduce(
+            (sum, holding) => sum + getHoldingEvaluationKrw({
+              ...holding,
+              exchange: holding.exchange || account.exchange,
+              raw_exchange: holding.raw_exchange || account.raw_exchange,
+            }, rate),
+            0,
+          )
+          const totalEvaluationKrw = toPositiveKrwAmount(account.total_evaluation, account.currency || 'KRW', rate)
+          const accountEvaluationKrw = Math.max(holdingEvaluationKrw, totalEvaluationKrw)
+          const accountCashKrw = getAccountCashKrw(account, rate)
 
-      if (isCoin) {
-        coinValue += stockEval
-      } else if (isOverseas) {
-        overseasValue += stockEval
-      } else {
-        domesticValue += stockEval
-      }
-    })
+          if (isCryptoAccount(account)) {
+            cashValue += accountCashKrw
+            coinValue += Math.max(accountEvaluationKrw - accountCashKrw, 0)
+            return
+          }
 
-    const cashValue = Math.max(0, toNumber(balance.available_cash))
+          holdings.forEach((holding) => {
+            const normalizedHolding = {
+              ...holding,
+              exchange: holding.exchange || account.exchange,
+              raw_exchange: holding.raw_exchange || account.raw_exchange,
+            }
+            const holdingValue = getHoldingEvaluationKrw(normalizedHolding, rate)
+            const marketType = getHoldingMarketType(normalizedHolding)
+
+            if (marketType === 'overseas') overseasValue += holdingValue
+            else if (marketType === 'coin') coinValue += holdingValue
+            else domesticValue += holdingValue
+          })
+
+          if (holdings.length === 0 && accountEvaluationKrw > 0) {
+            const currency = String(account.currency || '').toUpperCase()
+            if (currency === 'USD' || currency === 'USDT') overseasValue += accountEvaluationKrw
+            else domesticValue += accountEvaluationKrw
+          }
+
+          cashValue += accountCashKrw
+        })
+    } else if (balance?.holdings?.length > 0) {
+      balance.holdings.forEach((stock) => {
+        const marketType = getHoldingMarketType(stock)
+        const stockEval = getHoldingEvaluationKrw(stock, balance.exchange_rate)
+
+        if (marketType === 'coin') coinValue += stockEval
+        else if (marketType === 'overseas') overseasValue += stockEval
+        else domesticValue += stockEval
+      })
+      cashValue = Math.max(0, toNumber(balance.available_cash))
+    }
+
+    domesticValue = Math.max(0, domesticValue)
+    overseasValue = Math.max(0, overseasValue)
+    coinValue = Math.max(0, coinValue)
+    cashValue = Math.max(0, cashValue)
+
     const allocationTotal = domesticValue + overseasValue + coinValue + cashValue
-
     if (allocationTotal <= 0) {
       return [
         { id: 'domestic', label: '국내 주식', value: 0, color: 'bg-institutional-blue' },
         { id: 'overseas', label: '해외 주식', value: 0, color: 'bg-ai-cyan' },
         { id: 'coin', label: '코인', value: 0, color: 'bg-amber-400' },
-        { id: 'cash', label: '현금', value: 100, color: 'bg-slate-500' }
+        { id: 'cash', label: '현금', value: 100, color: 'bg-slate-500' },
       ]
     }
 
@@ -904,30 +1031,20 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
       { id: 'domestic', label: '국내 주식', amount: domesticValue, color: 'bg-blue-600' },
       { id: 'overseas', label: '해외 주식', amount: overseasValue, color: 'bg-ai-cyan' },
       { id: 'coin', label: '코인', amount: coinValue, color: 'bg-amber-400' },
-      { id: 'cash', label: '현금', amount: cashValue, color: 'bg-slate-500' }
+      { id: 'cash', label: '현금', amount: cashValue, color: 'bg-slate-500' },
     ].map((item) => {
       const exactValue = (item.amount / allocationTotal) * 100
       return {
         ...item,
-        value: Math.floor(exactValue),
-        remainder: exactValue - Math.floor(exactValue),
+        value: Number(exactValue.toFixed(1)),
+        rawPercent: exactValue,
       }
     })
 
-    let remainingPercent = 100 - buckets.reduce((sum, item) => sum + item.value, 0)
-    buckets
-      .slice()
-      .sort((a, b) => b.remainder - a.remainder)
-      .forEach((item) => {
-        if (remainingPercent <= 0) return
-        item.value += 1
-        remainingPercent -= 1
-      })
-
-    return buckets.map(({ id, label, value, color }) => ({ id, label, value, color }))
+    return buckets.map(({ id, label, value, rawPercent, color }) => ({ id, label, value, rawPercent, color }))
   }
 
-  const allocation = getAllocationData()
+  const allocation = getAccountBasedAllocationData()
   const filteredBalanceAccounts = rawBalances.filter((item) => showMockAssets || item.env !== 'MOCK')
   const accountCashSummaries = filteredBalanceAccounts.map((item) => ({
     key: `${item.raw_exchange || item.exchange}-${item.env}`,
@@ -1094,7 +1211,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                           <span className={`w-2 h-2 rounded-full ${item.color}`} />
                           {item.label}
                         </span>
-                        <span className="font-mono font-bold text-slate-300">{item.value}%</span>
+                        <span className="font-mono font-bold text-slate-300">{formatAllocationPercent(item)}</span>
                       </div>
                     ))}
                   </div>
@@ -1129,7 +1246,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                   </div>
                   <div className="overflow-x-auto max-h-[180px] overflow-y-auto">
                     <table className="w-full border-collapse text-xs">
-                      <thead className="border-b border-slate-800 text-slate-400 bg-[#0c0e15]/50 sticky top-0">
+                      <thead className="border-b border-slate-800 text-slate-400 bg-[#0c0e15]/100 sticky top-0">
                         <tr>
                           <th className="px-3 py-2 text-left font-bold">종목명</th>
                           <th className="px-3 py-2 text-left font-bold">시장</th>
@@ -1152,9 +1269,24 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                           const signedDeltaRate = `${priceDeltaRate > 0 ? '+' : ''}${priceDeltaRate.toFixed(2)}%`
                           const exchangeRate = balance?.exchange_rate || 1380
                           const currentDisplayCurrency = stockCurrency === 'USD' || stockCurrency === 'USDT' ? displayCurrency : 'KRW'
+                          const isRemoving = removingWatchlistIds.has(item.id)
                           return (
                             <tr key={item.id} className="hover:bg-slate-800/20 transition-colors">
-                              <td className="px-3 py-2.5 font-bold text-white">{item.name}</td>
+                              <td className="px-3 py-2.5 font-bold text-white">
+                                <div className="flex min-w-[160px] items-center gap-2">
+                                  <button
+                                    type="button"
+                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-rose-400 transition-all hover:bg-rose-500/10 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                    aria-label={`${item.name} 관심 종목 해제`}
+                                    title="관심 종목 해제"
+                                    disabled={isRemoving}
+                                    onClick={() => handleRemoveDashboardWatchlistItem(item)}
+                                  >
+                                    <HeartIcon className="h-4 w-4" filled={!isRemoving} />
+                                  </button>
+                                  <span className="truncate">{item.name}</span>
+                                </div>
+                              </td>
                               <td className="px-3 py-2.5 text-slate-400">{item.market}</td>
                               <td className="px-3 py-2.5 text-right font-mono text-slate-300">
                                 {hasSavedPrice ? formatUnitCurrency(savedPrice, stockCurrency, currentDisplayCurrency, exchangeRate) : '-'}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useEffectEvent, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { createChart, CandlestickSeries } from 'lightweight-charts'
-import { supabase, deleteUserWatchlistItem, ensureNewsSummaries, fetchUserWatchlist, upsertUserWatchlistItem } from '../supabaseClient'
+import { supabase, deleteUserWatchlistItem, ensureNewsSummaries, fetchUserWatchlist, normalizeWatchlistItem, upsertUserWatchlistItem } from '../supabaseClient'
 import Header from '../components/Header.jsx'
 import { getApiErrorMessage } from '../lib/apiError.js'
 
@@ -809,11 +809,17 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       return
     }
     try {
+      const favoritePayload = normalizeWatchlistItem({
+        symbol,
+        name: displayName,
+        exchange,
+        asset_type: resolvedAssetType,
+      })
       const items = await fetchUserWatchlist()
       const hasMatch = items.some(item => 
-        item.id === symbol && 
-        item.assetType === resolvedAssetType && 
-        item.exchange === exchange
+        item.id === favoritePayload.symbol &&
+        item.assetType === favoritePayload.asset_type &&
+        item.exchange === favoritePayload.exchange
       )
       setIsFavorite(hasMatch)
     } catch (e) {
@@ -861,7 +867,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       return
     }
 
-    const itemPayload = {
+    const itemPayload = normalizeWatchlistItem({
       symbol: symbol,
       name: displayName,
       exchange: exchange,
@@ -870,7 +876,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       change_rate: priceChangeRate || null,
       average_price: currentPrice || null,
       quantity: 0
-    }
+    })
 
     try {
       if (isFavorite) {

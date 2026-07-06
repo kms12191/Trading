@@ -87,7 +87,7 @@ export default function AssetsTab({
         id: 'domestic-stock',
         title: '국내 주식 계좌',
         accountType: '원화',
-        balanceLabel: '원화 잔고',
+        balanceLabel: '잔고 포함',
         currency: 'KRW',
         amount: 0,
         sources: new Set(),
@@ -96,7 +96,7 @@ export default function AssetsTab({
         id: 'overseas-stock',
         title: '해외 주식 계좌',
         accountType: '달러',
-        balanceLabel: '달러 잔고',
+        balanceLabel: '잔고 포함',
         currency: 'USD',
         amount: 0,
         sources: new Set(),
@@ -105,7 +105,7 @@ export default function AssetsTab({
         id: 'coinone-crypto',
         title: '코인 계좌',
         accountType: '원화',
-        balanceLabel: '원화 잔고',
+        balanceLabel: '잔고 포함',
         currency: 'KRW',
         amount: 0,
         sources: new Set(),
@@ -114,7 +114,7 @@ export default function AssetsTab({
         id: 'binance-crypto',
         title: '코인 계좌',
         accountType: '달러',
-        balanceLabel: '달러 잔고',
+        balanceLabel: '잔고 포함',
         currency: 'USD',
         amount: 0,
         sources: new Set(),
@@ -463,6 +463,12 @@ export default function AssetsTab({
     coin: '#f59e0b',
     cash: '#64748b',
   }
+  const formatAllocationPercent = (item = {}) => {
+    const rawPercent = Number(item.rawPercent ?? item.value)
+    if (rawPercent > 0 && rawPercent < 1) return '1% 미만'
+    if (rawPercent <= 0) return '0%'
+    return `${rawPercent.toFixed(1)}%`
+  }
   const allocationSegments = allocation.filter((item) => Number(item.value) > 0)
   const allocationTotal = allocationSegments.reduce((sum, item) => sum + Number(item.value), 0)
   let allocationGradientCursor = 0
@@ -582,7 +588,7 @@ export default function AssetsTab({
                 />
                 <span className="truncate">{item.label}</span>
               </span>
-              <span className="shrink-0 font-mono text-xs font-bold text-slate-300">{item.value}%</span>
+              <span className="shrink-0 font-mono text-xs font-bold text-slate-300">{formatAllocationPercent(item)}</span>
             </div>
           ))}
         </div>

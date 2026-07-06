@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { createChart, CandlestickSeries } from 'lightweight-charts'
 import { fetchNewsArticles, ensureNewsSummaries } from '../lib/supabaseClient.js'
-import { fetchUserWatchlist, supabase, updateUserWatchlistOrder } from '../supabaseClient'
+import { deleteUserWatchlistItem, fetchUserWatchlist, supabase, updateUserWatchlistOrder } from '../supabaseClient'
 import { SectionHeader } from '../components/DashboardComponents.jsx'
 import { formatNewsDate, getWatchlistNewsMarket, mergeLatestNews } from '../dashboardUtils.js'
 
@@ -37,6 +37,21 @@ const WATCHLIST_MARKET_FILTERS = [
   { key: 'overseas', label: '해외주식' },
   { key: 'crypto', label: '코인' },
 ]
+
+const HeartIcon = ({ className = '', filled = false }) => (
+  <svg
+    className={className}
+    viewBox="0 0 24 24"
+    fill={filled ? 'currentColor' : 'none'}
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78Z" />
+  </svg>
+)
 
 function getWatchlistMarketFilterKey(item = {}) {
   const assetType = String(item.assetType || item.asset_type || '').toUpperCase()
@@ -360,6 +375,7 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
   const [marketFilter, setMarketFilter] = useState('all')
   const [draggingWatchId, setDraggingWatchId] = useState('')
   const [dragOverWatchId, setDragOverWatchId] = useState('')
+  const [removingWatchlistIds, setRemovingWatchlistIds] = useState(new Set())
 
   const filteredWatchlistItems = marketFilter === 'all'
     ? watchlistItems
@@ -418,6 +434,34 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
       return orderedNext
     })
     setSelectedId(sourceId)
+  }
+
+  async function handleRemoveWatchlistItem(item) {
+    if (!item?.id || removingWatchlistIds.has(item.id)) return
+
+    const previousItems = watchlistItems
+    setRemovingWatchlistIds((current) => new Set(current).add(item.id))
+    setWatchlistError('')
+    setWatchlistItems((current) => current.filter((watchItem) => watchItem.id !== item.id))
+    setSelectedId((current) => {
+      if (current !== item.id) return current
+      const nextItem = previousItems.find((watchItem) => watchItem.id !== item.id)
+      return nextItem?.id || ''
+    })
+
+    try {
+      await deleteUserWatchlistItem(item)
+    } catch (error) {
+      setWatchlistItems(previousItems)
+      setSelectedId((current) => current || item.id)
+      setWatchlistError(error.message || '관심종목 해제에 실패했습니다.')
+    } finally {
+      setRemovingWatchlistIds((current) => {
+        const next = new Set(current)
+        next.delete(item.id)
+        return next
+      })
+    }
   }
 
   useEffect(() => {
@@ -564,54 +608,84 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
           </div>
         </div>
         <div className={useSlider ? 'flex snap-x gap-2 overflow-x-auto pb-2' : 'grid gap-2 md:grid-cols-2 xl:grid-cols-4'}>
-          {filteredWatchlistItems.map((item) => (
-            <button
-              key={item.id}
-              className={`${useSlider ? 'min-w-60 snap-start' : 'w-full'} cursor-grab rounded-lg border px-4 py-3 text-left transition active:cursor-grabbing ${
-                selectedItem?.id === item.id
-                  ? 'border-institutional-blue bg-institutional-blue text-white'
-                  : 'border-transparent bg-[#0f172a] text-slate-300 hover:bg-white/5'
-              } ${
-                draggingWatchId === item.id
-                  ? 'opacity-50'
-                  : dragOverWatchId === item.id
-                    ? 'border-ai-cyan ring-1 ring-ai-cyan/50'
-                    : ''
-              }`}
-              draggable
-              type="button"
-              onClick={() => setSelectedId(item.id)}
-              onDragStart={(event) => {
-                event.dataTransfer.effectAllowed = 'move'
-                event.dataTransfer.setData('text/plain', item.id)
-                setDraggingWatchId(item.id)
-              }}
-              onDragOver={(event) => {
-                event.preventDefault()
-                event.dataTransfer.dropEffect = 'move'
-                if (draggingWatchId && draggingWatchId !== item.id) {
-                  setDragOverWatchId(item.id)
-                }
-              }}
-              onDragLeave={() => {
-                if (dragOverWatchId === item.id) setDragOverWatchId('')
-              }}
-              onDrop={(event) => {
-                event.preventDefault()
-                const sourceId = event.dataTransfer.getData('text/plain') || draggingWatchId
-                reorderWatchlistItems(sourceId, item.id)
-                setDraggingWatchId('')
-                setDragOverWatchId('')
-              }}
-              onDragEnd={() => {
-                setDraggingWatchId('')
-                setDragOverWatchId('')
-              }}
-            >
-              <span className="block font-bold">{item.name}</span>
-              <span className="mt-1 block text-xs opacity-70 font-mono">{item.market} · {item.account}</span>
-            </button>
-          ))}
+          {filteredWatchlistItems.map((item) => {
+            const isRemoving = removingWatchlistIds.has(item.id)
+            return (
+              <div
+                key={item.id}
+                className={`${useSlider ? 'min-w-60 snap-start' : 'w-full'} cursor-grab rounded-lg border px-4 py-3 text-left transition active:cursor-grabbing ${
+                  selectedItem?.id === item.id
+                    ? 'border-institutional-blue bg-institutional-blue text-white'
+                    : 'border-transparent bg-[#0f172a] text-slate-300 hover:bg-white/5'
+                } ${
+                  draggingWatchId === item.id
+                    ? 'opacity-50'
+                    : dragOverWatchId === item.id
+                      ? 'border-ai-cyan ring-1 ring-ai-cyan/50'
+                      : ''
+                }`}
+                draggable
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedId(item.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    setSelectedId(item.id)
+                  }
+                }}
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = 'move'
+                  event.dataTransfer.setData('text/plain', item.id)
+                  setDraggingWatchId(item.id)
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'move'
+                  if (draggingWatchId && draggingWatchId !== item.id) {
+                    setDragOverWatchId(item.id)
+                  }
+                }}
+                onDragLeave={() => {
+                  if (dragOverWatchId === item.id) setDragOverWatchId('')
+                }}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const sourceId = event.dataTransfer.getData('text/plain') || draggingWatchId
+                  reorderWatchlistItems(sourceId, item.id)
+                  setDraggingWatchId('')
+                  setDragOverWatchId('')
+                }}
+                onDragEnd={() => {
+                  setDraggingWatchId('')
+                  setDragOverWatchId('')
+                }}
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <button
+                    type="button"
+                    className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+                      selectedItem?.id === item.id
+                        ? 'text-white hover:bg-white/15'
+                        : 'text-rose-400 hover:bg-rose-500/10 hover:text-rose-300'
+                    }`}
+                    aria-label={`${item.name} 관심 종목 해제`}
+                    title="관심 종목 해제"
+                    disabled={isRemoving}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleRemoveWatchlistItem(item)
+                    }}
+                    onDragStart={(event) => event.stopPropagation()}
+                  >
+                    <HeartIcon className="h-4 w-4" filled={!isRemoving} />
+                  </button>
+                  <span className="block min-w-0 truncate font-bold">{item.name}</span>
+                </div>
+                <span className="mt-1 block text-xs opacity-70 font-mono">{item.market} · {item.account}</span>
+              </div>
+            )
+          })}
           {!watchlistLoading && filteredWatchlistItems.length === 0 ? (
             <div className="rounded-lg border border-slate-800 bg-[#0f172a] p-4 text-sm text-slate-400">
               {watchlistItems.length === 0
