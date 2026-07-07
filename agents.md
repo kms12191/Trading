@@ -34,20 +34,40 @@
          v
   [Flask Backend] (API Gateway & Worker)
          |
-         +-- [routes/home.py, keys.py, ml.py, news.py, disclosures.py, trade.py, transfer.py] : Blueprint 기반 API 라우트 레이어
+         +-- [routes/home.py, keys.py, ml.py, news.py, disclosures.py, trade.py, transfer.py, admin_inquiries.py] : Blueprint 기반 API 라우트 레이어
          +-- [utils/crypto_helper.py, file_helpers.py] : 암호화 및 파일 처리 공통 유틸리티
-         +-- [services/auth_service.py]                  : Authorization 헤더 디코딩
-         +-- [services/supabase_client.py]              : Supabase DB 및 작업 동기화
-         +-- [services/home_service.py]                  : 대시보드 및 잔고 융합 헬퍼
-         +-- [services/toss_client.py]                   : Toss Open API 메인 주식 클라이언트
-         +-- [services/kis_client.py]                    : KIS 레거시/보류 주식 클라이언트
-         +-- [services/coinone_client.py]                : 코인원 메인 가상자산 클라이언트
-         +-- [services/binance_client.py]                : 바이낸스 확장 가상자산 클라이언트
-         +-- [services/auto_trading_rule_engine.py]      : 조건감시 자동/반자동 매도 워커
-         +-- [services/open_order_status_sync_service.py]: 전체 사용자 미완료 주문 상태 동기화 워커
-         +-- [services/error_message_service.py]         : 사용자 친화 에러 메시지 표준화
-         +-- [services/ml_model_service.py]              : ML 모델 정보 조회 및 실험 리포트 기동
-         +-- [services/ml_scheduler.py]                  : 백그라운드 스레드 기반 스케줄러 워커
+         +-- [services/auth_service.py]                       : Authorization 헤더 디코딩
+         +-- [services/supabase_client.py]                   : Supabase DB 및 작업 동기화
+         +-- [services/home_service.py]                       : 대시보드 및 잔고 융합 헬퍼
+         +-- [services/keys_service.py]                       : API 키 AES-256 GCM 암복호화 서비스
+         +-- [services/token_cache_service.py]               : OAuth 토큰 Supabase DB 캐싱 서비스
+         +-- [services/lock_service.py]                       : 분산 락(Distributed Lock) 컨텍스트 매니저
+         +-- [services/exchange_client.py]                   : 거래소 추상화 베이스 클래스(ExchangeClient)
+         +-- [services/toss_client.py]                        : Toss Open API 메인 주식 클라이언트
+         +-- [services/kis_client.py]                         : KIS 레거시/보류 주식 클라이언트
+         +-- [services/coinone_client.py]                     : 코인원 메인 가상자산 클라이언트
+         +-- [services/binance_client.py]                     : 바이낸스 확장 가상자산 클라이언트
+         +-- [services/upbit_client.py]                       : 업비트 보조 클라이언트(참고용)
+         +-- [services/auto_trading_rule_engine.py]          : 조건감시 자동/반자동 매도 워커
+         +-- [services/open_order_status_sync_service.py]   : 전체 사용자 미완료 주문 상태 동기화 워커
+         +-- [services/broker_order_history_service.py]      : 브로커 주문 이력 동기화 서비스
+         +-- [services/market_repository.py]                 : 시세 데이터 레포지토리
+         +-- [services/market_snapshot_scheduler.py]         : 시세 스냅샷 백그라운드 스케줄러
+         +-- [services/symbol_metadata.py]                   : 한글 종목명 ↔ 종목코드 매핑 유틸
+         +-- [services/error_message_service.py]             : 사용자 친화 에러 메시지 표준화
+         +-- [services/dart_analysis_service.py]             : DART 공시 AI 분석 서비스 (Gemini 다중 모델 Failover)
+         +-- [services/dart_ingest.py]                        : 공시 수집 파이프라인
+         +-- [services/dart_repository.py]                   : 공시 DB 레포지토리
+         +-- [services/news_ingest.py]                        : 뉴스 수집 파이프라인
+         +-- [services/news_query_planner.py]                : 뉴스 검색 쿼리 플래너
+         +-- [services/news_repository.py]                   : 뉴스 DB 레포지토리
+         +-- [services/news_summary_service.py]              : 뉴스 AI 요약 서비스
+         +-- [services/ml_model_service.py]                  : ML 모델 정보 조회 및 실험 리포트 기동
+         +-- [services/ml_scheduler.py]                       : 백그라운드 스레드 기반 스케줄러 워커
+         +-- [services/ml_automation_service.py]             : ML 자동화 프리셋 정의 및 실행 서비스
+         +-- [services/ml_job_service.py]                     : ML 작업(수집/학습/백테스트) 실행기
+         +-- [services/ml_registry_service.py]               : ML 모델 레지스트리 통합 관리 서비스
+         +-- [services/ml_split_model_promotion_service.py] : KR/US 분리 모델 승격 검증 서비스
          |
          v
   [Supabase DB] & [External APIs] (Toss / Coinone / Binance / Tavily News / KIS API)
@@ -123,8 +143,11 @@ AI 에이전트는 데이터 변경이나 조회 쿼리를 작성할 때 다음 
 * **구현 범위**: LLM이 직접 상승/하락을 단정하지 않도록, 가격·거래량·기술지표 기반 LightGBM 모델을 오프라인에서 사전학습합니다.
 * **모델 분리 원칙**:
   * 주식 모델과 코인 모델은 시장 구조가 다르므로 반드시 별도 모델로 관리합니다.
-  * 주식 모델 예시: `lgbm_stock_signal_v1`
-  * 코인 모델 예시: `lgbm_crypto_signal_v1`
+  * 통합 주식 모델 (현재 서빙): `lgbm_stock_signal_v11`
+  * 국내주식 전용 모델 (현재 서빙): `lgbm_kr_stock_signal_v1` — KIS 데이터 기반, STOCK_KR asset_type 라우팅
+  * 해외주식 전용 모델 (현재 서빙): `lgbm_us_stock_signal_v1` — Toss 데이터 기반, STOCK_US asset_type 라우팅
+  * 코인 모델 (현재 서빙): `lgbm_crypto_signal_v9`
+  * 심볼 분류 규칙: 숫자 심볼(예: 005930)은 STOCK_KR, 영문 심볼(예: AAPL)은 STOCK_US로 자동 분기.
 * **코인 예측 기준**:
   * 코인은 24시간 거래되므로 `3거래일 뒤` 기준보다 `1시간`, `4시간`, `24시간` 기준 예측을 우선합니다.
   * 초기 MVP 코인 라벨은 `4시간 뒤 수익률이 +1.0% 이상이면 상승`, `4시간 뒤 수익률이 -1.5% 이하이면 하락 위험`으로 시작합니다.
@@ -133,12 +156,16 @@ AI 에이전트는 데이터 변경이나 조회 쿼리를 작성할 때 다음 
   * `ml/src/tune_hyperparameters.py`를 활용하여 Optuna 기반 HPO 튜닝을 기동하고, 목적 함수(Objective)를 정의하여 ROC AUC 또는 Excess Return을 최적화하는 파라미터 조합을 탐색합니다.
 * **자동 스케줄러 및 ML 자동화 서비스**:
   * `ml_automation_service.py`와 `ml_scheduler.py`를 통해 백그라운드에서 캔들 데이터 자동 수집 및 학습 파이프라인을 기동합니다.
-  * 주식은 평일 장 마감 후(16:30 ~ 17:00), 코인은 4시간 단위로 데이터셋 추출 및 모델 학습 스케줄링이 백그라운드 스레드에서 주기적으로 가동됩니다.
-* **Stochastic/OBV 피처 도입 (v7 모델)**:
-  * 최신 v7 학습 설정(`lgbm_*_v7.yaml`)은 전통적 이동평균 외에 Stochastic Oscillator, OBV(On-Balance Volume) 등 기술적 보조지표 피처를 강화하여 모델 예측력을 고도화합니다.
+  * 주식은 평일 장 마감 후(16:30 ~ 18:30), 코인은 4시간 단위로 데이터셋 추출 및 모델 학습 스케줄링이 백그라운드 스레드에서 주기적으로 가동됩니다.
+  * 수집 실행 일자(`last_stock_date`)는 `stock_automation_state.json` 파일에 영속화하여 서버 재시작 시에도 중복 수집을 방지합니다.
+  * 자동화 프리셋: 코인(`crypto-v9-full`), 주식(`stock-v11-full`), 국내주식(`kr-stock-v1-full`), 해외주식(`us-stock-v1-full`).
+* **Stochastic/OBV 피처 도입 (v11/v9 모델)**:
+  * 현재 서빙 중인 v11(주식), v9(코인) 학습 설정은 전통적 이동평균 외에 Stochastic Oscillator, OBV(On-Balance Volume) 등 기술적 보조지표 피처를 강화하여 모델 예측력을 고도화합니다.
 * **모델 레지스트리 및 승격 검증 (Promotion Check)**:
   * `ml_registry_service.py`를 통해 디스크 파일과 DB(`ml_model_registry`)에 모델 상태를 통합 관리합니다.
   * 절대 기준(검증 CV ROC AUC, MDD, excess return)과 상대 기준(serving 모델 대비 성능 하락 한계)을 검증하여 통과한 모델만 서비스(`Serving`) 버전으로 승격시키며, 기준 미달 시 강제 승격(`force=true`)을 제외하고는 차단합니다.
+  * 국내/해외 분리 모델은 `ml_split_model_promotion_service.py`를 통해 STOCK_KR / STOCK_US 그룹별로 독립적으로 승격 검증합니다.
+  * `model_registry.json`에 asset_type별 그룹(stock, crypto, kr_stock, us_stock)으로 구분하여 모델 메타데이터를 저장하며, `ml_model_service.py`의 `resolve_active_model_selection`이 이를 로드하여 서빙 모델을 결정합니다.
 * **실행 환경 원칙**:
   * 초기 개발과 Flask 연동 검증은 맥북 M2 로컬 Python 환경에서 수행합니다.
   * Colab은 대량 분봉 데이터 학습, 반복 튜닝, 팀 공유가 필요할 때 학습 전용 보조 환경으로 사용합니다.
