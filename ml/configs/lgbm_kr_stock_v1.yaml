@@ -142,16 +142,40 @@ model:
   - dart_negative_count_3d
   - dart_positive_count_3d
   - dart_caution_count_3d
+  - dart_summary_available_count_3d
+  - dart_summary_length_sum_3d
+  - dart_key_point_count_3d
+  - dart_risk_point_count_3d
+  - dart_check_item_count_3d
+  - dart_metric_count_3d
+  - dart_confidence_score_sum_3d
+  - dart_text_risk_keyword_count_3d
   - dart_disclosure_count_7d
   - dart_sentiment_sum_7d
   - dart_negative_count_7d
   - dart_positive_count_7d
   - dart_caution_count_7d
+  - dart_summary_available_count_7d
+  - dart_summary_length_sum_7d
+  - dart_key_point_count_7d
+  - dart_risk_point_count_7d
+  - dart_check_item_count_7d
+  - dart_metric_count_7d
+  - dart_confidence_score_sum_7d
+  - dart_text_risk_keyword_count_7d
   - dart_disclosure_count_20d
   - dart_sentiment_sum_20d
   - dart_negative_count_20d
   - dart_positive_count_20d
   - dart_caution_count_20d
+  - dart_summary_available_count_20d
+  - dart_summary_length_sum_20d
+  - dart_key_point_count_20d
+  - dart_risk_point_count_20d
+  - dart_check_item_count_20d
+  - dart_metric_count_20d
+  - dart_confidence_score_sum_20d
+  - dart_text_risk_keyword_count_20d
   - dart_ai_analyzed_count_20d
   - dart_contract_flag_20d
   - dart_financing_flag_20d

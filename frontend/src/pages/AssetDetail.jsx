@@ -1387,9 +1387,17 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     setMlSignalLoading(true)
     setMlSignalMessage('')
     try {
+      // 코인은 ML 예측 CSV 심볼 형식(DOGEUSDT 등)에 맞게 변환
+      const mlSymbol = resolvedAssetType === 'CRYPTO'
+        ? getExchangeSymbol('BINANCE')
+        : symbol
+      // 국내/해외 개별 모델 구분: 숫자 심볼(종목코드)은 국내주식(STOCK_KR), 영문 심볼은 해외주식(STOCK_US)
+      const mlAssetType = resolvedAssetType === 'CRYPTO'
+        ? 'CRYPTO'
+        : (/^\d+$/.test(symbol) ? 'STOCK_KR' : 'STOCK_US')
       const params = new URLSearchParams({
-        asset_type: resolvedAssetType,
-        symbols: symbol,
+        asset_type: mlAssetType,
+        symbols: mlSymbol,
         limit: '1',
       })
       const response = await fetch(`${API_BASE_URL}/api/ml/predictions/active?${params.toString()}`, {
@@ -1495,6 +1503,54 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     if (numericMinutes < 60) return `${numericMinutes}분 전`
     if (numericMinutes < 1440) return `${Math.floor(numericMinutes / 60)}시간 전`
     return `${Math.floor(numericMinutes / 1440)}일 전`
+  }
+
+  const getProbabilityLevel = (value, type = 'up') => {
+    const numberValue = Number(value)
+    if (Number.isNaN(numberValue)) return { label: '확인 전', tone: 'text-slate-300', detail: '아직 판단할 수 있는 신호가 없습니다.' }
+    if (type === 'risk') {
+      if (numberValue >= 0.6) return { label: '높음', tone: 'text-rose-300', detail: '하락 위험을 먼저 확인해야 합니다.' }
+      if (numberValue >= 0.4) return { label: '보통', tone: 'text-amber-300', detail: '손실 가능성을 함께 봐야 합니다.' }
+      return { label: '낮음', tone: 'text-emerald-300', detail: '급락 위험 신호는 크지 않습니다.' }
+    }
+    if (numberValue >= 0.65) return { label: '강함', tone: 'text-emerald-300', detail: '상승 쪽 신호가 비교적 뚜렷합니다.' }
+    if (numberValue >= 0.55) return { label: '우세', tone: 'text-cyan-300', detail: '상승 쪽 신호가 약간 우세합니다.' }
+    if (numberValue >= 0.45) return { label: '중립', tone: 'text-slate-300', detail: '방향성이 뚜렷하지 않습니다.' }
+    return { label: '약함', tone: 'text-amber-300', detail: '상승 신호가 약합니다.' }
+  }
+
+  const buildMlSignalInterpretation = (signal) => {
+    if (!signal) return null
+    const up = getProbabilityLevel(signal.up_probability, 'up')
+    const risk = getProbabilityLevel(signal.risk_probability, 'risk')
+    const grade = String(signal.signal_grade || '')
+    const position = String(signal.position || '').toUpperCase()
+    const isRisky = grade === 'RISKY' || Number(signal.risk_probability) >= 0.6
+    const isCandidate = grade === 'STRONG_BUY_CANDIDATE' || position === 'LONG'
+    const actionLabel = isRisky ? '주의' : isCandidate ? '후보' : '관망'
+    const actionTone = isRisky
+      ? 'border-rose-500/40 bg-rose-950/30 text-rose-200'
+      : isCandidate
+        ? 'border-emerald-500/40 bg-emerald-950/25 text-emerald-200'
+        : 'border-cyan-500/35 bg-cyan-950/20 text-cyan-100'
+    const reason = isRisky
+      ? '하락 위험 또는 정책 차단 신호가 있어 매수보다 리스크 확인이 먼저입니다.'
+      : isCandidate
+        ? '상승 신호가 우세하고 현재 정책 필터를 통과한 후보입니다.'
+        : '매수/매도 결론보다 관찰이 더 적합한 상태입니다.'
+
+    return {
+      actionLabel,
+      actionTone,
+      up,
+      risk,
+      reason,
+      modelScope: resolvedAssetType === 'CRYPTO'
+        ? '코인 전용 모델'
+        : /^\d+$/.test(symbol)
+          ? '국내주식 모델'
+          : '해외주식 모델',
+    }
   }
 
   const getSignalGradeLabel = (grade) => {
@@ -3836,6 +3892,45 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                 </div>
               ) : mlSignal ? (
                 <div className="flex flex-col gap-3">
+                  {(() => {
+                    const interpretation = buildMlSignalInterpretation(mlSignal)
+                    if (!interpretation) return null
+
+                    return (
+                      <div className={`rounded-lg border px-3 py-3 ${interpretation.actionTone}`}>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-[0.16em] opacity-80">AI 참고 판단</p>
+                            <p className="mt-1 text-lg font-black text-white">{interpretation.actionLabel}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-[10px] font-bold">
+                            <span className="rounded border border-white/15 bg-black/15 px-2 py-1">{interpretation.modelScope}</span>
+                            <span className="rounded border border-white/15 bg-black/15 px-2 py-1">
+                              {mlSignal.meta?.serving_version ? '서비스 모델' : '추천/최신 모델'}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="mt-3 break-words text-xs leading-5 text-slate-100">{interpretation.reason}</p>
+                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <div className="rounded border border-white/10 bg-black/15 p-2">
+                            <p className="text-[10px] text-slate-300">상승 가능성</p>
+                            <p className={`mt-1 text-sm font-black ${interpretation.up.tone}`}>
+                              {interpretation.up.label} <span className="font-mono text-xs">({formatProbability(mlSignal.up_probability)})</span>
+                            </p>
+                            <p className="mt-1 text-[10px] leading-4 text-slate-300">{interpretation.up.detail}</p>
+                          </div>
+                          <div className="rounded border border-white/10 bg-black/15 p-2">
+                            <p className="text-[10px] text-slate-300">하락 위험</p>
+                            <p className={`mt-1 text-sm font-black ${interpretation.risk.tone}`}>
+                              {interpretation.risk.label} <span className="font-mono text-xs">({formatProbability(mlSignal.risk_probability)})</span>
+                            </p>
+                            <p className="mt-1 text-[10px] leading-4 text-slate-300">{interpretation.risk.detail}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
+
                   {(() => {
                     const performance = mlSignal.meta?.performance
                     if (!performance) return null

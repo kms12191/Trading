@@ -53,6 +53,38 @@ PROMOTION_THRESHOLDS = {
         "meaningful_improvement_excess_return_net": 0.001,
         "meaningful_improvement_precision_at_top_n": 0.01,
     },
+    # 국내주식 전용 모델 — stock과 동일한 임계값 적용
+    "kr_stock": {
+        "min_valid_rows": 800,
+        "min_cv_roc_auc": 0.50,
+        "min_precision_at_top_10pct": 0.40,
+        "min_composite_excess_return_net": 0.0,
+        "min_composite_precision_at_top_n": 0.50,
+        "min_risk_cv_roc_auc": 0.50,
+        "min_max_drawdown_net": -0.55,
+        "max_cv_roc_auc_drop_vs_serving": 0.01,
+        "max_excess_return_drop_vs_serving": 0.001,
+        "max_precision_drop_vs_serving": 0.02,
+        "meaningful_improvement_cv_roc_auc": 0.005,
+        "meaningful_improvement_excess_return_net": 0.001,
+        "meaningful_improvement_precision_at_top_n": 0.01,
+    },
+    # 해외주식 전용 모델 — stock과 동일한 임계값 적용
+    "us_stock": {
+        "min_valid_rows": 800,
+        "min_cv_roc_auc": 0.50,
+        "min_precision_at_top_10pct": 0.40,
+        "min_composite_excess_return_net": 0.0,
+        "min_composite_precision_at_top_n": 0.50,
+        "min_risk_cv_roc_auc": 0.50,
+        "min_max_drawdown_net": -0.55,
+        "max_cv_roc_auc_drop_vs_serving": 0.01,
+        "max_excess_return_drop_vs_serving": 0.001,
+        "max_precision_drop_vs_serving": 0.02,
+        "meaningful_improvement_cv_roc_auc": 0.005,
+        "meaningful_improvement_excess_return_net": 0.001,
+        "meaningful_improvement_precision_at_top_n": 0.01,
+    },
 }
 
 def build_readiness_payload(auth_header: str) -> dict:
@@ -289,7 +321,7 @@ def build_model_result(asset_key: str, version: int) -> dict:
     return {
         "version": f"v{version}",
         "version_number": version,
-        "asset_type": "STOCK" if asset_key == "stock" else "CRYPTO",
+        "asset_type": {"stock": "STOCK", "crypto": "CRYPTO", "kr_stock": "STOCK_KR", "us_stock": "STOCK_US"}.get(asset_key, "STOCK"),
         "config_path": str(config_path),
         "metrics": up_metrics,
         "risk_metrics": risk_metrics,
@@ -466,12 +498,12 @@ def build_registry_fallback(asset_key: str) -> list[dict]:
     latest_result = pick_default_model_result(version_results)
     registry_map = {
         (str(row.get("asset_type", "")).upper(), str(row.get("model_version", ""))): row
-        for row in list_model_registry("STOCK" if asset_key == "stock" else "CRYPTO")
+        for row in list_model_registry({"stock": "STOCK", "crypto": "CRYPTO", "kr_stock": "STOCK_KR", "us_stock": "STOCK_US"}.get(asset_key, "STOCK"))
     }
     serving_result = None
     for result in version_results:
         metrics = result.get("metrics") or {}
-        asset_type = "STOCK" if asset_key == "stock" else "CRYPTO"
+        asset_type = {"stock": "STOCK", "crypto": "CRYPTO", "kr_stock": "STOCK_KR", "us_stock": "STOCK_US"}.get(asset_key, "STOCK")
         model_version = metrics.get("model_version") or f"lgbm_{asset_key}_signal_{result['version']}"
         registry_row = registry_map.get((asset_type, model_version), {})
         if registry_row.get("is_serving"):
@@ -481,7 +513,7 @@ def build_registry_fallback(asset_key: str) -> list[dict]:
     rows = []
     for result in version_results:
         metrics = result.get("metrics") or {}
-        asset_type = "STOCK" if asset_key == "stock" else "CRYPTO"
+        asset_type = {"stock": "STOCK", "crypto": "CRYPTO", "kr_stock": "STOCK_KR", "us_stock": "STOCK_US"}.get(asset_key, "STOCK")
         model_version = metrics.get("model_version") or f"lgbm_{asset_key}_signal_{result['version']}"
         registry_row = registry_map.get((asset_type, model_version), {})
         rows.append(
@@ -508,7 +540,9 @@ def build_registry_fallback(asset_key: str) -> list[dict]:
     return rows
 
 def load_registry_groups(auth_header: str | None) -> dict[str, list[dict]]:
-    """Supabase DB 혹은 로컬 폴백을 통해 주식(STOCK) 및 가상자산(CRYPTO) 레지스트리 목록을 묶어 가져옵니다."""
+    """Supabase DB 혹은 로컬 폴백을 통해 주식(STOCK) 및 가상자산(CRYPTO) 레지스트리 목록을 묶어 가져옵니다.
+    국내주식(STOCK_KR), 해외주식(STOCK_US) 개별 모델도 별도 그룹으로 분리합니다.
+    """
     registry_rows = []
     if auth_header:
         registry_rows = safe_query_supabase(
@@ -518,16 +552,35 @@ def load_registry_groups(auth_header: str | None) -> dict[str, list[dict]]:
             params={"order": "asset_type.asc,updated_at.desc"},
         ) or []
 
+    if not registry_rows:
+        # 로컬 model_registry.json 폴백 로드
+        local_path = PROJECT_ROOT / "ml" / "data" / "ops" / "model_registry.json"
+        if local_path.exists():
+            try:
+                import json as _json
+                registry_rows = _json.loads(local_path.read_text(encoding="utf-8"))
+            except Exception:
+                registry_rows = []
+
     if registry_rows:
         for row in registry_rows:
             row["version"] = row.get("model_version", "").split("_")[-1] if row.get("model_version") else ""
         stock_rows = [row for row in registry_rows if row.get("asset_type") == "STOCK"]
         crypto_rows = [row for row in registry_rows if row.get("asset_type") == "CRYPTO"]
-        return {"stock": stock_rows, "crypto": crypto_rows}
+        kr_stock_rows = [row for row in registry_rows if row.get("asset_type") == "STOCK_KR"]
+        us_stock_rows = [row for row in registry_rows if row.get("asset_type") == "STOCK_US"]
+        return {
+            "stock": stock_rows,
+            "crypto": crypto_rows,
+            "kr_stock": kr_stock_rows,
+            "us_stock": us_stock_rows,
+        }
 
     return {
         "stock": build_registry_fallback("stock"),
         "crypto": build_registry_fallback("crypto"),
+        "kr_stock": build_registry_fallback("kr_stock"),
+        "us_stock": build_registry_fallback("us_stock"),
     }
 
 def resolve_active_model_selection(asset_key: str, auth_header: str | None) -> dict | None:
@@ -1149,8 +1202,8 @@ def build_active_signal_payload(
     selection = resolve_active_model_selection(asset_key, auth_header)
     if selection is None:
         return None
-    if selection.get("selection_status") == "fallback_latest" and not selection.get("serving_version") and not selection.get("recommended_version"):
-        return None
+    # serving/recommended 버전이 없어도 최신 버전이 존재하면 폴백 허용
+    # (이전 차단 로직은 예측 파일이 있음에도 시그널을 표시하지 않는 버그를 유발)
 
     active_result = selection["active_result"]
     predictions_path = Path(str(active_result.get("predictions_path") or ""))

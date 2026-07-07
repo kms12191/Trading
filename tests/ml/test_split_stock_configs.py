@@ -20,8 +20,11 @@ def test_kr_stock_config_uses_separate_paths_and_dart_features():
     assert config["model"]["asset_type"] == "STOCK"
     assert config["optional_features"]["dart_features_path"] == "ml/data/raw/dart_features.csv"
     assert "dart_disclosure_count_20d" in config["model"]["feature_columns"]
+    assert "dart_risk_point_count_20d" in config["model"]["feature_columns"]
+    assert "dart_text_risk_keyword_count_20d" in config["model"]["feature_columns"]
     assert risk_config["model"]["version"] == "lgbm_kr_stock_risk_v1"
     assert risk_config["data"]["features_path"] == config["data"]["features_path"]
+    assert "dart_risk_point_count_20d" in risk_config["model"]["feature_columns"]
 
 
 def test_us_stock_config_uses_separate_paths_and_excludes_dart_features():
