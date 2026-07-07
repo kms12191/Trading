@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -39,8 +40,12 @@ crypto = CryptoHelper(ENCRYPTION_KEY)
 logger = logging.getLogger(__name__)
 
 def get_stock_shadow_preset_keys() -> list[str]:
-    """주식 자동화 시 실행할 프리셋 키 목록을 반환합니다."""
-    return ["kr-stock-v1-full", "us-stock-v1-full", "stock-v8-full"]
+    """주식 자동화 시 실행할 프리셋 키 목록을 반환합니다.
+    
+    serving 모델과 동일한 config를 사용하는 v11이 우선이며,
+    국내/해외 분리 shadow 모델(kr-v1, us-v1)은 보조 학습으로 병렬 실행됩니다.
+    """
+    return ["kr-stock-v1-full", "us-stock-v1-full", "stock-v11-full"]
 
 # 모듈 수준의 전역 상태 변수
 _news_ingest_started = False
@@ -220,8 +225,32 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
         return
     _ml_automation_started = True
 
+    STOCK_AUTOMATION_STATE_PATH = PROJECT_ROOT / "ml" / "data" / "ops" / "stock_automation_state.json"
+
+    def _load_last_stock_date() -> str | None:
+        """이전 서버 실행에서 저장된 주식 자동화 마지막 실행 날짜를 파일에서 복원합니다."""
+        try:
+            if STOCK_AUTOMATION_STATE_PATH.exists():
+                state = json.loads(STOCK_AUTOMATION_STATE_PATH.read_text(encoding="utf-8"))
+                return state.get("last_stock_date")
+        except Exception:
+            pass
+        return None
+
+    def _save_last_stock_date(date_str: str) -> None:
+        """주식 자동화 실행 날짜를 파일에 영속화하여 서버 재시작 후에도 중복 실행을 방지합니다."""
+        try:
+            STOCK_AUTOMATION_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            STOCK_AUTOMATION_STATE_PATH.write_text(
+                json.dumps({"last_stock_date": date_str, "updated_at": datetime.utcnow().isoformat() + "Z"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
     def _loop() -> None:
-        last_stock_date = None
+        # 서버 재시작 시 파일에서 마지막 실행 날짜 복원 (메모리 변수로만 관리하면 재시작 시 당일 중복 실행 발생 가능)
+        last_stock_date = _load_last_stock_date()
         last_crypto_hour = None
         crypto_run_count = 0
 
@@ -240,8 +269,8 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                         if locked:
                             last_crypto_hour = crypto_slot_str
                             try:
-                                # v8: 30분 캔들 + 잔차 수익률 라벨 + Ridge 앙상블 자동화
-                                preset = resolve_automation_preset("crypto-v8-full")
+                                # v9: 30분 캔들 + 잔차 수익률 라벨 — 현재 serving 코인 모델과 동일 config
+                                preset = resolve_automation_preset("crypto-v9-full")
                                 dataset_config = preset["dataset"]
                                 training_config = preset["training"]
                                 
@@ -357,13 +386,20 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                         else:
                             last_crypto_hour = crypto_slot_str
 
-                # 2. 주식 자동화 (평일 16:30 ~ 17:00 사이, 하루 1회)
+                # 2. 주식 자동화 (평일 16:30 ~ 18:30 사이, 하루 1회)
+                # 시간 창을 18:30까지 확장: 서버가 해당 창 내 어느 시점에 켜져도 당일 자동화가 반드시 실행됨
                 is_weekday = now_kr.weekday() < 5
-                if is_weekday and now_kr.hour == 16 and 30 <= now_kr.minute <= 59:
+                in_stock_window = (
+                    (now_kr.hour == 16 and now_kr.minute >= 30)
+                    or (now_kr.hour == 17)
+                    or (now_kr.hour == 18 and now_kr.minute <= 30)
+                )
+                if is_weekday and in_stock_window:
                     if last_stock_date != today_str:
                         with distributed_lock("stock_automation", 7200) as locked:
                             if locked:
                                 last_stock_date = today_str
+                                _save_last_stock_date(today_str)  # 파일에 영속화
                                 if supabase_service_role_key:
                                     try:
                                         auth_header = f"Bearer {supabase_service_role_key}"
@@ -568,7 +604,9 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                     except Exception:
                                         pass
                             else:
+                                # 락 획득 실패 = 다른 프로세스가 이미 실행 중이므로 오늘 날짜 저장
                                 last_stock_date = today_str
+                                _save_last_stock_date(today_str)
 
             except Exception:
                 pass

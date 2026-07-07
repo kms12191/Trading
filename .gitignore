@@ -41,3 +41,5 @@ ml/models/*
 
 # SDD (Subagent Driven Development) artifacts
 .superpowers/
+
+.codegraph

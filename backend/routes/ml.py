@@ -897,8 +897,12 @@ def get_ml_active_predictions():
     try:
         get_user_id_from_header(auth_header)
         asset_type = str(request.args.get("asset_type") or "").upper()
-        if asset_type not in ("STOCK", "CRYPTO"):
-            return jsonify({"success": False, "message": "asset_type은 STOCK 또는 CRYPTO여야 합니다."}), 400
+        # STOCK_KR(국내주식 전용), STOCK_US(해외주식 전용) 개별 모델도 허용
+        if asset_type not in ("STOCK", "CRYPTO", "STOCK_KR", "STOCK_US"):
+            return jsonify({"success": False, "message": "asset_type은 STOCK, CRYPTO, STOCK_KR, STOCK_US 중 하나여야 합니다."}), 400
+
+        # asset_type → asset_key 매핑 (개별 모델 포함)
+        asset_key = {"STOCK": "stock", "CRYPTO": "crypto", "STOCK_KR": "kr_stock", "STOCK_US": "us_stock"}.get(asset_type, "stock")
 
         limit = int(request.args.get("limit", 20))
         if limit < 1 or limit > 200:
@@ -917,7 +921,6 @@ def get_ml_active_predictions():
         else:
             min_signal_score_value = float(min_signal_score)
 
-        asset_key = "stock" if asset_type == "STOCK" else "crypto"
         payload = build_active_signal_payload(
             asset_key=asset_key,
             auth_header=auth_header,

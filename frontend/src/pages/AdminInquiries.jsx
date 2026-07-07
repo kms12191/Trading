@@ -1,10 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Header from '../components/Header.jsx'
+import { supabase } from '../supabaseClient.js'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
 const inquiryStatusLabels = {
   RECEIVED: '답변 대기',
   WAITING: '답변 대기',
   COMPLETED: '답변 완료',
+  NEED_MORE: '추가 확인',
   CANCELED: '취소됨',
 }
 
@@ -18,42 +22,6 @@ const inquiryTypeLabels = {
   system: '시스템 오류',
   etc: '기타',
 }
-
-const mockInquiries = [
-  {
-    id: 'mock-1',
-    title: '평가금액이 실제 계좌와 다르게 표시됩니다.',
-    inquiryType: 'account',
-    status: 'RECEIVED',
-    userEmail: 'user01@example.com',
-    content: '대시보드의 평가금액과 증권사 앱의 평가금액이 다르게 보입니다. 새로고침 후에도 동일합니다.',
-    answer: '',
-    fileName: 'account-balance.png',
-    createdAt: '2026-07-07T09:20:00+09:00',
-  },
-  {
-    id: 'mock-2',
-    title: '주문 실패 사유를 확인하고 싶습니다.',
-    inquiryType: 'order',
-    status: 'WAITING',
-    userEmail: 'trader@example.com',
-    content: '매수 주문 버튼을 눌렀는데 실패로 표시됩니다. 잔고는 충분한 상태입니다.',
-    answer: '',
-    fileName: '',
-    createdAt: '2026-07-06T14:05:00+09:00',
-  },
-  {
-    id: 'mock-3',
-    title: '첨부파일 등록 문의',
-    inquiryType: 'etc',
-    status: 'COMPLETED',
-    userEmail: 'helpme@example.com',
-    content: 'PDF 파일 첨부가 가능한지 궁금합니다.',
-    answer: 'PDF 파일은 5MB 이하인 경우 첨부할 수 있습니다.',
-    fileName: '',
-    createdAt: '2026-07-05T18:30:00+09:00',
-  },
-]
 
 const formatDate = (value) => {
   const date = value ? new Date(value) : null
@@ -78,12 +46,6 @@ function Icon({ name, className = 'h-5 w-5' }) {
       <>
         <path strokeLinecap="round" strokeLinejoin="round" d="M7 3.5h6l4 4v13H7z" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M13 3.5v4h4M9.5 11.5h5M9.5 15h5" />
-      </>
-    ),
-    message: (
-      <>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 5.5h15v10h-8l-4.5 4v-4H4.5z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8 10.5h.01M12 10.5h.01M16 10.5h.01" />
       </>
     ),
     paperclip: <path strokeLinecap="round" strokeLinejoin="round" d="M8.5 12.5l5.7-5.7a3 3 0 114.2 4.2l-7.1 7.1a4.5 4.5 0 01-6.4-6.4l7.1-7.1" />,
@@ -116,9 +78,28 @@ function SummaryCard({ label, value, icon, tone }) {
   )
 }
 
-function ReplyModal({ inquiry, onClose }) {
-  const [answer, setAnswer] = useState(inquiry?.answer || '')
-  const [status, setStatus] = useState(inquiry?.status === 'COMPLETED' ? 'COMPLETED' : 'COMPLETED')
+function EmptyInquiryState() {
+  return (
+    <div className="grid min-h-48 place-items-center border-t border-slate-800 px-4 py-10 text-center text-sm text-slate-500">
+      <div>
+        <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-lg border border-slate-700/70 bg-[#0f172a] text-slate-500">
+          <Icon name="document" className="h-6 w-6" />
+        </span>
+        <p className="font-bold text-slate-300">문의 내용이 없습니다.</p>
+        <p className="mt-1 text-xs text-slate-500">사용자가 문의를 등록하면 이곳에 표시됩니다.</p>
+      </div>
+    </div>
+  )
+}
+
+function ReplyModal({ inquiry, isSubmitting, error, onClose, onSubmit }) {
+  const [answer, setAnswer] = useState('')
+  const [status, setStatus] = useState('COMPLETED')
+
+  useEffect(() => {
+    setAnswer(inquiry?.answer || '')
+    setStatus(inquiry?.status === 'CANCELED' ? 'CANCELED' : inquiry?.status === 'NEED_MORE' ? 'NEED_MORE' : 'COMPLETED')
+  }, [inquiry])
 
   if (!inquiry) return null
 
@@ -153,24 +134,28 @@ function ReplyModal({ inquiry, onClose }) {
             >
               <option value="WAITING">답변 대기</option>
               <option value="COMPLETED">답변 완료</option>
+              <option value="NEED_MORE">추가 확인</option>
               <option value="CANCELED">취소됨</option>
             </select>
           </label>
+          {error ? <p className="text-xs font-bold text-rose-400">{error}</p> : null}
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-800 px-5 py-4">
           <button
             type="button"
             className="rounded border border-slate-700 px-4 py-2 text-xs font-bold text-slate-300 transition hover:border-slate-500 hover:text-white"
             onClick={onClose}
+            disabled={isSubmitting}
           >
             취소
           </button>
           <button
             type="button"
-            className="rounded bg-ai-cyan px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-300"
-            onClick={onClose}
+            className="rounded bg-ai-cyan px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => onSubmit(inquiry.id, { answer, status })}
+            disabled={isSubmitting}
           >
-            답변 등록
+            {isSubmitting ? '저장 중...' : '답변 등록'}
           </button>
         </div>
       </div>
@@ -178,36 +163,113 @@ function ReplyModal({ inquiry, onClose }) {
   )
 }
 
-export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout }) {
+export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hideHeader = false }) {
+  const [inquiries, setInquiries] = useState([])
   const [sortOrder, setSortOrder] = useState('desc')
-  const [expandedInquiryId, setExpandedInquiryId] = useState(mockInquiries[0]?.id || null)
+  const [expandedInquiryId, setExpandedInquiryId] = useState(null)
   const [replyInquiry, setReplyInquiry] = useState(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  const [canReply, setCanReply] = useState(false)
+
+  const fetchAdminInquiries = async () => {
+    setIsLoading(true)
+    setLoadError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('로그인이 필요합니다.')
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/admin/inquiries`, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.message || '문의 목록을 불러오지 못했습니다.')
+      }
+
+      const rows = payload.data || []
+      setInquiries(rows)
+      setCanReply(Boolean(payload.canReply))
+      setExpandedInquiryId((currentId) => currentId || rows[0]?.id || null)
+    } catch (error) {
+      setInquiries([])
+      setCanReply(false)
+      setLoadError(error.message || '문의 목록을 불러오지 못했습니다.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchAdminInquiries()
+  }, [])
 
   const sortedInquiries = useMemo(() => {
-    return [...mockInquiries].sort((left, right) => {
+    return [...inquiries].sort((left, right) => {
       const leftTime = new Date(left.createdAt).getTime() || 0
       const rightTime = new Date(right.createdAt).getTime() || 0
       return sortOrder === 'asc' ? leftTime - rightTime : rightTime - leftTime
     })
-  }, [sortOrder])
+  }, [inquiries, sortOrder])
 
   const summary = useMemo(() => ({
-    total: mockInquiries.length,
-    waiting: mockInquiries.filter((item) => item.status === 'RECEIVED' || item.status === 'WAITING').length,
-    completed: mockInquiries.filter((item) => item.status === 'COMPLETED').length,
-  }), [])
+    total: inquiries.length,
+    waiting: inquiries.filter((item) => item.status === 'RECEIVED' || item.status === 'WAITING').length,
+    completed: inquiries.filter((item) => item.status === 'COMPLETED').length,
+  }), [inquiries])
+
+  const handleReplySubmit = async (inquiryId, payload) => {
+    setIsSubmitting(true)
+    setSubmitError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('로그인이 필요합니다.')
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/admin/inquiries/${inquiryId}/reply`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result.success === false) {
+        throw new Error(result.message || '답변 저장에 실패했습니다.')
+      }
+
+      setInquiries((current) => current.map((item) => (item.id === inquiryId ? result.data : item)))
+      setReplyInquiry(null)
+    } catch (error) {
+      setSubmitError(error.message || '답변 저장에 실패했습니다.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-obsidian-bg font-inter text-[#e2e2ec]">
-      <div className="mx-auto grid max-w-7xl gap-6 px-6 py-8">
-        <Header isLoggedIn={isLoggedIn} userEmail={userEmail} handleLogout={handleLogout} />
+    <div className={hideHeader ? 'font-inter text-[#e2e2ec]' : 'min-h-screen bg-obsidian-bg font-inter text-[#e2e2ec]'}>
+      <div className={hideHeader ? 'grid gap-6' : 'mx-auto grid max-w-7xl gap-6 px-6 py-8'}>
+        {!hideHeader ? (
+          <Header isLoggedIn={isLoggedIn} userEmail={userEmail} handleLogout={handleLogout} />
+        ) : null}
 
         <section className="rounded-lg border border-slate-700/80 bg-slate-surface p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Admin Support</p>
-              <h1 className="mt-1 text-2xl font-extrabold text-white">문의 답변 관리</h1>
-              <p className="mt-2 text-sm text-slate-400">사용자 문의를 확인하고 답변을 작성하는 관리자 화면입니다.</p>
+              <h1 className="mt-1 text-2xl font-extrabold text-white">{canReply ? '문의 답변 관리' : '문의 답변 확인'}</h1>
+              <p className="mt-2 text-sm text-slate-400">
+                {canReply ? '사용자 문의를 확인하고 답변을 작성하는 관리자 화면입니다.' : '내 문의와 등록된 답변 상태를 확인합니다.'}
+              </p>
             </div>
             <select
               value={sortOrder}
@@ -237,7 +299,13 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout }) 
           </div>
 
           <div className="overflow-hidden rounded-b-lg border border-t-0 border-slate-800">
-            {sortedInquiries.map((item) => {
+            {isLoading ? (
+              <div className="border-t border-slate-800 px-4 py-10 text-center text-sm font-bold text-slate-400">문의 목록을 불러오는 중입니다.</div>
+            ) : loadError ? (
+              <div className="border-t border-slate-800 px-4 py-10 text-center text-sm font-bold text-rose-400">{loadError}</div>
+            ) : sortedInquiries.length === 0 ? (
+              <EmptyInquiryState />
+            ) : sortedInquiries.map((item) => {
               const isExpanded = expandedInquiryId === item.id
               return (
                 <div key={item.id} className="border-t border-slate-800 first:border-t-0">
@@ -275,16 +343,21 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout }) 
                         <p className="font-bold text-slate-500">처리 상태</p>
                         <p className="mt-2">{inquiryStatusLabels[item.status] || item.status}</p>
                       </div>
-                      <div className="flex justify-end md:col-span-2">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-2 rounded border border-ai-cyan/40 px-3 py-1.5 text-xs font-bold text-ai-cyan transition hover:border-ai-cyan hover:bg-ai-cyan/10"
-                          onClick={() => setReplyInquiry(item)}
-                        >
-                          <Icon name="reply" className="h-4 w-4" />
-                          답변
-                        </button>
-                      </div>
+                      {canReply ? (
+                        <div className="flex justify-end md:col-span-2">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-2 rounded border border-ai-cyan/40 px-3 py-1.5 text-xs font-bold text-ai-cyan transition hover:border-ai-cyan hover:bg-ai-cyan/10"
+                            onClick={() => {
+                              setSubmitError('')
+                              setReplyInquiry(item)
+                            }}
+                          >
+                            <Icon name="reply" className="h-4 w-4" />
+                            답변
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -294,7 +367,13 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout }) 
         </section>
       </div>
 
-      <ReplyModal inquiry={replyInquiry} onClose={() => setReplyInquiry(null)} />
+      <ReplyModal
+        inquiry={replyInquiry}
+        isSubmitting={isSubmitting}
+        error={submitError}
+        onClose={() => setReplyInquiry(null)}
+        onSubmit={handleReplySubmit}
+      />
     </div>
   )
 }

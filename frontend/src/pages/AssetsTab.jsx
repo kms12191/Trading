@@ -638,8 +638,8 @@ export default function AssetsTab({
           <SectionHeader title="투자종목 보유 현황" />
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] border-collapse text-sm">
-            <thead className="border-y border-slate-800 bg-[#0f172a] text-xs text-slate-400">
+          <table className="w-full min-w-[760px] table-fixed border-collapse text-sm">
+            <thead className="block border-y border-slate-800 bg-[#0c0e15]/100 text-xs text-slate-400 [&>tr]:table [&>tr]:w-full [&>tr]:table-fixed">
               <tr>
                 <th className="px-5 py-3 text-left font-bold">투자종목 명</th>
                 <th className="px-5 py-3 text-left font-bold">거래소</th>
@@ -668,7 +668,7 @@ export default function AssetsTab({
                 <th className="px-5 py-3 text-right font-bold">자산 이동</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="block max-h-[460px] overflow-y-auto [&>tr]:table [&>tr]:w-full [&>tr]:table-fixed">
               {balanceLoading ? (
                 <tr>
                   <td colSpan="7" className="px-5 py-12 text-center">

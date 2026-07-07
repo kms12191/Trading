@@ -68,9 +68,62 @@ const isMissingBrokerHistoryTableError = (error) => {
 
 const TRADE_HISTORY_SELECT_FIELDS = 'id,exchange,asset_type,ticker,symbol,side,price,volume,order_amount,ord_type,market_country,currency,broker_env,client_order_id,external_order_id,external_order_org_no,status,failure_reason,created_at'
 const BROKER_HISTORY_SELECT_FIELDS = 'id,exchange,broker_env,symbol,market_country,side,price,quantity,order_amount,status,raw_status,currency,client_order_id,external_order_id,filled_quantity,average_filled_price,filled_amount,commission,tax,ordered_at,filled_at,settlement_date'
+const TRANSFER_HISTORY_SELECT_FIELDS = 'id,from_exchange,to_exchange,currency,network,amount,status,external_transaction_id,withdraw_fee,expected_receive_amount,received_amount,fee_currency,precheck_payload,binance_deposit_payload,failure_reason,created_at,updated_at,submitted_at,completed_at'
 
 const isCancelReplaceExchange = (exchange) => ['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(String(exchange || '').toUpperCase())
 const symbolDisplayNameCache = new Map()
+
+const formatCryptoAmount = (value, symbol = '') => {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue)) return '-'
+  const suffix = symbol ? ` ${String(symbol).toUpperCase()}` : ''
+  return `${formatNumber(numericValue, { maximumFractionDigits: 8 })}${suffix}`
+}
+
+const formatSignedCryptoAmount = (value, symbol = '') => {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue)) return '-'
+  const sign = numericValue > 0 ? '+' : ''
+  return `${sign}${formatCryptoAmount(numericValue, symbol)}`
+}
+
+const getTransferDateParts = (value) => {
+  const parsed = value ? new Date(value) : null
+  const isValidDate = parsed && !Number.isNaN(parsed.getTime())
+  return {
+    date: isValidDate ? parsed.toISOString().slice(0, 10) : '-',
+    time: isValidDate
+      ? parsed.toLocaleTimeString('ko-KR', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+      : '-',
+  }
+}
+
+const getTransferFee = (row = {}) => (
+  Number(row.withdraw_fee ?? row.precheck_payload?.withdrawal_fee ?? 0)
+)
+
+const getTransferReceivedAmount = (row = {}) => {
+  const receivedAmount = Number(row.received_amount)
+  if (Number.isFinite(receivedAmount) && receivedAmount > 0) return receivedAmount
+  const depositAmount = Number(row.binance_deposit_payload?.amount)
+  if (Number.isFinite(depositAmount) && depositAmount > 0) return depositAmount
+  const expectedAmount = Number(row.expected_receive_amount ?? row.precheck_payload?.estimated_receive_amount)
+  if (Number.isFinite(expectedAmount) && expectedAmount > 0) return expectedAmount
+  return 0
+}
+
+const mapTransferStatus = (status, type) => {
+  const normalizedStatus = String(status || '').toUpperCase()
+  if (normalizedStatus === 'COMPLETED') return type === 'DEPOSIT' ? '입금완료' : '출금완료'
+  if (['FAILED', 'NEEDS_REVIEW', 'REJECTED'].includes(normalizedStatus)) return '출금실패'
+  if (['APPROVED', 'SUBMITTED', 'WITHDRAWAL_REGISTER', 'WITHDRAWAL_WAIT', 'PENDING'].includes(normalizedStatus)) return '전송중'
+  return normalizedStatus || '-'
+}
 
 const fetchSymbolDisplayNames = async (proposals = []) => {
   const symbols = Array.from(new Set(
@@ -215,6 +268,76 @@ const mapBrokerHistoryToTrade = (order, symbolNameMap = {}) => {
   }
 }
 
+const mapTransferToTrades = (transfer) => {
+  const currency = String(transfer.currency || '').toUpperCase()
+  const fee = getTransferFee(transfer)
+  const feeCurrency = transfer.fee_currency || currency
+  const withdrawParts = getTransferDateParts(transfer.submitted_at || transfer.created_at)
+  const depositParts = getTransferDateParts(transfer.completed_at || transfer.updated_at || transfer.created_at)
+  const fromExchange = transfer.from_exchange || 'COINONE'
+  const toExchange = transfer.to_exchange || 'BINANCE'
+  const amount = Number(transfer.amount)
+  const receivedAmount = getTransferReceivedAmount(transfer)
+  const feeText = fee > 0 ? `수수료 ${formatCryptoAmount(fee, feeCurrency)}` : '-'
+  const rows = [
+    {
+      id: `transfer-withdraw-${transfer.id}`,
+      sourceType: 'TRANSFER',
+      rawStatus: transfer.status,
+      isActionable: false,
+      brokerEnv: 'REAL',
+      orderOrgNo: '',
+      marketCountry: '',
+      rawPrice: null,
+      rawQuantity: Number.isFinite(amount) ? -amount : null,
+      date: withdrawParts.date,
+      time: withdrawParts.time,
+      exchange: fromExchange,
+      symbolName: `${currency} 출금`,
+      ticker: currency,
+      side: '출금',
+      currency,
+      price: '-',
+      quantity: Number.isFinite(amount) ? formatCryptoAmount(-amount, currency) : '-',
+      amount: feeText,
+      status: mapTransferStatus(transfer.status, 'WITHDRAW'),
+      exchangeRate: '-',
+      fees: fee > 0 ? formatCryptoAmount(fee, feeCurrency) : '-',
+      orderNumber: transfer.external_transaction_id || transfer.id,
+    },
+  ]
+
+  if (String(transfer.status || '').toUpperCase() === 'COMPLETED' && receivedAmount > 0) {
+    rows.push({
+      id: `transfer-deposit-${transfer.id}`,
+      sourceType: 'TRANSFER',
+      rawStatus: transfer.status,
+      isActionable: false,
+      brokerEnv: 'REAL',
+      orderOrgNo: '',
+      marketCountry: '',
+      rawPrice: null,
+      rawQuantity: receivedAmount,
+      date: depositParts.date,
+      time: depositParts.time,
+      exchange: toExchange,
+      symbolName: `${currency} 입금`,
+      ticker: currency,
+      side: '입금',
+      currency,
+      price: '-',
+      quantity: formatSignedCryptoAmount(receivedAmount, currency),
+      amount: '-',
+      status: mapTransferStatus(transfer.status, 'DEPOSIT'),
+      exchangeRate: '-',
+      fees: '-',
+      orderNumber: transfer.external_transaction_id || transfer.id,
+    })
+  }
+
+  return rows
+}
+
 export default function TradeHistoryTab() {
   const [tradeHistory, setTradeHistory] = useState([])
   const [loading, setLoading] = useState(true)
@@ -238,15 +361,17 @@ export default function TradeHistoryTab() {
     TOSS: 'border-blue-500/40 bg-blue-500/15 text-blue-300',
     KIS: 'border-rose-500/40 bg-rose-500/15 text-rose-300',
     COINONE: 'border-sky-500/40 bg-sky-500/15 text-sky-300',
-    BINANCE: 'border-yellow-400/40 bg-yellow-400/15 text-yellow-300', 
+    BINANCE: 'border-yellow-400/40 bg-yellow-400/15 text-yellow-300',
+    BINANCE_UM_FUTURES: 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300',
   }
 
-  const mergeTrades = async (proposals = [], brokerOrders = []) => {
+  const mergeTrades = async (proposals = [], brokerOrders = [], transferRows = []) => {
     const hydratedRows = await hydrateTradeProposals(proposals)
     const brokerSymbolMap = await fetchSymbolDisplayNames(brokerOrders)
     return [
       ...hydratedRows.map(mapProposalToTrade),
       ...brokerOrders.map((order) => mapBrokerHistoryToTrade(order, brokerSymbolMap)),
+      ...transferRows.flatMap(mapTransferToTrades),
     ].sort((a, b) => {
       const left = new Date(`${a.date}T${a.time === '-' ? '00:00:00' : a.time}`).getTime()
       const right = new Date(`${b.date}T${b.time === '-' ? '00:00:00' : b.time}`).getTime()
@@ -258,6 +383,7 @@ export default function TradeHistoryTab() {
     let ignore = false
     let proposalChannel = null
     let brokerChannel = null
+    let transferChannel = null
 
     const loadTradeHistory = async ({ runSync = false, showLoading = false } = {}) => {
       if (showLoading) {
@@ -282,6 +408,7 @@ export default function TradeHistoryTab() {
         const [
           { data: proposalRows, error: proposalError },
           { data: brokerRows, error: brokerError },
+          { data: transferRows, error: transferError },
         ] = await Promise.all([
           supabase
             .from('trade_proposals')
@@ -291,6 +418,10 @@ export default function TradeHistoryTab() {
             .from('broker_order_history')
             .select(BROKER_HISTORY_SELECT_FIELDS)
             .order('ordered_at', { ascending: false }),
+          supabase
+            .from('asset_transfer_proposals')
+            .select(TRANSFER_HISTORY_SELECT_FIELDS)
+            .order('created_at', { ascending: false }),
         ])
 
         if (ignore) return
@@ -299,7 +430,11 @@ export default function TradeHistoryTab() {
           setTradeHistory([])
           setTradeError('거래내역을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')
         } else {
-          setTradeHistory(await mergeTrades(proposalRows || [], brokerError ? [] : (brokerRows || [])))
+          setTradeHistory(await mergeTrades(
+            proposalRows || [],
+            brokerError ? [] : (brokerRows || []),
+            transferError ? [] : (transferRows || []),
+          ))
         }
       } catch {
         if (!ignore) {
@@ -357,6 +492,22 @@ export default function TradeHistoryTab() {
           },
         )
         .subscribe()
+
+      transferChannel = supabase
+        .channel(`transfer-history-${session.user.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'asset_transfer_proposals',
+            filter: `user_id=eq.${session.user.id}`,
+          },
+          () => {
+            scheduleRealtimeRefresh()
+          },
+        )
+        .subscribe()
     }
 
     const initializeTradeHistory = async () => {
@@ -376,6 +527,9 @@ export default function TradeHistoryTab() {
       }
       if (brokerChannel) {
         supabase.removeChannel(brokerChannel)
+      }
+      if (transferChannel) {
+        supabase.removeChannel(transferChannel)
       }
     }
   }, [])
@@ -422,6 +576,7 @@ export default function TradeHistoryTab() {
     const [
       { data: proposalRows, error: proposalError },
       { data: brokerRows, error: brokerError },
+      { data: transferRows, error: transferError },
     ] = await Promise.all([
       supabase
         .from('trade_proposals')
@@ -431,12 +586,20 @@ export default function TradeHistoryTab() {
         .from('broker_order_history')
         .select(BROKER_HISTORY_SELECT_FIELDS)
         .order('ordered_at', { ascending: false }),
+      supabase
+        .from('asset_transfer_proposals')
+        .select(TRANSFER_HISTORY_SELECT_FIELDS)
+        .order('created_at', { ascending: false }),
     ])
 
     if (proposalError || (brokerError && !isMissingBrokerHistoryTableError(brokerError))) {
       throw proposalError || brokerError
     }
-    const nextTrades = await mergeTrades(proposalRows || [], brokerError ? [] : (brokerRows || []))
+    const nextTrades = await mergeTrades(
+      proposalRows || [],
+      brokerError ? [] : (brokerRows || []),
+      transferError ? [] : (transferRows || []),
+    )
     setTradeHistory(nextTrades)
     if (selectedTrade) {
       const nextSelectedTrade = nextTrades.find((trade) => trade.id === selectedTrade.id)
@@ -673,7 +836,7 @@ export default function TradeHistoryTab() {
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="flex flex-wrap items-center gap-2 md:ml-[25px]">
                   <span className="w-10 text-xs font-bold text-slate-500">구분</span>
-                  {['ALL', '매수', '매도'].map((item) => (
+                  {['ALL', '매수', '매도', '출금', '입금'].map((item) => (
                     <button
                       key={item}
                       className={`rounded px-3 py-1.5 text-xs font-bold transition ${
@@ -690,7 +853,7 @@ export default function TradeHistoryTab() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2 md:flex-1 md:justify-end md:pr-[25px]">
                   <span className="w-10 text-xs font-bold text-slate-500">상태</span>
-                  {['ALL', '주문 완료', '미체결', '체결완료', '취소완료', '구매실패', '판매실패'].map((item) => (
+                  {['ALL', '주문 완료', '미체결', '체결완료', '취소완료', '전송중', '출금완료', '입금완료', '출금실패', '구매실패', '판매실패'].map((item) => (
                     <button
                       key={item}
                       className={`rounded px-3 py-1.5 text-xs font-bold transition ${
@@ -837,7 +1000,13 @@ export default function TradeHistoryTab() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-white">{selectedTrade.sourceType === 'BROKER' ? '브로커 원장' : '지정가'} {selectedTrade.side}</p>
+                    <p className="font-bold text-white">
+                      {selectedTrade.sourceType === 'TRANSFER'
+                        ? '자산 이동'
+                        : selectedTrade.sourceType === 'BROKER'
+                          ? '브로커 원장'
+                          : '지정가'} {selectedTrade.side}
+                    </p>
                     <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${selectedTrade.status === '체결완료' ? 'bg-emerald-400/15 text-emerald-300' : 'bg-slate-700 text-slate-200'
                       }`}>
                       {selectedTrade.status}

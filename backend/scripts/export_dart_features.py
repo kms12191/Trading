@@ -17,6 +17,31 @@ SENTIMENT_SCORE = {
     "neutral": 0.0,
 }
 
+CONFIDENCE_SCORE = {
+    "high": 1.0,
+    "medium": 0.6,
+    "low": 0.3,
+}
+
+DART_TEXT_RISK_KEYWORDS = [
+    "거래정지",
+    "상장폐지",
+    "관리종목",
+    "불성실",
+    "감사의견",
+    "횡령",
+    "배임",
+    "회생",
+    "영업정지",
+    "감자",
+    "소송",
+    "제재",
+    "위험",
+    "리스크",
+    "손실",
+    "악재",
+]
+
 CATEGORY_GROUPS = {
     "dart_contract_flag": ["수주", "공급계약", "계약"],
     "dart_financing_flag": ["유상증자", "자금조달", "증권", "사채", "전환"],
@@ -33,6 +58,14 @@ BASE_DART_COLUMNS = [
     "dart_caution_count",
     "dart_info_count",
     "dart_ai_analyzed_count",
+    "dart_summary_available_count",
+    "dart_summary_length",
+    "dart_key_point_count",
+    "dart_risk_point_count",
+    "dart_check_item_count",
+    "dart_metric_count",
+    "dart_confidence_score",
+    "dart_text_risk_keyword_count",
     *CATEGORY_GROUPS.keys(),
 ]
 
@@ -42,16 +75,40 @@ OUTPUT_DART_COLUMNS = [
     "dart_negative_count_3d",
     "dart_positive_count_3d",
     "dart_caution_count_3d",
+    "dart_summary_available_count_3d",
+    "dart_summary_length_sum_3d",
+    "dart_key_point_count_3d",
+    "dart_risk_point_count_3d",
+    "dart_check_item_count_3d",
+    "dart_metric_count_3d",
+    "dart_confidence_score_sum_3d",
+    "dart_text_risk_keyword_count_3d",
     "dart_disclosure_count_7d",
     "dart_sentiment_sum_7d",
     "dart_negative_count_7d",
     "dart_positive_count_7d",
     "dart_caution_count_7d",
+    "dart_summary_available_count_7d",
+    "dart_summary_length_sum_7d",
+    "dart_key_point_count_7d",
+    "dart_risk_point_count_7d",
+    "dart_check_item_count_7d",
+    "dart_metric_count_7d",
+    "dart_confidence_score_sum_7d",
+    "dart_text_risk_keyword_count_7d",
     "dart_disclosure_count_20d",
     "dart_sentiment_sum_20d",
     "dart_negative_count_20d",
     "dart_positive_count_20d",
     "dart_caution_count_20d",
+    "dart_summary_available_count_20d",
+    "dart_summary_length_sum_20d",
+    "dart_key_point_count_20d",
+    "dart_risk_point_count_20d",
+    "dart_check_item_count_20d",
+    "dart_metric_count_20d",
+    "dart_confidence_score_sum_20d",
+    "dart_text_risk_keyword_count_20d",
     "dart_ai_analyzed_count_20d",
     "dart_contract_flag_20d",
     "dart_financing_flag_20d",
@@ -104,6 +161,24 @@ def has_category_keyword(*values: object, keywords: list[str]) -> float:
     return 1.0 if any(keyword in text for keyword in keywords) else 0.0
 
 
+def count_items(value: object) -> float:
+    if isinstance(value, list):
+        return float(len(value))
+    if isinstance(value, dict):
+        return float(len(value))
+    return 0.0
+
+
+def text_length(value: object) -> float:
+    text = str(value or "").strip()
+    return float(len(text))
+
+
+def count_risk_keywords(*values: object) -> float:
+    text = " ".join(str(value or "") for value in values)
+    return float(sum(text.count(keyword) for keyword in DART_TEXT_RISK_KEYWORDS))
+
+
 def build_daily_dart_features(disclosures: list[dict[str, Any]], analyses: list[dict[str, Any]]) -> pd.DataFrame:
     analysis_by_rcept_no = build_analysis_map(analyses)
     rows: list[dict[str, Any]] = []
@@ -118,6 +193,10 @@ def build_daily_dart_features(disclosures: list[dict[str, Any]], analyses: list[
         analysis = analysis_by_rcept_no.get(rcept_no)
         sentiment = str((analysis or {}).get("sentiment") or "info").strip().lower()
         category = str((analysis or {}).get("category") or "")
+        confidence = str((analysis or {}).get("confidence") or "").strip().lower()
+        plain_summary = (analysis or {}).get("plain_summary")
+        headline = (analysis or {}).get("headline")
+        sentiment_message = (analysis or {}).get("sentiment_message")
         report_name = str(disclosure.get("report_nm") or "")
 
         row = {
@@ -130,6 +209,14 @@ def build_daily_dart_features(disclosures: list[dict[str, Any]], analyses: list[
             "dart_caution_count": 1.0 if sentiment == "caution" else 0.0,
             "dart_info_count": 1.0 if sentiment == "info" else 0.0,
             "dart_ai_analyzed_count": 1.0 if analysis else 0.0,
+            "dart_summary_available_count": 1.0 if text_length(plain_summary) > 0 else 0.0,
+            "dart_summary_length": text_length(plain_summary),
+            "dart_key_point_count": count_items((analysis or {}).get("key_points")),
+            "dart_risk_point_count": count_items((analysis or {}).get("risk_points")),
+            "dart_check_item_count": count_items((analysis or {}).get("check_items")),
+            "dart_metric_count": count_items((analysis or {}).get("metrics")),
+            "dart_confidence_score": CONFIDENCE_SCORE.get(confidence, 0.0),
+            "dart_text_risk_keyword_count": count_risk_keywords(headline, sentiment_message, plain_summary, category, report_name),
         }
         for column, keywords in CATEGORY_GROUPS.items():
             row[column] = has_category_keyword(category, report_name, keywords=keywords)
@@ -153,9 +240,9 @@ def build_shifted_dart_features(feature_dates: pd.DataFrame, daily_features: pd.
 
     base = feature_dates[["symbol", "date"]].copy()
     base["symbol"] = base["symbol"].map(normalize_stock_code)
-    base["date"] = pd.to_datetime(base["date"], errors="coerce")
-    base = base.dropna(subset=["date"]).drop_duplicates(subset=["symbol", "date"])
-    base["date_key"] = base["date"].dt.strftime("%Y-%m-%d")
+    base["date_key"] = base["date"].map(normalize_disclosure_date)
+    base = base[base["date_key"] != ""].drop_duplicates(subset=["symbol", "date_key"])
+    base["date"] = pd.to_datetime(base["date_key"], errors="coerce")
 
     daily = daily_features.copy()
     if daily.empty:
@@ -170,7 +257,7 @@ def build_shifted_dart_features(feature_dates: pd.DataFrame, daily_features: pd.
         pd.concat(
             [
                 base[["symbol", "date", "date_key"]],
-                daily.assign(date=pd.to_datetime(daily["date"], errors="coerce"))[["symbol", "date", "date_key"]],
+                daily.assign(date=pd.to_datetime(daily["date_key"], errors="coerce"))[["symbol", "date", "date_key"]],
             ],
             ignore_index=True,
         )
@@ -194,6 +281,14 @@ def build_shifted_dart_features(feature_dates: pd.DataFrame, daily_features: pd.
             output[f"dart_negative_count_{window}d"] = rolling["dart_negative_count"]
             output[f"dart_positive_count_{window}d"] = rolling["dart_positive_count"]
             output[f"dart_caution_count_{window}d"] = rolling["dart_caution_count"]
+            output[f"dart_summary_available_count_{window}d"] = rolling["dart_summary_available_count"]
+            output[f"dart_summary_length_sum_{window}d"] = rolling["dart_summary_length"]
+            output[f"dart_key_point_count_{window}d"] = rolling["dart_key_point_count"]
+            output[f"dart_risk_point_count_{window}d"] = rolling["dart_risk_point_count"]
+            output[f"dart_check_item_count_{window}d"] = rolling["dart_check_item_count"]
+            output[f"dart_metric_count_{window}d"] = rolling["dart_metric_count"]
+            output[f"dart_confidence_score_sum_{window}d"] = rolling["dart_confidence_score"]
+            output[f"dart_text_risk_keyword_count_{window}d"] = rolling["dart_text_risk_keyword_count"]
         output["dart_ai_analyzed_count_20d"] = shifted["dart_ai_analyzed_count"].rolling(20, min_periods=1).sum()
         for column in CATEGORY_GROUPS:
             output[f"{column}_20d"] = shifted[column].rolling(20, min_periods=1).max()
@@ -268,7 +363,7 @@ def main() -> None:
     ]
     analyses = fetch_supabase_rows(
         "dart_disclosure_analyses",
-        "rcept_no,category,sentiment,confidence",
+        "rcept_no,category,sentiment,confidence,headline,plain_summary,sentiment_message,key_points,risk_points,check_items,metrics",
         {},
     )
 

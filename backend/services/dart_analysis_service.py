@@ -289,6 +289,8 @@ class DartDisclosureAnalysisService:
         self.ai_model = os.getenv("DART_ANALYSIS_MODEL", "gpt-4o-mini")
         self.gemini_primary_model = os.getenv("DART_GEMINI_PRIMARY_MODEL", "gemini-3.5-flash")
         self.gemini_fallback_model = os.getenv("DART_GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite")
+        self.gemini_models = self._parse_gemini_models()
+        self._gemini_model_cursor = 0
         self.ai_prompt_version = os.getenv("DART_ANALYSIS_PROMPT_VERSION", "v3")
         self.ai_timeout_seconds = int(os.getenv("DART_ANALYSIS_TIMEOUT_SECONDS", "30"))
         self.ai_excerpt_chars = int(os.getenv("DART_ANALYSIS_EXCERPT_CHARS", "4000"))
@@ -476,9 +478,34 @@ class DartDisclosureAnalysisService:
             return bool(self.gemini_api_key)
         return bool(self.openai_api_key)
 
+    def _parse_gemini_models(self) -> list[str]:
+        configured_models = os.getenv("DART_GEMINI_MODELS", "")
+        if configured_models:
+            raw_models = configured_models.split(",")
+        else:
+            raw_models = [
+                self.gemini_primary_model,
+                self.gemini_fallback_model,
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+            ]
+        models: list[str] = []
+        for model in raw_models:
+            normalized = str(model or "").strip()
+            if normalized and normalized not in models:
+                models.append(normalized)
+        return models
+
+    def _rotated_gemini_models(self) -> list[str]:
+        models = self.gemini_models or [self.gemini_primary_model, self.gemini_fallback_model]
+        if not models:
+            return []
+        cursor = self._gemini_model_cursor % len(models)
+        self._gemini_model_cursor = (self._gemini_model_cursor + 1) % len(models)
+        return models[cursor:] + models[:cursor]
+
     def _request_gemini_refinement(self, prompt: str) -> tuple[dict[str, Any], str]:
-        models = [self.gemini_primary_model, self.gemini_fallback_model]
-        models = [model for index, model in enumerate(models) if model and model not in models[:index]]
+        models = self._rotated_gemini_models()
         last_error: Exception | None = None
         for model in models:
             try:
@@ -507,6 +534,7 @@ class DartDisclosureAnalysisService:
                 return self._gemini_payload_as_openai_payload(response.json()), model
             except Exception as error:
                 last_error = error
+                print(f"[DART Gemini] model fallback. model={model}, reason={str(error)[:160]}")
         if last_error:
             raise last_error
         raise RuntimeError("Gemini model is not configured.")

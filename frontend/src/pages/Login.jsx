@@ -37,7 +37,8 @@ export default function Login() {
         options: {
           redirectTo: `${window.location.origin}/`,
           queryParams: {
-            scope: 'account_email' // 프로필 이미지를 배제하고 이메일 권한만 요청
+            scope: 'account_email', // 프로필 이미지를 배제하고 이메일 권한만 요청
+            prompt: 'login' // 카카오 기존 세션이 있어도 로그인/계정 선택 화면을 다시 표시
           }
         }
       })

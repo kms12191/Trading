@@ -743,6 +743,56 @@ const getTransferReceivedAmount = (row = {}) => {
   return 0
 }
 
+const getCoinoneTransferDeductionAmount = (row = {}) => {
+  const status = String(row.status || '').toUpperCase()
+  if (!['SUBMITTED', 'WITHDRAWAL_REGISTER', 'WITHDRAWAL_WAIT', 'COMPLETED'].includes(status)) return 0
+  return toNumber(row.amount)
+}
+
+const deductCoinoneTransfersFromEstimatedHoldings = (mergedBalance, transferRows = []) => {
+  const holdings = Array.isArray(mergedBalance?.holdings) ? mergedBalance.holdings : []
+  const deductions = new Map()
+
+  ;(transferRows || []).forEach((row) => {
+    const currency = String(row.currency || '').trim().toUpperCase()
+    const amount = getCoinoneTransferDeductionAmount(row)
+    if (!currency || amount <= 0) return
+    deductions.set(currency, (deductions.get(currency) || 0) + amount)
+  })
+
+  if (deductions.size === 0) return mergedBalance
+
+  const adjustedHoldings = holdings
+    .map((holding) => {
+      const rawExchange = String(holding.raw_exchange || holding.exchange || holding.account_type || '').toUpperCase()
+      const source = String(holding.source || '').toUpperCase()
+      const symbol = String(holding.symbol || holding.ticker || holding.id || '').trim().toUpperCase()
+      const deductionAmount = deductions.get(symbol) || 0
+
+      if (rawExchange !== 'COINONE' || source !== 'DB_ESTIMATED' || deductionAmount <= 0) {
+        return holding
+      }
+
+      const nextQty = Math.max(0, toNumber(holding.qty) - deductionAmount)
+      const avgPrice = toNumber(holding.avg_price)
+      const currentPrice = toNumber(holding.current_price)
+      return {
+        ...holding,
+        qty: nextQty,
+        eval_amount: currentPrice > 0 ? currentPrice * nextQty : toNumber(holding.eval_amount),
+        profit: avgPrice > 0 && currentPrice > 0 ? (currentPrice - avgPrice) * nextQty : toNumber(holding.profit),
+        profit_rate: avgPrice > 0 && currentPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : toNumber(holding.profit_rate),
+        transfer_deducted_qty: deductionAmount,
+      }
+    })
+    .filter((holding) => toNumber(holding.qty) > 0)
+
+  return {
+    ...mergedBalance,
+    holdings: adjustedHoldings,
+  }
+}
+
 const mergeBalanceWithCompletedTransfers = (mergedBalance, transferRows = []) => {
   const holdings = Array.isArray(mergedBalance?.holdings) ? mergedBalance.holdings : []
   const liveKeys = new Set(holdings.map(getHoldingIdentity).filter(Boolean))
@@ -1088,10 +1138,13 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
       setCompletedTransferRows(transferRows)
       setRawBalances(successResults)
       const mergedBalance = mergeBalanceWithCompletedTransfers(
-        mergeBalanceWithTradeEstimates(
-          mergeAccountBalances(successResults, showMockAssets),
-          tradeRows,
-          showMockAssets,
+        deductCoinoneTransfersFromEstimatedHoldings(
+          mergeBalanceWithTradeEstimates(
+            mergeAccountBalances(successResults, showMockAssets),
+            tradeRows,
+            showMockAssets,
+          ),
+          transferRows,
         ),
         transferRows,
       )
@@ -1216,10 +1269,13 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   useEffect(() => {
     if (rawBalances.length > 0) {
       setBalance(mergeBalanceWithCompletedTransfers(
-        mergeBalanceWithTradeEstimates(
-          mergeAccountBalances(rawBalances, showMockAssets),
-          executedTradeRows,
-          showMockAssets,
+        deductCoinoneTransfersFromEstimatedHoldings(
+          mergeBalanceWithTradeEstimates(
+            mergeAccountBalances(rawBalances, showMockAssets),
+            executedTradeRows,
+            showMockAssets,
+          ),
+          completedTransferRows,
         ),
         completedTransferRows,
       ))
@@ -1564,9 +1620,9 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                       </button>
                     </div>
                   </div>
-                  <div className="overflow-x-auto max-h-[180px] overflow-y-auto">
-                    <table className="w-full border-collapse text-xs">
-                      <thead className="border-b border-slate-800 text-slate-400 bg-[#0c0e15]/100 sticky top-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full table-fixed border-collapse text-xs">
+                      <thead className="block border-b border-slate-800 bg-[#0c0e15]/100 text-slate-400 [&>tr]:table [&>tr]:w-full [&>tr]:table-fixed">
                         <tr>
                           <th className="px-3 py-2 text-left font-bold">종목명</th>
                           <th className="px-3 py-2 text-left font-bold">시장</th>
@@ -1575,7 +1631,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                           <th className="px-3 py-2 text-right font-bold">현재가 변동</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800/40">
+                      <tbody className="block max-h-[136px] overflow-y-auto divide-y divide-slate-800/40 [&>tr]:table [&>tr]:w-full [&>tr]:table-fixed">
                         {dashboardWatchlist.map((item) => {
                           const stockCurrency = item.currency || (item.marketCountry === 'US' ? 'USD' : 'KRW')
                           const savedPrice = parsePriceNumber(item.latestPrice ?? item.average)
@@ -1659,9 +1715,9 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
 
                 {balance && balance.holdings.length > 0 ? (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="border-b border-slate-800 text-slate-400 bg-[#0c0e15]/100">
+                    <table className="w-full table-fixed text-left border-collapse text-xs">
+                      <thead className="block border-b border-slate-800 bg-[#0c0e15]/100 text-slate-400 [&>tr]:table [&>tr]:w-full [&>tr]:table-fixed">
+                        <tr>
                           <th className="py-2 px-3 font-bold">종목명/코드</th>
                           <th className="py-2 px-3 font-bold">거래소</th>
                           <th className="py-2 px-3 text-right font-bold">
@@ -1689,7 +1745,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800 font-mono">
+                      <tbody className="block max-h-[378px] overflow-y-auto divide-y divide-slate-800 font-mono [&>tr]:table [&>tr]:w-full [&>tr]:table-fixed">
                         {getSortedHoldings(balance.holdings).map((stock, index) => {
                           const exchangeName = stock.exchange || stock.account_type || '-'
                           const isCoinone = String(exchangeName).toUpperCase() === 'COINONE'

@@ -162,6 +162,57 @@ AUTOMATION_PRESETS = {
             "skip_build_features": False,
         },
     },
+    # v9: 30분 캔들 + 잔차 수익률 라벨 — 현재 serving 코인 모델과 동일 config
+    "crypto-v9-full": {
+        "label": "코인 v9 자동 수집+학습 (30m)",
+        "dataset": {
+            "asset_type": "CRYPTO",
+            "exchange": "BINANCE",
+            "preset": "crypto_core_30",
+            "symbols": [],
+            "interval": "30m",
+            "count": 5000,
+            "sleep_seconds": 0.3,
+            "retry": 2,
+            "retry_wait_seconds": 10.0,
+            "append": True,
+            "include_macro": False,
+            "chunk_size": 10,
+            "chunk_index": 1,
+            "raw_output": "crypto_candles_30m.csv",
+        },
+        "training": {
+            "config": "ml/configs/lgbm_crypto_v9.yaml",
+            "risk_config": "ml/configs/lgbm_crypto_risk_v9.yaml",
+            "summary_output": "ml/data/processed/crypto_v9_summary.json",
+            "skip_build_features": False,
+        },
+    },
+    # v11: 잔차 수익률 라벨 + Ridge 앙상블 — 현재 serving 주식 모델과 동일 config
+    "stock-v11-full": {
+        "label": "주식 v11 자동 수집+학습",
+        "dataset": {
+            "asset_type": "STOCK",
+            "exchange": "TOSS",
+            "preset": "stock_core_90",
+            "symbols": [],
+            "interval": "1d",
+            "count": 700,
+            "sleep_seconds": 2.0,
+            "retry": 3,
+            "retry_wait_seconds": 60.0,
+            "append": True,
+            "include_macro": True,
+            "chunk_size": 0,
+            "chunk_index": 1,
+        },
+        "training": {
+            "config": "ml/configs/lgbm_stock_v11.yaml",
+            "risk_config": "ml/configs/lgbm_stock_risk_v11.yaml",
+            "summary_output": "ml/data/processed/stock_v11_summary.json",
+            "skip_build_features": False,
+        },
+    },
 }
 
 

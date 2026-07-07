@@ -33,6 +33,7 @@ from backend.routes.news import news_bp
 from backend.routes.disclosures import disclosures_bp
 from backend.routes.trade import trade_bp
 from backend.routes.transfer import transfer_bp
+from backend.routes.admin_inquiries import admin_inquiries_bp
 
 app = Flask(__name__)
 # 프론트엔드 연동을 위해 CORS 활성화 및 Authorization 헤더 허용
@@ -110,6 +111,7 @@ app.register_blueprint(news_bp)
 app.register_blueprint(disclosures_bp)
 app.register_blueprint(trade_bp)
 app.register_blueprint(transfer_bp)
+app.register_blueprint(admin_inquiries_bp)
 
 # Flask 디버그 모드 리로더에 의한 스케줄러 이중 기동 방지 및 flask run 환경 지원
 is_scheduler_host = (not app.debug) or (os.environ.get("WERKZEUG_RUN_MAIN") == "true")
