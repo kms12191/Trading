@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { deleteUserWatchlistItem, fetchUserWatchlist, supabase } from '../supabaseClient'
 import Header from '../components/Header.jsx'
@@ -1523,7 +1523,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
-                        <tr className="border-b border-slate-800 text-slate-400 bg-[#0c0e15]/30">
+                        <tr className="border-b border-slate-800 text-slate-400 bg-[#0c0e15]/100">
                           <th className="py-2 px-3 font-bold">종목명/코드</th>
                           <th className="py-2 px-3 font-bold">거래소</th>
                           <th className="py-2 px-3 text-right font-bold">

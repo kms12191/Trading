@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { createChart, CandlestickSeries } from 'lightweight-charts'
-import { fetchNewsArticles, ensureNewsSummaries } from '../lib/supabaseClient.js'
+import { ensureNewsSummaries } from '../lib/supabaseClient.js'
 import { deleteUserWatchlistItem, fetchUserWatchlist, supabase, updateUserWatchlistOrder } from '../supabaseClient'
 import { SectionHeader } from '../components/DashboardComponents.jsx'
-import { formatNewsDate, getWatchlistNewsMarket, mergeLatestNews } from '../dashboardUtils.js'
+import { formatNewsDate, mergeLatestNews } from '../dashboardUtils.js'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
@@ -369,6 +369,8 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
   const [newsItems, setNewsItems] = useState([])
   const [newsLoading, setNewsLoading] = useState(false)
   const [newsError, setNewsError] = useState('')
+  const [newsSyncing, setNewsSyncing] = useState(false)
+  const [newsSyncMessage, setNewsSyncMessage] = useState({ text: '', isError: false })
   const [expandedNewsId, setExpandedNewsId] = useState('')
   const [summaryLoadingId, setSummaryLoadingId] = useState('')
   const [chartCurrentPrice, setChartCurrentPrice] = useState(null)
@@ -464,6 +466,84 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
     }
   }
 
+  async function loadWatchlistNewsForItem(item, isMounted = () => true) {
+    if (!item) return
+
+    setNewsLoading(true)
+    setNewsError('')
+
+    try {
+      const params = new URLSearchParams({
+        symbol: item.id || '',
+        limit: '4',
+      })
+      const response = await fetch(`${API_BASE_URL}/api/news?${params.toString()}`)
+      const payload = await response.json()
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.message || '뉴스를 불러오지 못했습니다.')
+      }
+
+      if (!isMounted()) return
+      setNewsItems(mergeLatestNews(payload.data?.items || []))
+    } catch (error) {
+      if (!isMounted()) return
+      setNewsItems([])
+      setNewsError(error.message || '뉴스를 불러오지 못했습니다.')
+    } finally {
+      if (isMounted()) setNewsLoading(false)
+    }
+  }
+
+  async function handleRequestNewsSync() {
+    if (!selectedItem) return
+
+    setNewsSyncing(true)
+    setNewsSyncMessage({ text: '', isError: false })
+    try {
+      const selectedAssetType = selectedItem.assetType || (selectedItem.market === '코인' ? 'CRYPTO' : 'STOCK')
+      const response = await fetch(`${API_BASE_URL}/api/news/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          symbol: selectedItem.id,
+          display_name: selectedItem.name,
+          market: selectedAssetType === 'STOCK' && selectedItem.marketCountry === 'US' ? 'GLOBAL' : 'DOMESTIC',
+          asset_type: selectedAssetType,
+        }),
+      })
+      const resData = await response.json()
+      if (!response.ok || !resData.success) {
+        setNewsSyncMessage({
+          text: resData.message || '뉴스 수집 요청에 실패했습니다.',
+          isError: true,
+        })
+        return
+      }
+
+      const insertedCount = Number(resData.data?.inserted || 0)
+      const fetchedCount = Number(resData.data?.fetched || 0)
+      setNewsSyncMessage({
+        text: insertedCount > 0
+          ? `뉴스 ${insertedCount}건을 새로 적재했습니다.`
+          : fetchedCount > 0
+            ? '수집은 완료됐지만 새로 적재된 뉴스는 없었습니다.'
+            : '수집 요청을 보냈지만 가져온 뉴스가 없었습니다.',
+        isError: false,
+      })
+      await loadWatchlistNewsForItem(selectedItem)
+    } catch (error) {
+      setNewsSyncMessage({
+        text: `뉴스 수집 요청 오류: ${error.message}`,
+        isError: true,
+      })
+    } finally {
+      setNewsSyncing(false)
+    }
+  }
+
   useEffect(() => {
     let isMounted = true
 
@@ -503,37 +583,8 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
     if (!selectedItem) return
 
     let isMounted = true
-    const queries = [selectedItem.id, selectedItem.name].filter(Boolean)
-    const uniqueQueries = [...new Set(queries)]
-
-    async function loadWatchlistNews() {
-      setNewsLoading(true)
-      setNewsError('')
-
-      try {
-        const results = await Promise.all(
-          uniqueQueries.map((query) =>
-            fetchNewsArticles({
-              market: getWatchlistNewsMarket(selectedItem),
-              query,
-              limit: 4,
-              offset: 0,
-            }),
-          ),
-        )
-
-        if (!isMounted) return
-        setNewsItems(mergeLatestNews(results.flatMap((result) => result.items || [])))
-      } catch (error) {
-        if (!isMounted) return
-        setNewsItems([])
-        setNewsError(error.message || '뉴스를 불러오지 못했습니다.')
-      } finally {
-        if (isMounted) setNewsLoading(false)
-      }
-    }
-
-    loadWatchlistNews()
+    setNewsSyncMessage({ text: '', isError: false })
+    loadWatchlistNewsForItem(selectedItem, () => isMounted)
 
     return () => {
       isMounted = false
@@ -732,7 +783,7 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
       </section>
 
       <section className="bg-slate-surface border border-slate-700/80 rounded-lg p-5">
-        <SectionHeader title="관심종목 관련 최근 뉴스피드" />
+        <SectionHeader title="선택 종목의 최근 뉴스" />
         <div className="grid gap-3 lg:grid-cols-2">
           {newsLoading && newsItems.length === 0 ? (
             <div className="rounded-lg border border-slate-800 bg-[#0f172a] p-4 text-sm text-slate-400 lg:col-span-2">
@@ -747,8 +798,23 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
           ) : null}
 
           {!newsLoading && newsItems.length === 0 && !newsError ? (
-            <div className="rounded-lg border border-slate-800 bg-[#0f172a] p-4 text-sm text-slate-400 lg:col-span-2">
-              선택한 관심종목과 연결된 최신 뉴스가 없습니다.
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-slate-800 bg-[#0f172a] p-8 text-center text-sm text-slate-400 lg:col-span-2">
+              <p className="text-xs text-slate-500 font-mono">
+                해당 종목의 저장된 뉴스가 없습니다.
+              </p>
+              <button
+                type="button"
+                onClick={handleRequestNewsSync}
+                disabled={newsSyncing || !selectedItem}
+                className="rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-3 py-2 text-[11px] font-bold text-cyan-300 transition hover:bg-cyan-900/40 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {newsSyncing ? '뉴스 수집 요청 중...' : '뉴스 수집 요청하기'}
+              </button>
+              {newsSyncMessage.text ? (
+                <p className={`max-w-[320px] text-[11px] leading-5 ${newsSyncMessage.isError ? 'text-rose-300' : 'text-cyan-300'}`}>
+                  {newsSyncMessage.text}
+                </p>
+              ) : null}
             </div>
           ) : null}
 
@@ -799,7 +865,7 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
                   </button>
 
                   <a
-                    className="rounded bg-ai-cyan px-3 py-1.5 text-xs font-semibold text-black"
+                    className="rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-black"
                     href={news.url || '#'}
                     rel="noreferrer"
                     target="_blank"
