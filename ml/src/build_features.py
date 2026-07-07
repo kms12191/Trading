@@ -16,6 +16,30 @@ try:
 except ImportError:
     SYMBOL_METADATA = {}
 
+DART_FEATURE_COLUMNS = [
+    "dart_disclosure_count_3d",
+    "dart_sentiment_sum_3d",
+    "dart_negative_count_3d",
+    "dart_positive_count_3d",
+    "dart_caution_count_3d",
+    "dart_disclosure_count_7d",
+    "dart_sentiment_sum_7d",
+    "dart_negative_count_7d",
+    "dart_positive_count_7d",
+    "dart_caution_count_7d",
+    "dart_disclosure_count_20d",
+    "dart_sentiment_sum_20d",
+    "dart_negative_count_20d",
+    "dart_positive_count_20d",
+    "dart_caution_count_20d",
+    "dart_ai_analyzed_count_20d",
+    "dart_contract_flag_20d",
+    "dart_financing_flag_20d",
+    "dart_shareholder_return_flag_20d",
+    "dart_risk_event_flag_20d",
+    "dart_earnings_flag_20d",
+]
+
 
 def load_config(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as file:
@@ -170,6 +194,25 @@ def resolve_optional_feature_path(config: dict, key: str, default_relative_path:
     return PROJECT_ROOT / default_relative_path
 
 
+def is_kr_stock_dart_config(config: dict) -> bool:
+    asset_type = str(config.get("model", {}).get("asset_type", "")).upper()
+    optional_features = config.get("optional_features") or {}
+    dart_features_path = optional_features.get("dart_features_path")
+    if not dart_features_path:
+        return False
+    if asset_type != "STOCK":
+        raise ValueError("DART 피처는 국내 주식(STOCK) 설정에서만 사용할 수 있습니다.")
+
+    model_version = str(config.get("model", {}).get("version", "")).lower()
+    raw_candles_path = str(config.get("data", {}).get("raw_candles_path", "")).lower()
+    features_path = str(config.get("data", {}).get("features_path", "")).lower()
+    kr_markers = ("kr_stock",)
+    is_kr_stock = any(marker in value for marker in kr_markers for value in [model_version, raw_candles_path, features_path])
+    if not is_kr_stock:
+        raise ValueError("DART 피처는 국내 주식 KR 설정에서만 사용할 수 있습니다. 설정 경로 또는 모델 버전에 kr_stock 표식이 필요합니다.")
+    return True
+
+
 def build_macro_features() -> pd.DataFrame:
     macro_path = PROJECT_ROOT / "ml" / "data" / "raw" / "macro_indices.csv"
     if not macro_path.exists():
@@ -215,6 +258,7 @@ def build_macro_features() -> pd.DataFrame:
 
 def apply_optional_features(features: pd.DataFrame, config: dict) -> pd.DataFrame:
     asset_type = str(config["model"]["asset_type"]).upper()
+    use_dart_features = is_kr_stock_dart_config(config)
 
     news_defaults = [
         "news_sentiment",
@@ -271,33 +315,9 @@ def apply_optional_features(features: pd.DataFrame, config: dict) -> pd.DataFram
         if not stock_df.empty:
             features = pd.merge(features, stock_df, on=["symbol", "date_merge_key"], how="left")
 
-        dart_defaults = [
-            "dart_disclosure_count_3d",
-            "dart_sentiment_sum_3d",
-            "dart_negative_count_3d",
-            "dart_positive_count_3d",
-            "dart_caution_count_3d",
-            "dart_disclosure_count_7d",
-            "dart_sentiment_sum_7d",
-            "dart_negative_count_7d",
-            "dart_positive_count_7d",
-            "dart_caution_count_7d",
-            "dart_disclosure_count_20d",
-            "dart_sentiment_sum_20d",
-            "dart_negative_count_20d",
-            "dart_positive_count_20d",
-            "dart_caution_count_20d",
-            "dart_ai_analyzed_count_20d",
-            "dart_contract_flag_20d",
-            "dart_financing_flag_20d",
-            "dart_shareholder_return_flag_20d",
-            "dart_risk_event_flag_20d",
-            "dart_earnings_flag_20d",
-        ]
-        dart_path_text = (config.get("optional_features") or {}).get("dart_features_path")
-        if dart_path_text:
+        if use_dart_features:
             dart_path = resolve_optional_feature_path(config, "dart_features_path", "ml/data/raw/dart_features.csv")
-            dart_df = load_optional_feature_source(dart_path, asset_type, dart_defaults)
+            dart_df = load_optional_feature_source(dart_path, asset_type, DART_FEATURE_COLUMNS)
             if not dart_df.empty:
                 features = pd.merge(features, dart_df, on=["symbol", "date_merge_key"], how="left")
 
@@ -559,6 +579,7 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
     features["sector_relative_return_20_x_sector_rank"] = features["sector_relative_return_20"] * features["sector_rank_pct_20"]
     features["vcp_breakout_x_sector"] = features["vcp_breakout_proximity_20"] * features["sector_breakout_ratio_20"]
 
+    use_dart_features = is_kr_stock_dart_config(config)
     features = apply_optional_features(features, config)
 
     # 외부 피처 병합 후 NaN 방어: 시계열 순서 내 인접 값으로 임시 대체 (최대 2칸 이내)
@@ -569,14 +590,9 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
         "funding_rate", "open_interest", "open_interest_change_24h",
         "coinone_binance_spread", "kimchi_premium", "leader_btc_dominance_proxy",
         "warning_flag", "price_limit_proximity", "turnover_ratio", "market_open_flag",
-        "dart_disclosure_count_3d", "dart_sentiment_sum_3d", "dart_negative_count_3d",
-        "dart_positive_count_3d", "dart_caution_count_3d", "dart_disclosure_count_7d",
-        "dart_sentiment_sum_7d", "dart_negative_count_7d", "dart_positive_count_7d",
-        "dart_caution_count_7d", "dart_disclosure_count_20d", "dart_sentiment_sum_20d",
-        "dart_negative_count_20d", "dart_positive_count_20d", "dart_caution_count_20d",
-        "dart_ai_analyzed_count_20d", "dart_contract_flag_20d", "dart_financing_flag_20d",
-        "dart_shareholder_return_flag_20d", "dart_risk_event_flag_20d", "dart_earnings_flag_20d",
     ]
+    if use_dart_features:
+        optional_ffill_columns.extend(DART_FEATURE_COLUMNS)
     for col in optional_ffill_columns:
         if col in features.columns:
             features[col] = (
@@ -585,7 +601,7 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
                 )
             )
 
-    for column in [
+    default_zero_columns = [
         "news_sentiment",
         "news_article_count_24h",
         "news_burst_zscore",
@@ -604,27 +620,6 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
         "price_limit_proximity",
         "turnover_ratio",
         "market_open_flag",
-        "dart_disclosure_count_3d",
-        "dart_sentiment_sum_3d",
-        "dart_negative_count_3d",
-        "dart_positive_count_3d",
-        "dart_caution_count_3d",
-        "dart_disclosure_count_7d",
-        "dart_sentiment_sum_7d",
-        "dart_negative_count_7d",
-        "dart_positive_count_7d",
-        "dart_caution_count_7d",
-        "dart_disclosure_count_20d",
-        "dart_sentiment_sum_20d",
-        "dart_negative_count_20d",
-        "dart_positive_count_20d",
-        "dart_caution_count_20d",
-        "dart_ai_analyzed_count_20d",
-        "dart_contract_flag_20d",
-        "dart_financing_flag_20d",
-        "dart_shareholder_return_flag_20d",
-        "dart_risk_event_flag_20d",
-        "dart_earnings_flag_20d",
         "stoch_k_14",
         "stoch_d_3",
         "obv_zscore_20",
@@ -684,7 +679,10 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
         "sector_relative_return_5_x_sector_breadth",
         "sector_relative_return_20_x_sector_rank",
         "vcp_breakout_x_sector",
-    ]:
+    ]
+    if use_dart_features:
+        default_zero_columns.extend(DART_FEATURE_COLUMNS)
+    for column in default_zero_columns:
         if column not in features.columns:
             features[column] = 0.0
 
