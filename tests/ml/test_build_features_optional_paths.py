@@ -38,6 +38,38 @@ def test_apply_optional_features_merges_configured_dart_features(tmp_path: Path)
     assert merged.loc[0, "dart_contract_flag_20d"] == 1
 
 
+def test_apply_optional_features_allows_explicit_kr_market_scope(tmp_path: Path):
+    dart_path = tmp_path / "dart_features.csv"
+    dart_path.write_text(
+        "\n".join(
+            [
+                "symbol,date,dart_disclosure_count_3d,dart_contract_flag_20d",
+                "005930,2026-07-08,1,1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    features = pd.DataFrame(
+        {
+            "symbol": ["005930"],
+            "date_merge_key": ["2026-07-08"],
+        }
+    )
+    config = {
+        "market_scope": "KR",
+        "model": {"asset_type": "STOCK", "version": "lgbm_stock_signal_v11"},
+        "data": {
+            "raw_candles_path": "ml/data/raw/stock_candles.csv",
+            "features_path": "ml/data/processed/stock_features_lgbm_v11.csv",
+        },
+        "optional_features": {"dart_features_path": str(dart_path)},
+    }
+
+    merged = apply_optional_features(features, config)
+
+    assert merged.loc[0, "dart_disclosure_count_3d"] == 1
+
+
 def test_apply_optional_features_does_not_add_dart_columns_without_path():
     features = pd.DataFrame(
         {

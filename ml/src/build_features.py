@@ -203,13 +203,25 @@ def is_kr_stock_dart_config(config: dict) -> bool:
     if asset_type != "STOCK":
         raise ValueError("DART 피처는 국내 주식(STOCK) 설정에서만 사용할 수 있습니다.")
 
+    market_scope = str(
+        config.get("market_scope")
+        or config.get("data", {}).get("market_scope")
+        or config.get("model", {}).get("market_scope")
+        or config.get("market_country")
+        or config.get("data", {}).get("market_country")
+        or ""
+    ).upper()
+    if market_scope in {"KR", "KOREA", "DOMESTIC"}:
+        return True
+    if market_scope in {"US", "USA", "OVERSEAS", "GLOBAL"}:
+        raise ValueError("DART 피처는 국내 주식 KR 설정에서만 사용할 수 있습니다.")
+
     model_version = str(config.get("model", {}).get("version", "")).lower()
     raw_candles_path = str(config.get("data", {}).get("raw_candles_path", "")).lower()
     features_path = str(config.get("data", {}).get("features_path", "")).lower()
-    kr_markers = ("kr_stock",)
-    is_kr_stock = any(marker in value for marker in kr_markers for value in [model_version, raw_candles_path, features_path])
-    if not is_kr_stock:
-        raise ValueError("DART 피처는 국내 주식 KR 설정에서만 사용할 수 있습니다. 설정 경로 또는 모델 버전에 kr_stock 표식이 필요합니다.")
+    marker_values = [model_version, raw_candles_path, features_path]
+    if any(marker in value for marker in ("us_stock", "overseas_stock") for value in marker_values):
+        raise ValueError("DART 피처는 국내 주식 KR 설정에서만 사용할 수 있습니다.")
     return True
 
 
