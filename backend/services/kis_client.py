@@ -409,7 +409,7 @@ class KISClient(ExchangeClient):
             "raw": data
         }
 
-    def get_turnover_rankings(self, limit: int = 10) -> list[dict]:
+    def _fetch_domestic_volume_rank_rows(self) -> list[dict]:
         """
         국내주식 순위 API를 조회한 뒤 누적 거래대금을 기준으로 정렬해 반환합니다.
         홈페이지 랭킹 표 전용 보조 데이터이며, 주문/거래 실행에는 사용하지 않습니다.
@@ -478,7 +478,23 @@ class KISClient(ExchangeClient):
                 "raw": item,
             })
 
+        return rankings
+
+    def get_turnover_rankings(self, limit: int = 10) -> list[dict]:
+        """
+        援?궡二쇱떇 ?쒖쐞 API瑜?議고쉶?????꾩쟻 嫄곕옒?湲덉쓣 湲곗??쇰줈 ?뺣젹??諛섑솚?⑸땲??
+        ?덊럹?댁? ??궧 ???꾩슜 蹂댁“ ?곗씠?곗씠硫? 二쇰Ц/嫄곕옒 ?ㅽ뻾?먮뒗 ?ъ슜?섏? ?딆뒿?덈떎.
+        """
+        rankings = self._fetch_domestic_volume_rank_rows()
         rankings.sort(key=lambda row: row["trading_value"], reverse=True)
+        return rankings[:limit]
+
+    def get_volume_rankings(self, limit: int = 10) -> list[dict]:
+        """
+        援?궡二쇱떇 ?쒖쐞 API瑜?議고쉶???嫄곕옒??湲곗??쇰줈 ?뺣젹??諛섑솚?⑸땲??
+        """
+        rankings = self._fetch_domestic_volume_rank_rows()
+        rankings.sort(key=lambda row: row["trading_volume"], reverse=True)
         return rankings[:limit]
 
     def _to_float(self, value, default: float = 0.0) -> float:
@@ -535,25 +551,43 @@ class KISClient(ExchangeClient):
             "content-type": "application/json; charset=utf-8",
             "tr_id": tr_id,
         }
-        res = self._request_with_token_retry(
-            "GET",
-            f"{self.base_url}{endpoint}",
-            headers,
-            params=params,
-            timeout=15,
-        )
-        if res.status_code != 200:
-            raise Exception(f"KIS ranking request failed: {res.text}")
-
-        data = res.json()
-        if data.get("rt_cd") != "0":
-            raise Exception(f"KIS ranking error: {data.get('msg1')}")
-
         rankings = []
-        for item in data.get("output", []) or []:
-            row = self._normalize_domestic_rank_item(item, source)
-            if row:
-                rankings.append(row)
+        request_params = dict(params or {})
+        request_params.setdefault("CTX_AREA_FK100", "")
+        request_params.setdefault("CTX_AREA_NK100", "")
+
+        for _ in range(10):
+            res = self._request_with_token_retry(
+                "GET",
+                f"{self.base_url}{endpoint}",
+                headers,
+                params=request_params,
+                timeout=15,
+            )
+            if res.status_code != 200:
+                raise Exception(f"KIS ranking request failed: {res.text}")
+
+            data = res.json()
+            if data.get("rt_cd") != "0":
+                raise Exception(f"KIS ranking error: {data.get('msg1')}")
+
+            for item in data.get("output", []) or []:
+                row = self._normalize_domestic_rank_item(item, source)
+                if row:
+                    rankings.append(row)
+                    if len(rankings) >= limit:
+                        return rankings[:limit]
+
+            next_fk100 = str(data.get("ctx_area_fk100") or data.get("CTX_AREA_FK100") or "").strip()
+            next_nk100 = str(data.get("ctx_area_nk100") or data.get("CTX_AREA_NK100") or "").strip()
+            tr_cont = str(res.headers.get("tr_cont") or res.headers.get("Tr_Cont") or "").upper()
+            if not next_fk100 and not next_nk100:
+                break
+            if tr_cont and tr_cont not in {"M", "F"}:
+                break
+            request_params["CTX_AREA_FK100"] = next_fk100
+            request_params["CTX_AREA_NK100"] = next_nk100
+
         return rankings[:limit]
 
     def get_fluctuation_rankings(self, direction: str = "up", limit: int = 50) -> list[dict]:

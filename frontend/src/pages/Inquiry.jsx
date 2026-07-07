@@ -91,6 +91,12 @@ const inquiryHomeSections = {
   },
 }
 
+const customerCenterItems = [
+  { label: '답변 시간', value: '영업일 기준 1~3일 이내' },
+  { label: '문의 가능 항목', value: '계좌, 주문/체결, 입출금, 시스템 오류' },
+  { label: '첨부파일', value: 'JPG, PNG, PDF, 문서 파일 지원' },
+]
+
 const initialFormState = {
   type: '',
   title: '',
@@ -101,6 +107,7 @@ const initialFormState = {
 const INQUIRY_FILE_BUCKET = 'inquiry-files'
 const MAX_INQUIRY_FILE_SIZE = 5 * 1024 * 1024
 const ALLOWED_INQUIRY_FILE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'pdf', 'txt', 'doc', 'docx', 'xls', 'xlsx'])
+const HISTORY_PAGE_SIZE = 10
 
 const dashboardQueryTabs = new Set(DASHBOARD_QUERY_TABS)
 const inquiryTypeLabels = Object.fromEntries(inquiryTypes.filter((item) => item.value).map((item) => [item.value, item.label]))
@@ -134,6 +141,8 @@ const createInquiryFilePath = (userId, inquiryId, file) => {
 function Icon({ name, className = 'h-5 w-5' }) {
   const icons = {
     check: <path strokeLinecap="round" strokeLinejoin="round" d="M5 12.5l4 4 10-10" />,
+    chevronLeft: <path strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />,
+    chevronRight: <path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" />,
     clock: (
       <>
         <circle cx="12" cy="12" r="8.5" />
@@ -222,6 +231,58 @@ function EmptyState({ message, icon = 'inbox' }) {
         <p>{message}</p>
       </div>
     </div>
+  )
+}
+
+function Pagination({ currentPage, totalPages, totalItems, pageSize, onPageChange }) {
+  if (totalPages <= 1) return null
+
+  const startItem = (currentPage - 1) * pageSize + 1
+  const endItem = Math.min(currentPage * pageSize, totalItems)
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-[#0f172a] px-4 py-3 text-xs font-bold text-slate-400">
+      <span>
+        {startItem}-{endItem} / {totalItems}
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={currentPage === 1}
+          className="grid h-8 w-8 place-items-center rounded border border-slate-700 text-slate-300 transition hover:border-ai-cyan hover:text-ai-cyan disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={() => onPageChange(currentPage - 1)}
+          aria-label="이전 페이지"
+        >
+          <Icon name="chevronLeft" className="h-4 w-4" />
+        </button>
+        <span className="min-w-16 text-center text-slate-300">
+          {currentPage} / {totalPages}
+        </span>
+        <button
+          type="button"
+          disabled={currentPage === totalPages}
+          className="grid h-8 w-8 place-items-center rounded border border-slate-700 text-slate-300 transition hover:border-ai-cyan hover:text-ai-cyan disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={() => onPageChange(currentPage + 1)}
+          aria-label="다음 페이지"
+        >
+          <Icon name="chevronRight" className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function BackToCustomerCenterButton({ className = '', onClick }) {
+  return (
+    <button
+      type="button"
+      aria-label="고객센터로 뒤로가기"
+      className={`inline-flex items-center gap-2 rounded-full border border-slate-600 bg-[#0f172a] px-4 py-2 text-xs font-bold text-slate-200 transition hover:border-ai-cyan hover:text-ai-cyan ${className}`}
+      onClick={onClick}
+    >
+      <Icon name="chevronLeft" className="h-4 w-4" />
+      뒤로가기
+    </button>
   )
 }
 
@@ -357,6 +418,7 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
   const [inquiries, setInquiries] = useState([])
   const [statusFilter, setStatusFilter] = useState('all')
   const [inquirySortOrder, setInquirySortOrder] = useState('desc')
+  const [historyPage, setHistoryPage] = useState(1)
   const [expandedFaqIndex, setExpandedFaqIndex] = useState(null)
   const [inquiriesLoading, setInquiriesLoading] = useState(false)
   const [submitLoading, setSubmitLoading] = useState(false)
@@ -365,7 +427,7 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
   const [inquiryError, setInquiryError] = useState('')
   const navigate = useNavigate()
   const { pathname } = useLocation()
-  const isFaqView = pathname === INQUIRY_ROUTES.faq
+  const isWriteView = pathname === INQUIRY_ROUTES.write
   const isHistoryView = pathname === INQUIRY_ROUTES.history
 
   const loadInquiries = useCallback(async () => {
@@ -402,6 +464,16 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
       return inquirySortOrder === 'asc' ? leftTime - rightTime : rightTime - leftTime
     })
   }, [inquiries, inquirySortOrder])
+
+  const historyTotalPages = Math.max(1, Math.ceil(sortedInquiries.length / HISTORY_PAGE_SIZE))
+  const paginatedHistoryInquiries = useMemo(() => {
+    const startIndex = (historyPage - 1) * HISTORY_PAGE_SIZE
+    return sortedInquiries.slice(startIndex, startIndex + HISTORY_PAGE_SIZE)
+  }, [historyPage, sortedInquiries])
+
+  useEffect(() => {
+    setHistoryPage((page) => Math.min(page, historyTotalPages))
+  }, [historyTotalPages])
 
   const filteredRecentInquiries = useMemo(() => {
     const filtered = statusFilter === 'all'
@@ -774,7 +846,10 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
     <select
       id={id}
       value={inquirySortOrder}
-      onChange={(event) => setInquirySortOrder(event.target.value)}
+      onChange={(event) => {
+        setInquirySortOrder(event.target.value)
+        setHistoryPage(1)
+      }}
       className="rounded border border-slate-700 bg-[#0f172a] px-3 py-1.5 text-xs font-bold text-slate-300 focus:border-ai-cyan focus:outline-none"
       aria-label="문의 정렬"
     >
@@ -834,14 +909,17 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
   const renderHome = () => (
     <main className="mx-auto grid max-w-7xl grid-cols-1 gap-6">
       <Widget className="shrink-0">
-        <div className="flex items-center gap-4">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg border border-ai-cyan/20 bg-ai-cyan/10 text-ai-cyan">
-            <Icon name="message" className="h-7 w-7" />
-          </span>
-          <div>
-            <h1 className="text-2xl font-extrabold text-white">1:1 문의 센터</h1>
-            <p className="mt-1 text-sm text-slate-400">계좌, 주문, 입출금, 시스템 문의를 한곳에서 관리합니다.</p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg border border-ai-cyan/20 bg-ai-cyan/10 text-ai-cyan">
+              <Icon name="message" className="h-7 w-7" />
+            </span>
+            <div>
+              <h1 className="text-2xl font-extrabold text-white">1:1 문의 센터</h1>
+              <p className="mt-1 text-sm text-slate-400">계좌, 주문, 입출금, 시스템 문의를 한곳에서 관리합니다.</p>
+            </div>
           </div>
+          <BackToCustomerCenterButton onClick={() => navigate(INQUIRY_ROUTES.home)} />
         </div>
       </Widget>
 
@@ -863,15 +941,96 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
         </div>
         <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4">
           {renderInquirySummaryPanel()}
-          {renderInquiryList(sortedInquiries, '문의 내역이 없습니다.', 'inbox', { showDeleteAction: true })}
+          <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-3">
+            {renderInquiryList(paginatedHistoryInquiries, '문의 내역이 없습니다.', 'inbox', { showDeleteAction: true })}
+            <Pagination
+              currentPage={historyPage}
+              totalPages={historyTotalPages}
+              totalItems={sortedInquiries.length}
+              pageSize={HISTORY_PAGE_SIZE}
+              onPageChange={setHistoryPage}
+            />
+          </div>
+          <div className="flex justify-end">
+            <BackToCustomerCenterButton onClick={() => navigate(INQUIRY_ROUTES.home)} />
+          </div>
         </div>
       </section>
     </main>
   )
 
+  const renderCustomerCenterHero = () => (
+    <Widget className="shrink-0">
+      <div className="flex items-center gap-4">
+        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg border border-ai-cyan/20 bg-ai-cyan/10 text-ai-cyan">
+          <Icon name="question" className="h-7 w-7" />
+        </span>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Customer Center</p>
+          <h1 className="mt-1 text-2xl font-extrabold text-white">고객센터</h1>
+          <p className="mt-1 text-sm text-slate-400">자주 묻는 질문을 확인하고 필요한 경우 1:1 문의를 남겨주세요.</p>
+        </div>
+      </div>
+    </Widget>
+  )
+
+  const renderHelpActions = () => (
+    <Widget>
+      <div className="mb-4">
+        <h2 className="text-lg font-extrabold text-white">다른 도움이 필요하신가요?</h2>
+        <p className="mt-1 text-sm text-slate-400">필요한 메뉴로 이동해 문의를 남기거나 처리 상태를 확인할 수 있습니다.</p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <button
+          type="button"
+          className="group flex items-center gap-4 rounded-lg border border-ai-cyan/30 bg-ai-cyan/10 p-4 text-left transition hover:border-ai-cyan hover:bg-ai-cyan/15"
+          onClick={() => navigate(INQUIRY_ROUTES.write)}
+        >
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-ai-cyan text-slate-950">
+            <Icon name="message" className="h-5 w-5" />
+          </span>
+          <span>
+            <span className="block text-sm font-extrabold text-white group-hover:text-ai-cyan">1:1 문의하기</span>
+            <span className="mt-1 block text-xs font-bold text-slate-400">자세한 상담이 필요할 때</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          className="group flex items-center gap-4 rounded-lg border border-slate-700 bg-[#0f172a] p-4 text-left transition hover:border-ai-cyan hover:bg-white/[0.03]"
+          onClick={() => navigate(INQUIRY_ROUTES.history)}
+        >
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-slate-700 bg-slate-surface text-ai-cyan">
+            <Icon name="document" className="h-5 w-5" />
+          </span>
+          <span>
+            <span className="block text-sm font-extrabold text-white group-hover:text-ai-cyan">내 문의 내역</span>
+            <span className="mt-1 block text-xs font-bold text-slate-400">등록한 문의와 답변 상태 확인</span>
+          </span>
+        </button>
+      </div>
+    </Widget>
+  )
+
+  const renderCustomerCenterInfo = () => (
+    <Widget>
+      <WidgetTitle title="고객센터 안내" icon="clock" />
+      <div className="grid gap-3 md:grid-cols-3">
+        {customerCenterItems.map((item) => (
+          <div key={item.label} className="rounded-lg border border-slate-800 bg-[#0f172a] p-4">
+            <p className="text-xs font-bold text-slate-500">{item.label}</p>
+            <p className="mt-2 text-sm font-bold leading-6 text-slate-200">{item.value}</p>
+          </div>
+        ))}
+      </div>
+    </Widget>
+  )
+
   const renderFaq = () => (
     <main className="mx-auto grid max-w-7xl grid-cols-1 gap-6">
+      {renderCustomerCenterHero()}
       {renderChecklistPanel()}
+      {renderHelpActions()}
+      {renderCustomerCenterInfo()}
     </main>
   )
 
@@ -889,7 +1048,7 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
 
         <div className={`min-w-0 flex-1 px-6 py-8 ${!isSidebarOpen ? 'pt-20 lg:pt-8' : ''}`}>
           <Header isLoggedIn={isLoggedIn} userEmail={userEmail} handleLogout={handleLogout} />
-          {isFaqView ? renderFaq() : isHistoryView ? renderHistory() : renderHome()}
+          {isWriteView ? renderHome() : isHistoryView ? renderHistory() : renderFaq()}
         </div>
       </div>
     </div>

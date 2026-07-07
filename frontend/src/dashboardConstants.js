@@ -6,6 +6,7 @@ export const DASHBOARD_TAB_KEYS = [DEFAULT_DASHBOARD_TAB, ...DASHBOARD_QUERY_TAB
 export const INQUIRY_ROUTES = {
   home: '/inquiry',
   faq: '/inquiry/faq',
+  write: '/inquiry/write',
   history: '/inquiry/history',
 }
 
@@ -16,15 +17,10 @@ export const DASHBOARD_TABS = [
   { key: 'history', label: '거래 내역', enabled: true },
   {
     key: 'inquiry',
-    label: '문의하기',
     enabled: true,
+    label: '고객센터',
     route: INQUIRY_ROUTES.home,
     authOnly: true,
-    children: [
-      { key: 'inquiry-home', label: '문의하기', route: INQUIRY_ROUTES.home },
-      { key: 'inquiry-history', label: '문의 내역', route: INQUIRY_ROUTES.history },
-      { key: 'inquiry-faq', label: '자주 묻는 질문', route: INQUIRY_ROUTES.faq },
-    ],
   },
   { key: 'settings', label: '설정', enabled: true },
   { key: 'admin', label: '관리자', enabled: true },

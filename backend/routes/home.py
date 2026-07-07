@@ -2,8 +2,18 @@ import os
 from datetime import datetime
 from pathlib import Path
 from flask import Blueprint, request, jsonify, current_app
-from backend.services.home_service import build_home_overview, fetch_coinone_overview, split_kis_holdings, to_float
+from backend.services.home_service import (
+    build_home_overview,
+    clamp_market_limit,
+    fetch_coinone_overview,
+    fetch_coinone_rankings,
+    format_krw_compact,
+    normalize_ranking_label,
+    split_kis_holdings,
+    to_float,
+)
 from backend.services.kis_client import KISClient
+from backend.services.market_repository import MarketRepository
 from backend.services.toss_client import TossClient
 from backend.services.coinone_client import CoinoneClient
 from backend.services.binance_client import BinanceClient, BinanceFuturesClient
@@ -15,6 +25,70 @@ home_bp = Blueprint("home", __name__)
 
 KIS_MARKET_MASTER_FILE_PATH = os.getenv("KIS_MARKET_MASTER_FILE_PATH", "")
 MARKET_SYNC_ADMIN_TOKEN = os.getenv("MARKET_SYNC_ADMIN_TOKEN", "")
+
+
+def build_direct_stock_ranking_rows(rows: list[dict], ranking: str, limit: int, is_foreign: bool = False) -> list[dict]:
+    normalized_ranking = normalize_ranking_label(ranking)
+    ranked_rows = []
+
+    for index, row in enumerate((rows or [])[:limit], start=1):
+        trading_value = to_float(row.get("trading_value"))
+        change_rate = to_float(row.get("change_rate"))
+        current_price = to_float(row.get("current_price"))
+        prefix = "+" if change_rate > 0 else ""
+
+        ranked_rows.append({
+            "rank": index,
+            "name": row.get("name") or row.get("symbol"),
+            "code": row.get("symbol"),
+            "price": f"{current_price:,.2f}" if is_foreign and current_price else f"{current_price:,.0f}" if current_price else "-",
+            "change": f"{prefix}{change_rate:.2f}%",
+            "value": "-" if is_foreign and normalized_ranking in {"up", "down"} else format_krw_compact(trading_value) if trading_value else "-",
+            "trading_value": trading_value,
+            "trading_volume": to_float(row.get("trading_volume")),
+            "market_segment": row.get("market_segment"),
+            "market_country": row.get("market_country"),
+            "as_of": row.get("as_of"),
+        })
+
+    return ranked_rows
+
+
+def sort_stock_rows_by_ranking(rows: list[dict], ranking: str) -> list[dict]:
+    normalized_ranking = normalize_ranking_label(ranking)
+    sortable_rows = list(rows or [])
+
+    if normalized_ranking == "volume":
+        sortable_rows.sort(key=lambda row: to_float(row.get("trading_volume")), reverse=True)
+    elif normalized_ranking == "up":
+        sortable_rows.sort(
+            key=lambda row: (to_float(row.get("change_rate")), to_float(row.get("trading_value"))),
+            reverse=True,
+        )
+    elif normalized_ranking == "down":
+        sortable_rows.sort(
+            key=lambda row: (to_float(row.get("change_rate")), -to_float(row.get("trading_value"))),
+        )
+    else:
+        sortable_rows.sort(key=lambda row: to_float(row.get("trading_value")), reverse=True)
+
+    return sortable_rows
+
+
+def merge_rank_rows(primary_rows: list[dict], fallback_rows: list[dict], ranking: str, limit: int) -> list[dict]:
+    merged_by_symbol: dict[str, dict] = {}
+
+    for row in primary_rows or []:
+        symbol = str(row.get("symbol") or "").strip().upper()
+        if symbol and symbol not in merged_by_symbol:
+            merged_by_symbol[symbol] = dict(row)
+
+    for row in fallback_rows or []:
+        symbol = str(row.get("symbol") or "").strip().upper()
+        if symbol and symbol not in merged_by_symbol:
+            merged_by_symbol[symbol] = dict(row)
+
+    return sort_stock_rows_by_ranking(list(merged_by_symbol.values()), ranking)[:limit]
 
 
 def require_market_sync_admin():
@@ -188,24 +262,139 @@ def sync_kis_market_universe():
 @home_bp.route("/api/market/rankings", methods=["GET"] )
 def get_market_rankings():
     """유니버스 종목의 거래대금 순위를 조회합니다."""
-    market_segment = request.args.get("market_segment", "ALL")
-    limit = int(request.args.get("limit", 50))
+    auth_header = request.headers.get("Authorization")
+    asset_type = str(request.args.get("asset_type", "STOCK")).upper()
+    market_segment = request.args.get("market_segment") or request.args.get("region", "ALL")
+    ranking = request.args.get("ranking", "거래대금")
+    limit = clamp_market_limit(request.args.get("limit", 50), 50, 100)
+    force_refresh = str(request.args.get("force_refresh", "")).lower() in {"1", "true", "yes", "y"}
 
-    kis_market_universe_service = current_app.kis_market_universe_service
     try:
-        rankings = kis_market_universe_service.repository.list_turnover_rankings(
-            market_segment=market_segment,
-            limit=limit,
-        )
-        universe_count = kis_market_universe_service.repository.count_universe(market_segment=market_segment)
+        if asset_type == "CRYPTO":
+            rankings = fetch_coinone_rankings(limit=limit, ranking=ranking)
+            return jsonify({
+                "success": True,
+                "data": {
+                    "items": rankings["items"],
+                    "totalCount": rankings["total_count"],
+                    "universeCount": rankings["total_count"],
+                    "assetType": "CRYPTO",
+                    "marketSegment": "KR",
+                    "ranking": ranking,
+                    "limit": limit,
+                }
+            })
+
+        normalized_ranking = normalize_ranking_label(ranking)
+        normalized_region = str(market_segment or "").strip().upper()
+        is_domestic = normalized_region in {"국내", "KR", "KOREA", "DOMESTIC", "KOSPI", "KOSDAQ", "ALL", ""}
+        is_overseas = normalized_region in {"해외", "US", "USA", "GLOBAL", "FOREIGN", "NASDAQ", "NYSE", "AMEX"}
+
+        if is_domestic or is_overseas:
+            client = KISClient(
+                appkey=current_app.config.get("KIS_APPKEY", ""),
+                appsecret=current_app.config.get("KIS_APPSECRET", ""),
+                cano=current_app.config.get("KIS_CANO", ""),
+                acnt_prdt_cd=current_app.config.get("KIS_ACNT_PRDT_CD", "01"),
+                env=current_app.config.get("KIS_ENV", "MOCK"),
+            )
+            repository = MarketRepository()
+            repository_rows = []
+
+            if repository.is_configured:
+                repository_market_segment = "US" if is_overseas else "KR"
+                repository_order_by = "trading_value.desc,updated_at.desc"
+                if normalized_ranking == "volume":
+                    repository_order_by = "trading_volume.desc,updated_at.desc"
+                elif normalized_ranking == "up":
+                    repository_order_by = "change_rate.desc,trading_value.desc,updated_at.desc"
+                elif normalized_ranking == "down":
+                    repository_order_by = "change_rate.asc,trading_value.desc,updated_at.desc"
+
+                repository_rows = repository.list_turnover_rankings(
+                    market_segment=repository_market_segment,
+                    limit=max(limit, 200),
+                    order_by=repository_order_by,
+                )
+
+            if is_overseas:
+                try:
+                    if normalized_ranking == "up":
+                        direct_rows = client.get_overseas_updown_rankings(direction="up", limit=limit)
+                    elif normalized_ranking == "down":
+                        direct_rows = client.get_overseas_updown_rankings(direction="down", limit=limit)
+                    else:
+                        direct_rows = client.get_overseas_trade_volume_rankings(limit=limit)
+                except Exception:
+                    direct_rows = []
+                merged_rows = merge_rank_rows(direct_rows, repository_rows, ranking, limit)
+                stock_rows = build_direct_stock_ranking_rows(merged_rows, ranking, limit, is_foreign=True)
+                return jsonify({
+                    "success": True,
+                    "data": {
+                        "items": stock_rows,
+                        "totalCount": len(stock_rows),
+                        "universeCount": max(len(stock_rows), len(repository_rows)),
+                        "assetType": "STOCK",
+                        "marketSegment": market_segment,
+                        "ranking": ranking,
+                        "limit": limit,
+                        "message": "",
+                        "marketSnapshot": {},
+                    }
+                })
+
+            try:
+                if normalized_ranking == "up":
+                    direct_rows = client.get_fluctuation_rankings(direction="up", limit=limit)
+                elif normalized_ranking == "down":
+                    direct_rows = client.get_fluctuation_rankings(direction="down", limit=limit)
+                elif normalized_ranking == "volume":
+                    direct_rows = client.get_volume_rankings(limit=limit)
+                else:
+                    direct_rows = client.get_turnover_rankings(limit=limit)
+            except Exception:
+                direct_rows = []
+
+            merged_rows = merge_rank_rows(direct_rows, repository_rows, ranking, limit)
+            stock_rows = build_direct_stock_ranking_rows(merged_rows, ranking, limit, is_foreign=False)
+            return jsonify({
+                "success": True,
+                "data": {
+                    "items": stock_rows,
+                    "totalCount": len(stock_rows),
+                    "universeCount": max(len(stock_rows), len(repository_rows)),
+                    "assetType": "STOCK",
+                    "marketSegment": market_segment,
+                    "ranking": ranking,
+                    "limit": limit,
+                    "message": "",
+                    "marketSnapshot": {},
+                }
+            })
+
+        overview = build_home_overview({
+            "filters": {
+                "region": market_segment,
+                "ranking": ranking,
+                "horizon": "실시간",
+                "forceRefresh": force_refresh,
+            }
+        }, auth_header=auth_header)
+        stock_rows = list(overview.get("stocks") or [])[:limit]
+        market_snapshot = overview.get("market_snapshot") or {}
         return jsonify({
             "success": True,
             "data": {
-                "items": rankings,
-                "totalCount": len(rankings),
-                "universeCount": universe_count,
-                "marketSegment": market_segment.upper(),
+                "items": stock_rows,
+                "totalCount": len(stock_rows),
+                "universeCount": len(stock_rows),
+                "assetType": "STOCK",
+                "marketSegment": market_segment,
+                "ranking": ranking,
                 "limit": limit,
+                "message": overview.get("message", ""),
+                "marketSnapshot": market_snapshot,
             }
         })
     except Exception as error:

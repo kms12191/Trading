@@ -21,6 +21,15 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _to_float(value, default: float = 0.0) -> float:
+    try:
+        if value in (None, ""):
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _load_exchange_client(auth_header: str, user_id: str, exchange: str):
     """
     사용자별 암호화 API 키를 복호화해 거래소 클라이언트를 생성합니다.
@@ -243,6 +252,28 @@ def _patch_transfer_proposal(auth_header: str, proposal_id: str, payload: dict):
     )
 
 
+def _build_transfer_amount_payload(row: dict, matched_deposit: dict | None = None) -> dict:
+    """
+    출금 요청 수량과 바이낸스 입금 수량을 기준으로 수수료 및 실제 입금 수량을 계산합니다.
+    """
+    requested_amount = _to_float(row.get("amount"))
+    received_amount = _to_float((matched_deposit or {}).get("amount"), default=0.0)
+    if received_amount <= 0:
+        received_amount = _to_float(row.get("received_amount"), default=0.0)
+
+    payload = {
+        "fee_currency": str(row.get("currency") or "").upper() or None,
+    }
+
+    if received_amount > 0:
+        payload["received_amount"] = received_amount
+        payload["expected_receive_amount"] = received_amount
+        if requested_amount > 0:
+            payload["withdraw_fee"] = max(0.0, requested_amount - received_amount)
+
+    return payload
+
+
 def _match_binance_deposit(row: dict, history: list[dict]) -> dict | None:
     currency = str(row.get("currency") or "").upper()
     address = str(row.get("address") or "").strip()
@@ -425,6 +456,11 @@ def list_withdrawal_statuses():
             if str(row.get("status") or "").upper() in {"APPROVED", "SUBMITTED", "WITHDRAWAL_REGISTER", "WITHDRAWAL_WAIT"}
             and str(row.get("to_exchange") or "").upper() == "BINANCE"
         ]
+        completed_rows = [
+            row for row in rows
+            if str(row.get("status") or "").upper() == "COMPLETED"
+        ]
+        binance_client = None
         if open_rows:
             binance_client = _load_exchange_client(auth_header, user_id, "BINANCE")
             start_time = int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp() * 1000)
@@ -438,6 +474,7 @@ def list_withdrawal_statuses():
                 if not matched:
                     continue
                 if int(matched.get("status") or 0) == 1:
+                    amount_payload = _build_transfer_amount_payload(row, matched)
                     _patch_transfer_proposal(
                         auth_header,
                         row["id"],
@@ -445,10 +482,36 @@ def list_withdrawal_statuses():
                             "status": "COMPLETED",
                             "binance_deposit_payload": matched,
                             "completed_at": _utc_now_iso(),
+                            **amount_payload,
                         },
                     )
                     row["status"] = "COMPLETED"
                     row["binance_deposit_payload"] = matched
+                    row.update(amount_payload)
+                    completed_rows.append(row)
+
+        if completed_rows:
+            if binance_client is None:
+                binance_client = _load_exchange_client(auth_header, user_id, "BINANCE")
+            price_cache = {}
+            for row in completed_rows:
+                currency = str(row.get("currency") or "").upper()
+                if not currency:
+                    continue
+                symbol = f"{currency}USDT"
+                if symbol not in price_cache:
+                    try:
+                        price_cache[symbol] = _to_float(binance_client.get_price(symbol).get("current_price"))
+                    except Exception:
+                        price_cache[symbol] = 0.0
+                current_price = price_cache.get(symbol, 0.0)
+                received_amount = _to_float(row.get("received_amount"), default=0.0)
+                if received_amount <= 0:
+                    amount_payload = _build_transfer_amount_payload(row, row.get("binance_deposit_payload") or {})
+                    row.update(amount_payload)
+                    received_amount = _to_float(row.get("received_amount"), default=0.0)
+                row["current_price"] = current_price
+                row["eval_amount"] = received_amount * current_price if received_amount > 0 and current_price > 0 else 0.0
 
         return jsonify({"success": True, "data": rows})
     except Exception as e:

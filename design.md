@@ -1,4 +1,4 @@
-# Stock & Coin Trading Bot Design Guidelines (디자인.md)
+# Stock & Coin Trading Bot Design Guidelines (design.md)
 
 This document is the UI/UX implementation guide based on the **Stock & Coin Trading Bot** project from Stitch MCP. Follow these guidelines strictly for colors, typography, layout, and component design during frontend development.
 
@@ -18,15 +18,16 @@ This document is the UI/UX implementation guide based on the **Stock & Coin Trad
 * **Cards & Panels (Level 1)**: Slate Navy (`#1E293B`) - Features a 1px solid border (`#334155`) to establish layout hierarchy.
 * **Popovers & Modals (Level 2)**: Lighter Navy - Renders with a soft ambient shadow (`0px 8px 24px rgba(0,0,0,0.5)`) for elevated display.
 * **Primary Accent (Primary)**: Institutional Blue (`#0047bb`) - Represents institutional trust; used for core brand elements and primary action buttons.
+* **Action Blue (Runtime Primary)**: Tailwind `blue-600` / `blue-700` - Used for compact, high-frequency action buttons already implemented in the app, such as header search `이동` and News tab `원문 열기`.
 * **AI Accent (AI Secondary)**: Luminous Cyan (`#00e0ff`) & Indigo Gradient - Used exclusively for AI suggestions, insights, and chatbot assistant components.
 * **Semantic Logic**:
   * Bullish / Gains: **Success Green**
   * Bearish / Losses: **Danger Red**
-  * *※ Semantic green and red are strictly reserved for financial performance metrics. Do not use them for general UI decorations to avoid false signals.*
+  * *Semantic green and red are strictly reserved for financial performance metrics. Do not use them for general UI decorations to avoid false signals.*
 
 ### 2.2 Typography
 * **UI Labels & Body Text**: **Inter** - For high legibility and neutral UI presentation.
-* **Numerical & Code Data**: **JetBrains Mono** - A monospace font used for numerical feeds, ticker symbols, transaction IDs, and amount input fields. This ensures character distinctness (e.g., distinguishing '0' from 'O') and prevents layout jitter during real-time data updates.
+* **Numerical & Code Data**: **JetBrains Mono** - A monospace font used for numerical feeds, ticker symbols, transaction IDs, and amount input fields. This ensures character distinctness and prevents layout jitter during real-time data updates.
 * **Hierarchy**: Established through weight and color contrast rather than excessive text sizes.
 
 ### 2.3 Layout & Spacing
@@ -55,3 +56,15 @@ This is the highest priority interactive card, rendered only when trade proposal
 ### 3.3 Ticker Chips
 * **Structure**: Displays the ticker symbol (`JetBrains Mono`) alongside the 24-hour change percentage.
 * **Colors**: Uses a subtle 10% opacity background tint (Success Green for gains, Danger Red for losses) to indicate trend direction at a glance.
+
+### 3.4 Header Quick Search
+* **Behavior**: Header search is a unified symbol/name search. Do not expose manual `주식 / 코인` filtering controls in the header.
+* **Routing**: Search results should rely on backend symbol metadata (`asset_type`) to route users to the correct stock or crypto detail page.
+* **Input Style**: Use the standard input token: Obsidian Navy background (`#0F172A`), Slate border, `JetBrains Mono`, compact height, and blue focus border.
+* **Primary Search Action**: The `이동` button uses the compact runtime primary action style: `bg-blue-600`, `hover:bg-blue-700`, white text, bold label, and `active:scale-95`.
+
+### 3.5 News Board Actions
+* **Card Context**: News cards use Slate panels with subtle cyan hover borders. Category/source chips may use cyan borders as metadata accents.
+* **Summary Action**: Secondary actions such as `요약 보기` should remain Slate border buttons to avoid competing with the main external-link action.
+* **Original Article Action**: The `원문 열기` button in the News tab must match the header quick-search `이동` button color treatment: `bg-blue-600`, `hover:bg-blue-700`, white text, bold label, and `active:scale-95`.
+* **Scope Rule**: This News Board rule applies to `frontend/src/pages/News.jsx`. Asset detail news components may keep their own local treatment unless explicitly updated.

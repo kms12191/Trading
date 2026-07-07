@@ -189,7 +189,11 @@ erDiagram
     *   `currency` (TEXT) - 출금 코인 심볼
     *   `network` (TEXT) - 출금 네트워크
     *   `amount` (NUMERIC) - 출금 수량
-    *   `address` (TEXT) - 도착 거래소 입금 주소
+    *   `withdraw_fee` (NUMERIC) - 출금 요청 수량과 바이낸스 실제 입금 수량 차이로 계산한 출금 수수료
+    *   `expected_receive_amount` (NUMERIC) - 사전검증 또는 입금 확인 기준 도착 예상 수량
+    *   `received_amount` (NUMERIC) - 바이낸스 입금내역에서 확인된 실제 입금 수량
+    *   `fee_currency` (TEXT) - 출금 수수료 단위 코인 심볼
+    *   `address` (TEXT) - 바이낸스 입금 주소
     *   `secondary_address` (TEXT) - XRP/XLM/EOS Destination Tag 또는 Memo
     *   `status` (TEXT) - `PENDING`, `APPROVED`, `SUBMITTED`, `COMPLETED`, `FAILED`, `NEEDS_REVIEW` 등
     *   `external_transaction_id` (TEXT) - 출발 거래소 출금 거래 식별 ID
@@ -201,9 +205,11 @@ erDiagram
     *   Supabase Realtime publication에 포함되어 상태 추적 UI에 즉시 반영 가능
 *   **현재 구현 메모**:
     *   실제 출금 API는 `/api/transfer/withdraw/approve`에서만 호출됩니다.
-    *   승인 단계에서 도착 거래소 API 조회 입금 주소 및 Tag와 입력값이 다르면 출금을 차단합니다.
+    *   승인 단계에서 바이낸스 API 조회 입금 주소 및 Tag와 입력값이 다르면 출금을 차단합니다.
     *   `precheck_payload`에는 `withdrawal_fee`, `withdrawal_min_amount`, `estimated_receive_amount`, `withdrawal_fee_source`가 포함됩니다.
     *   자동 완료 판정은 현재 코인원 → 바이낸스 경로에서 바이낸스 입금 내역 조회 기준으로만 수행합니다.
+    *   바이낸스 입금 완료가 확인되면 `received_amount`, `withdraw_fee`, `expected_receive_amount`를 갱신하고, 대시보드/내 자산은 바이낸스 실제 잔고가 아직 반영되지 않은 경우에만 이 완료 출금분을 보조 보유수량으로 표시합니다.
+
 
 ### 2.5 news_articles
 *   **용도**: 실시간 수집된 뉴스 및 종목 키워드, 그리고 AI 요약(Sentiment, Summary) 정보를 적재하여 RAG 챗봇 및 종목 상세 뉴스에 데이터를 급지함.

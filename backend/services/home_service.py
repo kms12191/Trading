@@ -11,6 +11,7 @@ from backend.services.symbol_metadata import SYMBOL_METADATA
 from backend.services.toss_client import TossClient
 
 COINONE_HOME_LIMIT = int(os.getenv("COINONE_HOME_LIMIT", "10"))
+COINONE_RANK_MAX_LIMIT = int(os.getenv("COINONE_RANK_MAX_LIMIT", "100"))
 HOME_STOCK_LIMIT = int(os.getenv("HOME_STOCK_LIMIT", "10"))
 HOME_STOCK_CLIENT_CACHE_LIMIT = int(os.getenv("HOME_STOCK_CLIENT_CACHE_LIMIT", "200"))
 HOME_STOCK_SCAN_LIMIT = int(os.getenv("HOME_STOCK_SCAN_LIMIT", "120"))
@@ -99,6 +100,14 @@ def to_float(value, default=0.0):
 
 def parse_change_rate(row: dict) -> float:
     return to_float(row.get("change_rate") or row.get("live_change_rate") or row.get("change"))
+
+
+def clamp_market_limit(value, default: int, maximum: int) -> int:
+    try:
+        numeric_value = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(numeric_value, maximum))
 
 
 def format_krw_compact(value: float) -> str:
@@ -207,7 +216,7 @@ def normalize_coinone_ticker(symbol: str, ticker: dict) -> dict:
     }
 
 
-def fetch_coinone_overview(limit=COINONE_HOME_LIMIT) -> list[dict]:
+def fetch_coinone_market_rows() -> list[dict]:
     url = "https://api.coinone.co.kr/public/v2/ticker_new/KRW"
     response = requests.get(url, params={"additional_data": "true"}, timeout=10)
     response.raise_for_status()
@@ -227,11 +236,7 @@ def fetch_coinone_overview(limit=COINONE_HOME_LIMIT) -> list[dict]:
             continue
         rows.append(normalize_coinone_ticker(symbol, ticker))
 
-    rows.sort(key=lambda item: (item.get("trading_value", 0.0), abs(item.get("change_rate", 0.0))), reverse=True)
-    return [
-        {**row, "rank": index}
-        for index, row in enumerate(rows[:limit], start=1)
-    ]
+    return rows
 
 
 def normalize_market_segment(region: str | None) -> str:
@@ -252,6 +257,39 @@ def normalize_ranking_label(ranking: str | None) -> str:
     if text in {"하락률", "down", "DOWN"} or "하락" in text:
         return "down"
     return "turnover"
+
+
+def apply_market_ranking(rows: list[dict], ranking: str | None) -> list[dict]:
+    normalized_ranking = normalize_ranking_label(ranking)
+    filtered = list(rows or [])
+
+    if normalized_ranking == "volume":
+        filtered.sort(key=lambda row: to_float(row.get("trading_volume")), reverse=True)
+    elif normalized_ranking == "up":
+        filtered.sort(key=parse_change_rate, reverse=True)
+    elif normalized_ranking == "down":
+        filtered.sort(key=parse_change_rate)
+    else:
+        filtered.sort(key=lambda row: to_float(row.get("trading_value")), reverse=True)
+
+    return filtered
+
+
+def fetch_coinone_rankings(limit=COINONE_HOME_LIMIT, ranking: str = "거래대금") -> dict:
+    safe_limit = clamp_market_limit(limit, COINONE_HOME_LIMIT, COINONE_RANK_MAX_LIMIT)
+    rows = apply_market_ranking(fetch_coinone_market_rows(), ranking)
+    limited_rows = rows[:safe_limit]
+    return {
+        "items": [
+            {**row, "rank": index}
+            for index, row in enumerate(limited_rows, start=1)
+        ],
+        "total_count": len(rows),
+    }
+
+
+def fetch_coinone_overview(limit=COINONE_HOME_LIMIT, ranking: str = "거래대금") -> list[dict]:
+    return fetch_coinone_rankings(limit=limit, ranking=ranking)["items"]
 
 
 def is_domestic_common_stock_row(row: dict) -> bool:

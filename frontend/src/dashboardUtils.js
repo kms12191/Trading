@@ -11,6 +11,9 @@ export function formatNewsDate(value) {
 }
 
 export function getWatchlistNewsMarket(item) {
+  const assetType = String(item?.assetType || item?.asset_type || '').toUpperCase()
+  const market = String(item?.market || '')
+  if (assetType === 'CRYPTO' || market.includes('코인')) return 'DOMESTIC'
   return /[a-zA-Z]/.test(item?.id || '') ? 'GLOBAL' : 'DOMESTIC'
 }
 

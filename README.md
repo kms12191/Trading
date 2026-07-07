@@ -111,6 +111,7 @@ python src/run_pipeline_bundle.py \
 - `POST /api/home/market`
 - `POST /api/home/overview`
 - `GET /api/market/rankings`
+  - `asset_type=STOCK|CRYPTO`, `region`, `ranking`, `limit` 쿼리를 받아 홈 더보기 화면용 최대 100개 랭킹을 반환합니다.
 - `POST /api/market/kis/sync`
 - `POST /api/dashboard/balance`
 

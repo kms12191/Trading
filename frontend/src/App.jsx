@@ -8,6 +8,7 @@ import News from './pages/News'
 import Inquiry from './pages/Inquiry'
 import Settings from './pages/Settings'
 import Home from './pages/Home'
+import MarketRankings from './pages/MarketRankings'
 import AdminMlData from './pages/AdminMlData'
 import AssetDetail from './pages/AssetDetail'
 import SearchNotFound from './pages/SearchNotFound'
@@ -189,6 +190,16 @@ function AppShell({
                 handleLogout={handleLogout}
                 userProfile={userProfile}
                 setUserProfile={setUserProfile}
+              />
+            )}
+          />
+          <Route
+            path="/market-rankings"
+            element={(
+              <MarketRankings
+                isLoggedIn={isLoggedIn}
+                userEmail={userEmail}
+                handleLogout={handleLogout}
               />
             )}
           />

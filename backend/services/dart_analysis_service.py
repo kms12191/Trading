@@ -15,6 +15,7 @@ from backend.services.dart_repository import DartRepository
 DART_DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 DART_ANALYSIS_VERSION = "v3.33"
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+GEMINI_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 ALLOWED_SENTIMENTS = {"positive", "negative", "caution", "info"}
 ALLOWED_CONFIDENCES = {"high", "medium", "low"}
 
@@ -282,21 +283,25 @@ class DartDisclosureAnalysisService:
         self.api_key = os.getenv("DART_API_KEY", "")
         self.request_timeout_seconds = int(os.getenv("DART_REQUEST_TIMEOUT_SECONDS", "15"))
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
         self.ai_enabled = os.getenv("DART_ANALYSIS_AI_ENABLED", "true").lower() == "true"
+        self.ai_provider = os.getenv("DART_ANALYSIS_AI_PROVIDER", "openai").strip().lower()
         self.ai_model = os.getenv("DART_ANALYSIS_MODEL", "gpt-4o-mini")
+        self.gemini_primary_model = os.getenv("DART_GEMINI_PRIMARY_MODEL", "gemini-3.5-flash")
+        self.gemini_fallback_model = os.getenv("DART_GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite")
         self.ai_prompt_version = os.getenv("DART_ANALYSIS_PROMPT_VERSION", "v3")
         self.ai_timeout_seconds = int(os.getenv("DART_ANALYSIS_TIMEOUT_SECONDS", "30"))
         self.ai_excerpt_chars = int(os.getenv("DART_ANALYSIS_EXCERPT_CHARS", "4000"))
         self.repository = DartRepository()
 
-    def ensure_analysis(self, rcept_no: str) -> dict[str, Any]:
+    def ensure_analysis(self, rcept_no: str, force_refresh: bool = False) -> dict[str, Any]:
         clean_rcept_no = str(rcept_no or "").strip()
         if not clean_rcept_no:
             raise ValueError("공시 접수번호가 필요합니다.")
 
         cached = self.repository.get_disclosure_analysis(clean_rcept_no)
         cached_version = ((cached or {}).get("raw_payload") or {}).get("analysis_version")
-        if cached and cached_version == DART_ANALYSIS_VERSION and cached.get("plain_summary"):
+        if not force_refresh and cached and cached_version == DART_ANALYSIS_VERSION and cached.get("plain_summary"):
             return {"analysis": cached, "fromCache": True}
 
         disclosure = self.repository.get_disclosure_by_rcept_no(clean_rcept_no)
@@ -413,11 +418,18 @@ class DartDisclosureAnalysisService:
         disclosure: dict[str, Any],
         detail_text: str,
     ) -> dict[str, Any]:
-        if not self.ai_enabled or not self.openai_api_key or not detail_text:
+        if not self.ai_enabled or not self._has_ai_credentials() or not detail_text:
             return analysis
 
         try:
             prompt = self._build_ai_refinement_prompt(analysis, disclosure, detail_text)
+            if self.ai_provider == "gemini":
+                payload, used_model = self._request_gemini_refinement(prompt)
+                refined = self._parse_ai_refinement(payload)
+                if not refined:
+                    return analysis
+                return self._merge_ai_refinement(analysis, refined, used_model)
+
             response = requests.post(
                 OPENAI_CHAT_COMPLETIONS_URL,
                 headers={
@@ -452,11 +464,63 @@ class DartDisclosureAnalysisService:
             raw_payload = dict(analysis.get("raw_payload") or {})
             raw_payload.update({
                 "ai_refinement_error": str(error)[:300],
-                "ai_refinement_model": self.ai_model,
+                "ai_refinement_model": self.gemini_primary_model if self.ai_provider == "gemini" else self.ai_model,
+                "ai_refinement_provider": self.ai_provider,
                 "ai_refinement_prompt_version": self.ai_prompt_version,
             })
             analysis["raw_payload"] = raw_payload
             return analysis
+
+    def _has_ai_credentials(self) -> bool:
+        if self.ai_provider == "gemini":
+            return bool(self.gemini_api_key)
+        return bool(self.openai_api_key)
+
+    def _request_gemini_refinement(self, prompt: str) -> tuple[dict[str, Any], str]:
+        models = [self.gemini_primary_model, self.gemini_fallback_model]
+        models = [model for index, model in enumerate(models) if model and model not in models[:index]]
+        last_error: Exception | None = None
+        for model in models:
+            try:
+                response = requests.post(
+                    GEMINI_INTERACTIONS_URL,
+                    headers={
+                        "x-goog-api-key": self.gemini_api_key,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "system_instruction": (
+                            "너는 DART 공시 요약 보조기다. 분석가처럼 예측하지 말고, "
+                            "이미 제공된 v2 룰 분석 결과와 원문 일부를 사람이 읽기 쉽게 정리한다. "
+                            "반드시 한국어 JSON만 출력한다. 매수/매도 권유, 주가 예측, 원문에 없는 수치 생성은 금지한다."
+                        ),
+                        "input": prompt,
+                        "generation_config": {
+                            "temperature": 0.1,
+                            "max_output_tokens": 650,
+                        },
+                    },
+                    timeout=self.ai_timeout_seconds,
+                )
+                response.raise_for_status()
+                return self._gemini_payload_as_openai_payload(response.json()), model
+            except Exception as error:
+                last_error = error
+        if last_error:
+            raise last_error
+        raise RuntimeError("Gemini model is not configured.")
+
+    def _gemini_payload_as_openai_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        text = self._clean_text(payload.get("output_text"))
+        if not text:
+            chunks: list[str] = []
+            for step in payload.get("steps") or []:
+                for item in step.get("content") or step.get("contents") or []:
+                    if isinstance(item, dict):
+                        chunks.append(str(item.get("text") or ""))
+            text = self._clean_text(" ".join(chunks))
+        return {"choices": [{"message": {"content": text}}]}
 
     def _build_ai_refinement_prompt(
         self,
@@ -525,7 +589,12 @@ class DartDisclosureAnalysisService:
             return {}
         return parsed if isinstance(parsed, dict) else {}
 
-    def _merge_ai_refinement(self, analysis: dict[str, Any], refined: dict[str, Any]) -> dict[str, Any]:
+    def _merge_ai_refinement(
+        self,
+        analysis: dict[str, Any],
+        refined: dict[str, Any],
+        used_model: str | None = None,
+    ) -> dict[str, Any]:
         next_analysis = dict(analysis)
 
         sentiment = self._clean_text(refined.get("sentiment"))
@@ -556,7 +625,8 @@ class DartDisclosureAnalysisService:
         raw_payload = dict(next_analysis.get("raw_payload") or {})
         raw_payload.update({
             "analysis_mode": "v3_ai_refined",
-            "ai_refinement_model": self.ai_model,
+            "ai_refinement_model": used_model or self.ai_model,
+            "ai_refinement_provider": self.ai_provider,
             "ai_refinement_prompt_version": self.ai_prompt_version,
         })
         next_analysis["raw_payload"] = raw_payload

@@ -1022,12 +1022,14 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
             <InvestmentSurveyModal
               onClose={() => setShowSurveyModal(false)}
               onSuccess={(type, score) => {
-                setUserProfile(prev => prev ? {
-                  ...prev,
-                  invest_type: type,
-                  invest_score: score,
-                  updated_at: new Date().toISOString()
-                } : null);
+                if (typeof setUserProfile === 'function') {
+                  setUserProfile(prev => prev ? {
+                    ...prev,
+                    invest_type: type,
+                    invest_score: score,
+                    updated_at: new Date().toISOString()
+                  } : null);
+                }
 
                 setShowSurveyModal(false);
               }}

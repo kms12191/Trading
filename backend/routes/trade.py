@@ -735,6 +735,30 @@ def _is_toss_action_restricted_error(error: Exception, code: str) -> bool:
     return code in text or "가능수량이 부족" in text
 
 
+def _is_already_canceled_order_error(error: Exception) -> bool:
+    """
+    거래소에서 이미 취소/종료된 주문을 다시 취소하려고 할 때 내려주는 문구를 감지합니다.
+    """
+    text = str(error or "").lower()
+    keywords = (
+        "이미 취소",
+        "취소된 주문",
+        "취소 완료",
+        "취소완료",
+        "cancelled",
+        "canceled",
+        "already cancel",
+        "already cancelled",
+        "already canceled",
+        "cancel-restricted",
+        "취소 가능수량이 부족",
+        "취소 가능 수량이 부족",
+        "취소할 수량이 없습니다",
+        "취소 가능수량이 없습니다",
+    )
+    return any(keyword.lower() in text for keyword in keywords)
+
+
 def _resolve_proposal_broker_env(proposal: dict, fallback: str | None = None) -> str:
     """
     거래내역 레코드에 저장된 broker_env를 우선 사용하고, 과거 레코드는 요청값 또는 REAL로 보정합니다.
@@ -2277,11 +2301,19 @@ def cancel_manual_order():
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
-        if exchange == "TOSS" and _is_toss_action_restricted_error(e, "cancel-restricted"):
-            _patch_proposal_as_not_actionable(auth_header, proposal_id, current_status, "취소 가능수량이 없어 주문 상태를 종료 처리했습니다.")
+        if _is_already_canceled_order_error(e):
+            _patch_trade_proposal(auth_header, proposal_id, {
+                "status": "CANCELED",
+                "failure_reason": "이미 취소된 주문으로 거래내역 상태를 취소완료로 갱신했습니다.",
+                "canceled_at": datetime.utcnow().isoformat() + "Z",
+                "raw_order_payload": {
+                    "last_order_status": current_status or {},
+                    "cancel_restricted_reason": str(e)[:500],
+                },
+            })
             return jsonify({
                 "success": False,
-                "message": "취소 가능수량이 없습니다. 이미 체결 또는 종료된 주문으로 보여 거래내역 상태를 갱신했습니다.",
+                "message": "이미 취소된 주문입니다.",
                 "detail": current_status,
             }), 400
         _patch_trade_proposal(auth_header, proposal_id, {
@@ -2565,6 +2597,19 @@ def cancel_replace_order():
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
+        if _is_already_canceled_order_error(e):
+            _patch_trade_proposal(auth_header, proposal_id, {
+                "status": "CANCELED",
+                "failure_reason": "이미 취소된 주문으로 거래내역 상태를 취소완료로 갱신했습니다.",
+                "canceled_at": datetime.utcnow().isoformat() + "Z",
+                "raw_order_payload": {
+                    "cancel_replace_cancel_error": str(e)[:500],
+                },
+            })
+            return jsonify({
+                "success": False,
+                "message": "이미 취소된 주문입니다.",
+            }), 400
         _patch_trade_proposal(auth_header, proposal_id, {
             "failure_reason": f"취소 후 재주문 실패: {str(e)[:500]}",
         })

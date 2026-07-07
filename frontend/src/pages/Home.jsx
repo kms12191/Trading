@@ -177,7 +177,7 @@ function FilterBar({ title, children }) {
   );
 }
 
-function MarketTable({ rows, titleType = "stock", ranking = "거래대금", favoriteKeys = new Set(), onToggleFavorite }) {
+function MarketTable({ rows, titleType = "stock", ranking = "거래대금", favoriteKeys = new Set(), onToggleFavorite, moreHref = "" }) {
   const isStock = titleType === "stock";
   const nameHeader = isStock ? "종목명" : "코인명";
   const showVolume = ranking === "거래량";
@@ -245,9 +245,9 @@ function MarketTable({ rows, titleType = "stock", ranking = "거래대금", favo
           );
         })}
       </div>
-      <div className="border-t border-slate-700/80 px-4 py-3 text-center text-sm font-medium text-slate-200 hover:bg-white/[0.03]">
-        더보기 <span className="ml-3 text-xl text-slate-400">›</span>
-      </div>
+      <Link to={moreHref || "#"} className="block border-t border-slate-700/80 px-4 py-3 text-center text-sm font-medium text-slate-200 no-underline transition hover:bg-white/[0.03]">
+        더보기<span className="ml-3 text-xl text-slate-400">→</span>
+      </Link>
     </div>
   );
 }
@@ -344,6 +344,8 @@ export default function Home({ isLoggedIn, userEmail, handleLogout }) {
   const stockRankingOptions = stockFilters.region === "해외"
     ? filters.ranking.filter((label) => label !== "거래대금")
     : filters.ranking;
+  const stockMoreHref = `/market-rankings?assetType=stock&region=${encodeURIComponent(stockFilters.region)}&ranking=${encodeURIComponent(stockFilters.ranking)}`;
+  const coinMoreHref = `/market-rankings?assetType=coin&ranking=${encodeURIComponent(coinFilters.ranking)}`;
 
   const loadFavorites = async () => {
     if (!isLoggedIn) {
@@ -540,14 +542,20 @@ export default function Home({ isLoggedIn, userEmail, handleLogout }) {
               </button>
             </div>
             <div className="hidden md:block">
-              <MarketTable rows={stocks} titleType="stock" ranking={stockFilters.ranking} favoriteKeys={favoriteKeys} onToggleFavorite={handleToggleFavorite} />
+              <MarketTable rows={stocks} titleType="stock" ranking={stockFilters.ranking} favoriteKeys={favoriteKeys} onToggleFavorite={handleToggleFavorite} moreHref={stockMoreHref} />
             </div>
             <MobileMarketTable rows={stocks} titleType="stock" ranking={stockFilters.ranking} favoriteKeys={favoriteKeys} onToggleFavorite={handleToggleFavorite} />
+            <Link to={stockMoreHref} className="rounded-lg border border-slate-700 bg-[#061321]/90 px-4 py-3 text-center text-sm font-medium text-slate-200 no-underline transition hover:bg-white/[0.03] md:hidden">
+              더보기
+            </Link>
 
             <div className="hidden md:block">
-              <MarketTable rows={filteredCoins} titleType="coin" ranking={coinFilters.ranking} favoriteKeys={favoriteKeys} onToggleFavorite={handleToggleFavorite} />
+              <MarketTable rows={filteredCoins} titleType="coin" ranking={coinFilters.ranking} favoriteKeys={favoriteKeys} onToggleFavorite={handleToggleFavorite} moreHref={coinMoreHref} />
             </div>
             <MobileMarketTable rows={filteredCoins} titleType="coin" ranking={coinFilters.ranking} favoriteKeys={favoriteKeys} onToggleFavorite={handleToggleFavorite} />
+            <Link to={coinMoreHref} className="rounded-lg border border-slate-700 bg-[#061321]/90 px-4 py-3 text-center text-sm font-medium text-slate-200 no-underline transition hover:bg-white/[0.03] md:hidden">
+              더보기
+            </Link>
           </section>
 
         </main>

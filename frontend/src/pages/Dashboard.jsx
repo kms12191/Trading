@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { deleteUserWatchlistItem, fetchUserWatchlist, supabase } from '../supabaseClient'
 import Header from '../components/Header.jsx'
@@ -139,6 +139,30 @@ const flattenCurrencySourceMap = (sourceMap) => (
   )
 )
 
+const SUMMARY_DETAIL_SOURCE_ORDER = {
+  KRW: ['토스', '한투', '코인원'],
+  USD: ['토스'],
+  USDT: ['바이낸스 현물', '바이낸스 선물'],
+}
+
+const fillSummaryDetailEntries = (entries = [], currency = 'KRW') => {
+  const order = SUMMARY_DETAIL_SOURCE_ORDER[currency] || []
+  const bySource = new Map(entries.map((entry) => [entry.source, entry]))
+
+  order.forEach((source) => {
+    if (!bySource.has(source)) {
+      bySource.set(source, { source, amount: 0 })
+    }
+  })
+
+  return Array.from(bySource.values()).sort((a, b) => {
+    const aIndex = order.indexOf(a.source)
+    const bIndex = order.indexOf(b.source)
+    if (aIndex !== bIndex) return (aIndex === -1 ? order.length : aIndex) - (bIndex === -1 ? order.length : bIndex)
+    return b.amount - a.amount
+  })
+}
+
 const formatNativeCurrency = (value, currency) => {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return '-'
@@ -179,13 +203,17 @@ const buildCashEntriesFromItem = (item = {}) => {
         : []
     )
 
-  return rawComponents
+  const entries = rawComponents
     .map((component) => {
       const currency = String(component?.currency || cashCurrency).toUpperCase()
       const amount = Number(
         component?.cash_buying_power
+        ?? component?.cashBuyingPower
+        ?? component?.buying_power
+        ?? component?.buyingPower
         ?? component?.amount
         ?? component?.available
+        ?? component?.availableCash
         ?? component?.free
         ?? component?.balance
       )
@@ -199,6 +227,24 @@ const buildCashEntriesFromItem = (item = {}) => {
       }
     })
     .filter(Boolean)
+
+  if (
+    entries.length === 0
+    && item.available_cash !== null
+    && item.available_cash !== undefined
+    && item.available_cash !== ''
+    && Number.isFinite(Number(item.available_cash))
+  ) {
+    return [{
+      currency: cashCurrency,
+      amount: Number(item.available_cash),
+      sourceLabel,
+      exchange: String(item.raw_exchange || item.exchange || '').toUpperCase(),
+      env: String(item.env || '').toUpperCase(),
+    }]
+  }
+
+  return entries
 }
 
 const parsePriceNumber = (value) => {
@@ -682,6 +728,75 @@ const mergeBalanceWithTradeEstimates = (mergedBalance, tradeRows = [], showMockA
   }
 }
 
+const buildTransferHoldingIdentity = (currency) => {
+  const symbol = String(currency || '').trim().toUpperCase()
+  return symbol ? `CRYPTO:BINANCE:REAL:${symbol}` : ''
+}
+
+const getTransferReceivedAmount = (row = {}) => {
+  const receivedAmount = toNumber(row.received_amount)
+  if (receivedAmount > 0) return receivedAmount
+  const depositAmount = toNumber(row.binance_deposit_payload?.amount)
+  if (depositAmount > 0) return depositAmount
+  const expectedAmount = toNumber(row.expected_receive_amount)
+  if (expectedAmount > 0) return expectedAmount
+  return 0
+}
+
+const mergeBalanceWithCompletedTransfers = (mergedBalance, transferRows = []) => {
+  const holdings = Array.isArray(mergedBalance?.holdings) ? mergedBalance.holdings : []
+  const liveKeys = new Set(holdings.map(getHoldingIdentity).filter(Boolean))
+  const transferHoldings = (transferRows || [])
+    .filter((row) => String(row.status || '').toUpperCase() === 'COMPLETED')
+    .map((row) => {
+      const currency = String(row.currency || '').trim().toUpperCase()
+      const qty = getTransferReceivedAmount(row)
+      const currentPrice = toNumber(row.current_price)
+      const evalAmount = toNumber(row.eval_amount) || qty * currentPrice
+      if (!currency || qty <= 0 || liveKeys.has(buildTransferHoldingIdentity(currency))) return null
+      return {
+        symbol: currency,
+        name: currency,
+        qty,
+        avg_price: 0,
+        current_price: currentPrice,
+        eval_amount: evalAmount,
+        profit: 0,
+        profit_rate: 0,
+        currency: 'USDT',
+        exchange: 'BINANCE 현물',
+        raw_exchange: 'BINANCE',
+        account_type: 'BINANCE 입금확인',
+        asset_type: 'CRYPTO',
+        env: 'REAL',
+        source: 'TRANSFER_COMPLETED',
+        transfer_id: row.id,
+      }
+    })
+    .filter(Boolean)
+
+  if (transferHoldings.length === 0) return mergedBalance
+
+  const transferEvaluationUsdt = transferHoldings.reduce((sum, item) => sum + getHoldingEvaluationNative(item), 0)
+  const exchangeRate = toNumber(mergedBalance?.exchange_rate) || 1500
+  const totalByCurrency = { ...(mergedBalance?.total_by_currency || {}) }
+  totalByCurrency.USDT = toNumber(totalByCurrency.USDT) + transferEvaluationUsdt
+
+  const totalBreakdownByCurrency = { ...(mergedBalance?.total_breakdown_by_currency || {}) }
+  const usdtBreakdown = Array.isArray(totalBreakdownByCurrency.USDT) ? [...totalBreakdownByCurrency.USDT] : []
+  usdtBreakdown.push({ source: '바이낸스 입금확인', amount: transferEvaluationUsdt })
+  totalBreakdownByCurrency.USDT = usdtBreakdown
+
+  return {
+    ...mergedBalance,
+    total_evaluation: toNumber(mergedBalance?.total_evaluation) + transferEvaluationUsdt * exchangeRate,
+    total_by_currency: totalByCurrency,
+    total_breakdown_by_currency: totalBreakdownByCurrency,
+    holdings: [...holdings, ...transferHoldings],
+    sources: [...new Set([...(mergedBalance?.sources || []), 'BINANCE_TRANSFER'])],
+  }
+}
+
 const getBalanceRequestLabel = (exchange, env) => {
   if (exchange === 'KIS') {
     return `KIS ${env === 'REAL' ? '실전' : '모의'}`
@@ -726,7 +841,7 @@ const buildBalanceRequests = (keyStatus) =>
     })
   })
 
-export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userProfile }) {
+export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userProfile, setUserProfile }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [inputs, setInputs] = useState({
     appkey: '',
@@ -745,6 +860,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   const [showMockAssets, setShowMockAssets] = useState(true)
   const [rawBalances, setRawBalances] = useState([])
   const [executedTradeRows, setExecutedTradeRows] = useState([])
+  const [completedTransferRows, setCompletedTransferRows] = useState([])
   const [dashboardWatchlist, setDashboardWatchlist] = useState([])
   const [watchlistLoading, setWatchlistLoading] = useState(false)
   const [watchlistError, setWatchlistError] = useState('')
@@ -953,12 +1069,31 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
         setBalanceError(`거래내역 기반 보유종목 보정 조회 실패: ${error.message}`)
       }
 
+      let transferRows = []
+      try {
+        const transferResponse = await fetch(`${DASHBOARD_API_BASE_URL}/api/transfer/withdraw/status?limit=50`, {
+          headers: {
+            Authorization: authHeader,
+          },
+        })
+        const transferPayload = await transferResponse.json()
+        if (transferResponse.ok && transferPayload.success) {
+          transferRows = transferPayload.data || []
+        }
+      } catch {
+        // 출금 보정 조회 실패는 실잔고 표시를 막지 않습니다.
+      }
+
       setExecutedTradeRows(tradeRows)
+      setCompletedTransferRows(transferRows)
       setRawBalances(successResults)
-      const mergedBalance = mergeBalanceWithTradeEstimates(
-        mergeAccountBalances(successResults, showMockAssets),
-        tradeRows,
-        showMockAssets,
+      const mergedBalance = mergeBalanceWithCompletedTransfers(
+        mergeBalanceWithTradeEstimates(
+          mergeAccountBalances(successResults, showMockAssets),
+          tradeRows,
+          showMockAssets,
+        ),
+        transferRows,
       )
       setBalance(mergedBalance)
 
@@ -1080,13 +1215,16 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
 
   useEffect(() => {
     if (rawBalances.length > 0) {
-      setBalance(mergeBalanceWithTradeEstimates(
-        mergeAccountBalances(rawBalances, showMockAssets),
-        executedTradeRows,
-        showMockAssets,
+      setBalance(mergeBalanceWithCompletedTransfers(
+        mergeBalanceWithTradeEstimates(
+          mergeAccountBalances(rawBalances, showMockAssets),
+          executedTradeRows,
+          showMockAssets,
+        ),
+        completedTransferRows,
       ))
     }
-  }, [rawBalances, showMockAssets, executedTradeRows])
+  }, [rawBalances, showMockAssets, executedTradeRows, completedTransferRows])
 
   // 자산 배분 데이터
 
@@ -1210,8 +1348,8 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   const selectedSummaryDetail = selectedSummaryCurrency
     ? {
       currency: selectedSummaryCurrency,
-      totalEntries: balance?.total_breakdown_by_currency?.[selectedSummaryCurrency] || [],
-      cashEntries: balance?.cash_breakdown_by_currency?.[selectedSummaryCurrency] || [],
+      totalEntries: fillSummaryDetailEntries(balance?.total_breakdown_by_currency?.[selectedSummaryCurrency] || [], selectedSummaryCurrency),
+      cashEntries: fillSummaryDetailEntries(balance?.cash_breakdown_by_currency?.[selectedSummaryCurrency] || [], selectedSummaryCurrency),
     }
     : null
 
@@ -1523,7 +1661,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
-                        <tr className="border-b border-slate-800 text-slate-400 bg-[#0c0e15]/30">
+                        <tr className="border-b border-slate-800 text-slate-400 bg-[#0c0e15]/100">
                           <th className="py-2 px-3 font-bold">종목명/코드</th>
                           <th className="py-2 px-3 font-bold">거래소</th>
                           <th className="py-2 px-3 text-right font-bold">
@@ -1746,6 +1884,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
               userEmail={userEmail}
               handleLogout={handleLogout}
               userProfile={userProfile}
+              setUserProfile={setUserProfile}
               hideHeader={true}
             />
           )}

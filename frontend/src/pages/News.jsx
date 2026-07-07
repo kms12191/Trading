@@ -337,7 +337,7 @@ export default function News({ isLoggedIn, userEmail, handleLogout }) {
                           href={item.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="rounded bg-ai-cyan px-3 py-1.5 text-xs font-semibold text-black"
+                          className="inline-flex items-center justify-center rounded bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition-all hover:bg-blue-700 active:scale-95"
                         >
                           원문 열기
                         </a>
