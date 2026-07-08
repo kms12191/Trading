@@ -420,7 +420,64 @@ erDiagram
 *   **RLS**:
     *   `auth.uid() = user_id` 조건으로 자신의 챗 로그에만 보안 격리 적용.
 
-### 2.17 community_posts
+### 2.17 user_knowledge_notes
+*   **용도**: 앱 내부 투자노트와 Obsidian 플러그인에서 동기화한 Markdown 노트를 사용자별로 저장합니다. 현재 1차 구현은 원문 저장과 해시 기반 변경 감지만 담당하며, 후속 단계에서 `knowledge_chunks`/vector 검색으로 확장합니다.
+*   **주요 컬럼**:
+    *   `id` (UUID, PK)
+    *   `user_id` (UUID, FK) - Supabase Auth 사용자
+    *   `vault_name` (TEXT) - Obsidian Vault 또는 앱 노트 공간 이름
+    *   `file_path` (TEXT) - Vault 내부 Markdown 경로
+    *   `title` (TEXT) - Markdown 첫 `#` 제목 또는 파일명 기반 제목
+    *   `source` (TEXT) - `obsidian` / `app`
+    *   `content` (TEXT) - frontmatter를 제외한 Markdown 본문
+    *   `content_hash` (TEXT) - 원문 Markdown SHA-256 해시
+    *   `frontmatter` (JSONB) - Obsidian YAML frontmatter
+    *   `sync_status` (TEXT) - `SYNCED` / `FAILED`
+    *   `modified_at`, `created_at`, `updated_at` (TIMESTAMPTZ)
+*   **제약조건**:
+    *   `UNIQUE (user_id, vault_name, file_path)`로 같은 노트는 업데이트 대상으로 취급합니다.
+*   **RLS**:
+    *   `auth.uid() = user_id` 조건으로 자신의 지식 노트만 조회/생성/수정 가능.
+
+### 2.18 user_memory_facts
+*   **용도**: 챗봇/앱 행동 로그에서 추출한 자동메모리 후보를 사용자별 fact로 저장합니다. Obsidian 플러그인의 `자동메모리 가져오기`는 이 테이블을 읽어 marker 영역에 반영합니다.
+*   **주요 컬럼**:
+    *   `id` (UUID, PK)
+    *   `user_id` (UUID, FK) - Supabase Auth 사용자
+    *   `memory_type` (TEXT) - `favorite_symbol`, `repeated_mistake`, `risk_preference`, `answer_preference`, `investment_principle`
+    *   `content` (TEXT) - 사용자에게 보여줄 자동메모리 문장
+    *   `symbol` (TEXT, nullable) - 관련 종목/코인 심볼
+    *   `confidence` (NUMERIC) - 0~1 신뢰도
+    *   `evidence_count` (INTEGER) - 같은 패턴 근거 수
+    *   `source` (TEXT) - `behavioral_event` 등 생성 근거
+    *   `is_active` (BOOLEAN) - 챗봇/RAG 사용 여부
+    *   `metadata` (JSONB)
+    *   `created_at`, `updated_at` (TIMESTAMPTZ)
+*   **RLS**:
+    *   `auth.uid() = user_id` 조건으로 자신의 메모리 fact만 조회/생성/수정 가능.
+
+### 2.19 knowledge_chunks
+*   **용도**: Obsidian/앱 노트, 자동메모리, 뉴스, 공시 등을 RAG 검색에 사용할 수 있도록 문단 단위 chunk로 저장합니다. 1차 구현에서는 Obsidian 노트 동기화 시 `PENDING` 상태 chunk를 만들고, 다음 단계에서 `embedding` 값을 채워 벡터 검색에 사용합니다.
+*   **주요 컬럼**:
+    *   `id` (UUID, PK)
+    *   `user_id` (UUID, FK, nullable) - 사용자 개인 지식이면 사용자 ID, 공용 지식이면 `NULL`
+    *   `source_type` (TEXT) - `OBSIDIAN`, `APP_NOTE`, `AUTO_MEMORY`, `NEWS`, `DISCLOSURE`
+    *   `source_id` (TEXT) - 원본 노트/문서 ID
+    *   `symbol` (TEXT, nullable) - 관련 종목/코인 심볼
+    *   `market` (TEXT, nullable) - 시장 구분
+    *   `chunk_index` (INTEGER) - 원본 내 chunk 순서
+    *   `chunk_text` (TEXT) - 검색 및 임베딩 대상 본문
+    *   `embedding` (VECTOR(1536), nullable) - 후속 embedding 작업 결과
+    *   `embedding_status` (TEXT) - `PENDING`, `EMBEDDED`, `FAILED`
+    *   `metadata` (JSONB) - 제목, Vault 이름, 파일 경로 등 출처 정보
+    *   `importance_score`, `freshness_score` (NUMERIC) - 검색 랭킹 보조 점수
+    *   `content_hash` (TEXT)
+    *   `created_at`, `updated_at` (TIMESTAMPTZ)
+*   **RLS**:
+    *   개인 chunk는 `auth.uid() = user_id` 사용자만 조회/생성/수정/삭제 가능.
+    *   `user_id IS NULL` 공용 chunk는 로그인 사용자 조회를 허용합니다.
+
+### 2.20 community_posts
 *   **용도**: 종목 디테일 페이지의 커뮤니티 탭에서 종목별 사용자 글을 저장합니다. 작성자 표시명은 글에 스냅샷으로 저장하지 않고 `public_profiles.nickname`을 조회해 최신 닉네임으로 표시합니다.
 *   **주요 컬럼**:
     *   `id` (UUID, PK)

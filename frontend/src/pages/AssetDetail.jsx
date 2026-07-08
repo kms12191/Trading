@@ -76,11 +76,23 @@ const getAutoTriggerLabel = (triggerSide) => {
   return '아직 미도달'
 }
 
+const normalizeStockSymbol = (value) => String(value || '').trim().toUpperCase()
+const isDomesticStockSymbol = (value) => /^[0-9A-Z]{6,7}$/.test(normalizeStockSymbol(value))
+const isUsStockSymbol = (value, market = '') => {
+  const normalizedMarket = String(market || '').trim().toUpperCase()
+  if (['KR', 'KOSPI', 'KOSDAQ', 'KONEX', '국내'].includes(normalizedMarket)) return false
+  if (['US', 'USA', 'NASDAQ', 'NYSE', 'AMEX'].includes(normalizedMarket)) return true
+  return !isDomesticStockSymbol(value)
+}
+
 export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userProfile }) {
   const { assetType, symbol } = useParams()
   const navigate = useNavigate()
   const normalizedRouteAssetType = String(assetType || '').toUpperCase() === 'STOCK' ? 'STOCK' : 'CRYPTO'
   const [resolvedAssetType, setResolvedAssetType] = useState(normalizedRouteAssetType)
+  const [resolvedSymbol, setResolvedSymbol] = useState(normalizeStockSymbol(symbol))
+  const [resolvedMarket, setResolvedMarket] = useState('')
+  const isResolvedUsStock = resolvedAssetType === 'STOCK' && isUsStockSymbol(resolvedSymbol, resolvedMarket)
 
   // API 권한 체크 헬퍼
   const getBinancePermissions = () => {
@@ -113,7 +125,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     if (exchange === 'COINONE') return '₩';
     if (exchange === 'BINANCE' || exchange === 'BINANCE_UM_FUTURES') return '$';
     if (resolvedAssetType === 'STOCK') {
-      return /^\d+$/.test(symbol) ? '₩' : '$';
+      return isResolvedUsStock ? '$' : '₩';
     }
     return '$';
   };
@@ -122,7 +134,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     if (exchange === 'COINONE') return 0;
     if (exchange === 'BINANCE' || exchange === 'BINANCE_UM_FUTURES') return 6;
     if (resolvedAssetType === 'STOCK') {
-      return /^\d+$/.test(symbol) ? 0 : 4;
+      return isResolvedUsStock ? 4 : 0;
     }
     return 4;
   };
@@ -137,7 +149,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       if (numeric < 100) return 4
       return 2
     }
-    if (resolvedAssetType === 'STOCK' && !/^\d+$/.test(symbol)) {
+    if (isResolvedUsStock) {
       if (numeric > 0 && numeric < 1) return 6
       return 4
     }
@@ -348,7 +360,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         body: JSON.stringify({
           exchange,
           asset_type: normalizedRouteAssetType,
-          symbol,
+          symbol: getExchangeSymbol(exchange),
           entry_price: parseFloat(addRulePrice),
           quantity: parseFloat(addRuleQty),
           target_profit_rate: parseFloat(addRuleProfitRate),
@@ -391,7 +403,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     ? 'KRW'
     : exchange === 'BINANCE'
       ? 'USD'
-      : (/^\d+$/.test(symbol) ? 'KRW' : 'USD')
+      : (isResolvedUsStock ? 'USD' : 'KRW')
   const showLevel2Panel = false
   const [isMarketClosed, setIsMarketClosed] = useState(false)
   const chartPollMs = isMarketClosed
@@ -428,11 +440,11 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const getDetailBaseSymbol = () => (
     resolvedAssetType === 'CRYPTO'
       ? normalizeCryptoBaseSymbol(symbol)
-      : String(symbol || '').trim().toUpperCase()
+      : normalizeStockSymbol(resolvedSymbol || symbol)
   )
 
   const getExchangeSymbol = (targetExchange = exchange) => {
-    if (resolvedAssetType !== 'CRYPTO') return String(symbol || '').trim().toUpperCase()
+    if (resolvedAssetType !== 'CRYPTO') return normalizeStockSymbol(resolvedSymbol || symbol)
     const baseSymbol = getDetailBaseSymbol()
     if (!baseSymbol) return ''
     if (targetExchange === 'COINONE') return baseSymbol
@@ -443,7 +455,13 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const getSymbolQueryCandidates = () => {
     const rawSymbol = String(symbol || '').trim().toUpperCase()
     if (resolvedAssetType !== 'CRYPTO') {
-      return [...new Set([rawSymbol, rawSymbol.replace(/^A(?=\d{6}$)/, '')].filter(Boolean))]
+      const canonicalSymbol = normalizeStockSymbol(resolvedSymbol || rawSymbol)
+      return [...new Set([
+        canonicalSymbol,
+        rawSymbol,
+        canonicalSymbol.replace(/^A(?=\d{6}$)/, ''),
+        rawSymbol.replace(/^A(?=\d{6}$)/, ''),
+      ].filter(Boolean))]
     }
     const baseSymbol = normalizeCryptoBaseSymbol(rawSymbol)
     return [...new Set([
@@ -586,7 +604,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     
     // 반대 환경(REAL/MOCK)의 실시간 시세도 비동기로 함께 확보하여 감시 수익률 계산에 대입
     const oppositeEnv = brokerEnv === 'REAL' ? 'MOCK' : 'REAL'
-    fetch(`${API_BASE_URL}/api/chart/candles?exchange=${exchange}&symbol=${getExchangeSymbol(exchange)}&interval=1m&limit=1&broker_env=${oppositeEnv}`)
+    fetch(`${API_BASE_URL}/api/chart/candles?exchange=${exchange}&symbol=${encodeURIComponent(getExchangeSymbol(exchange))}&interval=1m&limit=1&broker_env=${oppositeEnv}`)
       .then(res => res.json())
       .then(data => {
         if (data.success && data.data && data.data.length > 0) {
@@ -856,6 +874,8 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         setDisplayName(resData.data.display_name)
         const mappedAssetType = String(resData.data.asset_type || '').toUpperCase() === 'STOCK' ? 'STOCK' : 'CRYPTO'
         setResolvedAssetType(mappedAssetType)
+        setResolvedSymbol(normalizeStockSymbol(resData.data.symbol || symbol))
+        setResolvedMarket(String(resData.data.market || '').trim().toUpperCase())
         setSymbolLookupReady(true)
       } else {
         const params = new URLSearchParams({
@@ -913,7 +933,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
 
     try {
       const params = new URLSearchParams({
-        symbol: String(symbol || '').trim().toUpperCase(),
+        symbol: getExchangeSymbol('TOSS'),
         exchange: 'TOSS',
         broker_env: brokerEnv,
       })
@@ -940,7 +960,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     }
 
     const itemPayload = normalizeWatchlistItem({
-      symbol: symbol,
+      symbol: getExchangeSymbol(exchange),
       name: displayName,
       exchange: exchange,
       asset_type: resolvedAssetType,
@@ -967,7 +987,8 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const fetchNewsList = async () => {
     setLoadingNews(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/api/news?symbol=${symbol}&limit=10`)
+      const newsSymbol = resolvedAssetType === 'STOCK' ? getExchangeSymbol(exchange) : getDetailBaseSymbol()
+      const response = await fetch(`${API_BASE_URL}/api/news?symbol=${encodeURIComponent(newsSymbol)}&limit=10`)
       const resData = await response.json()
       if (resData.success && resData.data && resData.data.items) {
         setNewsList(resData.data.items)
@@ -1035,9 +1056,9 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          symbol,
+          symbol: resolvedAssetType === 'STOCK' ? getExchangeSymbol(exchange) : getDetailBaseSymbol(),
           display_name: displayName,
-          market: isStockAsset && !/^\d+$/.test(symbol) ? 'GLOBAL' : 'DOMESTIC',
+          market: isStockAsset && isResolvedUsStock ? 'GLOBAL' : 'DOMESTIC',
           asset_type: resolvedAssetType,
         }),
       })
@@ -1080,7 +1101,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
 
     setLoadingDisclosures(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/api/disclosures?symbol=${symbol}&limit=10`)
+      const response = await fetch(`${API_BASE_URL}/api/disclosures?symbol=${encodeURIComponent(getExchangeSymbol(exchange))}&limit=10`)
       const resData = await response.json()
       if (resData.success && resData.data && resData.data.items) {
         setDisclosureList(resData.data.items)
@@ -1390,11 +1411,11 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       // 코인은 ML 예측 CSV 심볼 형식(DOGEUSDT 등)에 맞게 변환
       const mlSymbol = resolvedAssetType === 'CRYPTO'
         ? getExchangeSymbol('BINANCE')
-        : symbol
-      // 국내/해외 개별 모델 구분: 숫자 심볼(종목코드)은 국내주식(STOCK_KR), 영문 심볼은 해외주식(STOCK_US)
+        : getExchangeSymbol(exchange)
+      // 국내/해외 개별 모델 구분은 lookup으로 확정된 시장과 종목코드 기준을 함께 사용합니다.
       const mlAssetType = resolvedAssetType === 'CRYPTO'
         ? 'CRYPTO'
-        : (/^\d+$/.test(symbol) ? 'STOCK_KR' : 'STOCK_US')
+        : (isResolvedUsStock ? 'STOCK_US' : 'STOCK_KR')
       const params = new URLSearchParams({
         asset_type: mlAssetType,
         symbols: mlSymbol,
@@ -1547,9 +1568,9 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       reason,
       modelScope: resolvedAssetType === 'CRYPTO'
         ? '코인 전용 모델'
-        : /^\d+$/.test(symbol)
-          ? '국내주식 모델'
-          : '해외주식 모델',
+        : isResolvedUsStock
+          ? '해외주식 모델'
+          : '국내주식 모델',
     }
   }
 
@@ -1745,7 +1766,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       const chartEx = exchange;
       const chartEnv = brokerEnv;
       const chartSymbol = getExchangeSymbol(chartEx)
-      const url = `${API_BASE_URL}/api/chart/candles?exchange=${chartEx}&symbol=${chartSymbol}&interval=${chartInterval}&broker_env=${chartEnv}&count=300`
+      const url = `${API_BASE_URL}/api/chart/candles?exchange=${chartEx}&symbol=${encodeURIComponent(chartSymbol)}&interval=${chartInterval}&broker_env=${chartEnv}&count=300`
       const headers = {}
       if (authHeader) {
         headers['Authorization'] = authHeader
@@ -1896,7 +1917,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
 
       
       // 체결 조회
-      const trUrl = `${API_BASE_URL}/api/chart/trades?exchange=${chartEx}&symbol=${symbol}&broker_env=${chartEnv}`;
+      const trUrl = `${API_BASE_URL}/api/chart/trades?exchange=${chartEx}&symbol=${encodeURIComponent(getExchangeSymbol(chartEx))}&broker_env=${chartEnv}`;
       const trRes = await fetch(trUrl, { headers });
       const trData = await trRes.json();
       if (trData.success) {
@@ -2039,9 +2060,8 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   }, [currentPrice, previousClosePrice, chartInterval, hasAuthoritativeChangeRate])
 
   const handleExchangeChange = (newEx, newEnv = 'REAL') => {
-    // 해외 주식(티커에 알파벳 포함)인 경우 KIS 선택 차단
-    const isUsStock = resolvedAssetType === 'STOCK' && !/^\d+$/.test(symbol);
-    if (isUsStock && newEx === 'KIS') {
+    // 해외 주식인 경우 KIS 선택 차단
+    if (isResolvedUsStock && newEx === 'KIS') {
       alert("해외주식은 Toss API만 지원합니다.");
       return;
     }
@@ -2140,8 +2160,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         return
       }
 
-      const isUsStock = resolvedAssetType === 'STOCK' && !/^\d+$/.test(symbol);
-      if (isUsStock) {
+      if (isResolvedUsStock) {
         if (exchange !== 'TOSS' || brokerEnv !== 'REAL') {
           setExchange('TOSS')
           setBrokerEnv('REAL')
@@ -2181,7 +2200,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     if (!['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1M'].includes(chartInterval)) {
       setChartInterval('1h')
     }
-  }, [resolvedAssetType, exchange, brokerEnv, chartInterval, brokerAvailability, tradeHoldingContext, symbol])
+  }, [resolvedAssetType, exchange, brokerEnv, chartInterval, brokerAvailability, tradeHoldingContext, symbol, isResolvedUsStock])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -2634,7 +2653,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                   ({resolvedAssetType === 'STOCK' ? '주식' : '가상자산'})
                 </span>
               </h1>
-              {resolvedAssetType === 'STOCK' && !/^\d+$/.test(symbol) && (
+              {isResolvedUsStock && (
                 <span className="text-[10px] font-bold text-orange-400 bg-orange-950/40 border border-orange-900/60 px-2 py-1 rounded shrink-0">
                   해외주식은 toss api만 지원합니다
                 </span>
@@ -4234,7 +4253,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                 <div className="flex flex-col gap-1.5">
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] text-slate-400 font-bold">주문 거래소 계좌</span>
-                    {resolvedAssetType === 'STOCK' && !/^\d+$/.test(symbol) && (
+                    {isResolvedUsStock && (
                       <span className="text-[9px] font-bold text-orange-400">해외주식은 toss api만 지원합니다</span>
                     )}
                   </div>
@@ -4243,9 +4262,9 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                       <button
                         type="button"
                         onClick={() => handleExchangeChange('KIS', 'MOCK')}
-                        disabled={isTradingSuspended || (resolvedAssetType === 'STOCK' && !/^\d+$/.test(symbol))}
+                        disabled={isTradingSuspended || isResolvedUsStock}
                         className={`text-[10px] font-bold py-1.5 rounded transition-all ${
-                          resolvedAssetType === 'STOCK' && !/^\d+$/.test(symbol)
+                          isResolvedUsStock
                             ? 'opacity-30 cursor-not-allowed text-slate-600 bg-transparent'
                             : exchange === 'KIS' && brokerEnv === 'MOCK'
                             ? 'bg-[#1b253b] text-cyan-400 border border-cyan-900/60 cursor-pointer'
@@ -4257,9 +4276,9 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                       <button
                         type="button"
                         onClick={() => handleExchangeChange('KIS', 'REAL')}
-                        disabled={isTradingSuspended || (resolvedAssetType === 'STOCK' && !/^\d+$/.test(symbol))}
+                        disabled={isTradingSuspended || isResolvedUsStock}
                         className={`text-[10px] font-bold py-1.5 rounded transition-all ${
-                          resolvedAssetType === 'STOCK' && !/^\d+$/.test(symbol)
+                          isResolvedUsStock
                             ? 'opacity-30 cursor-not-allowed text-slate-600 bg-transparent'
                             : exchange === 'KIS' && brokerEnv === 'REAL'
                             ? 'bg-[#1b253b] text-cyan-400 border border-cyan-900/60 cursor-pointer'

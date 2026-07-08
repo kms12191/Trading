@@ -34,7 +34,7 @@
          v
   [Flask Backend] (API Gateway & Worker)
          |
-         +-- [routes/home.py, keys.py, ml.py, news.py, disclosures.py, trade.py, transfer.py, admin_inquiries.py] : Blueprint 기반 API 라우트 레이어
+         +-- [routes/home.py, keys.py, ml.py, news.py, disclosures.py, trade.py, transfer.py, admin_inquiries.py, chatbot.py, knowledge.py] : Blueprint 기반 API 라우트 레이어
          +-- [utils/crypto_helper.py, file_helpers.py] : 암호화 및 파일 처리 공통 유틸리티
          +-- [services/auth_service.py]                       : Authorization 헤더 디코딩
          +-- [services/supabase_client.py]                   : Supabase DB 및 작업 동기화
@@ -62,6 +62,9 @@
          +-- [services/news_query_planner.py]                : 뉴스 검색 쿼리 플래너
          +-- [services/news_repository.py]                   : 뉴스 DB 레포지토리
          +-- [services/news_summary_service.py]              : 뉴스 AI 요약 서비스
+         +-- [services/obsidian_service.py]                  : Obsidian Markdown frontmatter/title/hash 정규화 서비스
+         +-- [services/knowledge_repository.py]              : 사용자 지식 노트, 자동메모리, 지식 chunk Supabase 저장/조회 서비스
+         +-- [services/knowledge_chunk_service.py]           : 저장된 노트 본문을 RAG/embedding 대상 chunk로 분할하는 서비스
          +-- [services/ml_model_service.py]                  : ML 모델 정보 조회 및 실험 리포트 기동
          +-- [services/ml_scheduler.py]                       : 백그라운드 스레드 기반 스케줄러 워커
          +-- [services/ml_automation_service.py]             : ML 자동화 프리셋 정의 및 실행 서비스
@@ -110,6 +113,9 @@ AI 에이전트는 데이터 변경이나 조회 쿼리를 작성할 때 다음 
 * `trade_proposals`: 챗봇이 제안하고 사용자의 승인을 기다리는 주문 내역입니다.
 * `auto_trading_rules`: 사용자가 정의한 익절/손절 조건감시 규칙, 실행 모드(`PROPOSAL`/`AUTO`), 트리거 결과, 자동매도 결과를 저장합니다.
 * `chat_history`: 사용자와 AI 트레이딩 챗봇 간의 대화 이력을 저장합니다.
+* `user_knowledge_notes`: 앱 내부 투자노트 및 Obsidian 플러그인에서 동기화한 Markdown 원문과 frontmatter, content hash를 사용자별로 저장합니다.
+* `user_memory_facts`: 챗봇/앱 행동 로그에서 추출한 관심종목, 반복실수, 리스크 성향, 답변 선호도 등의 자동메모리 fact를 저장합니다.
+* `knowledge_chunks`: Obsidian/앱 노트, 자동메모리, 뉴스, 공시 등을 RAG 검색에 사용할 수 있도록 chunk 단위로 저장합니다. 1차 구현은 `embedding_status=PENDING` 상태까지 생성하며, 실제 vector embedding 및 검색은 후속 담당 영역입니다.
 * `design.md`: 프론트엔드 UI 컴포넌트, 색상, 타이포그래피, 마진 등 공통 스타일 가이드라인 정보입니다.
 
 ---
@@ -121,6 +127,16 @@ AI 에이전트는 데이터 변경이나 조회 쿼리를 작성할 때 다음 
 ### Phase 1: Toss 정보 조회 및 뉴스 RAG 챗봇
 
 * **구현 범위**: 실거래 주문/자동화 제외. Toss 시세, 호가, 체결, 캔들, 종목 정보, 종목 유의사항, 환율, 장 캘린더, 계좌 목록, 보유자산 조회 API와 Tavily 검색 API를 결합한 최신 뉴스 RAG 프롬프트 체인을 구축합니다.
+* **Obsidian/자동메모리 현재 구현 범위**:
+  * 내부 시연용 Obsidian 플러그인은 `obsidian-plugin/ai-trading-memory`에 위치합니다.
+  * 플러그인은 `POST /api/knowledge/obsidian/sync-note`로 현재 Markdown 노트를 Flask에 동기화합니다.
+  * Flask는 `user_knowledge_notes`에 원문을 저장하고, 같은 요청에서 `knowledge_chunks`에 검색용 chunk를 `embedding_status=PENDING`으로 생성합니다.
+  * `GET /api/knowledge/obsidian/auto-memory`는 `user_memory_facts`를 읽어 Obsidian 자동메모리 marker 영역에 반영할 배열을 반환합니다.
+  * Obsidian은 필수 사용자 경로가 아니라 고급 사용자용 외부 Markdown 편집/소유 옵션입니다. 일반 사용자의 기본 메모리 저장소는 앱 DB와 자동메모리 테이블입니다.
+* **마이그레이션 적용 순서**:
+  * `supabase/migrations/20260708110000_create_user_knowledge_memory.sql`
+  * `supabase/migrations/20260708113000_create_knowledge_chunks.sql`
+  * 두 번째 migration 적용 전에는 Obsidian 노트 동기화가 `knowledge_chunks` 테이블 부재로 실패할 수 있습니다.
 * **Toss API 범위**:
   * Market Data: `/api/v1/prices`, `/api/v1/orderbook`, `/api/v1/trades`, `/api/v1/candles`, `/api/v1/price-limits`
   * Stock Info: `/api/v1/stocks`, `/api/v1/stocks/{symbol}/warnings`

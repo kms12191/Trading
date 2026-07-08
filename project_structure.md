@@ -101,8 +101,12 @@ backend/
   - HTTP API 입구
   - `disclosures.py`는 OpenDART 공시 목록 조회 및 수동 동기화 API를 담당
   - `transfer.py`는 코인원 ↔ 바이낸스 가상자산 출금 사전검증, 수수료 조회, 승인, 상태 추적 API를 담당
+  - `knowledge.py`는 Obsidian Markdown 노트 동기화와 앱 자동메모리 조회 API를 담당
 - `services/`
   - 거래소 연동, Supabase, 스케줄러, ML 운영 로직
+  - `obsidian_service.py`는 Markdown frontmatter/title/hash 정규화를 담당
+  - `knowledge_chunk_service.py`는 저장된 노트 본문을 RAG/embedding 대상 chunk로 분할
+  - `knowledge_repository.py`는 `user_knowledge_notes`, `user_memory_facts` Supabase 저장/조회 래퍼를 담당
 - `scripts/`
   - 수집/변환/유니버스 동기화 보조 스크립트
 

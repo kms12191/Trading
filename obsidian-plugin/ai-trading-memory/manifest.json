@@ -1,0 +1,10 @@
+{
+  "id": "ai-trading-memory",
+  "name": "AI Trading Memory",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Internal demo plugin for AI trading note templates, app sync, and auto-memory marker updates.",
+  "author": "Team Project",
+  "authorUrl": "",
+  "isDesktopOnly": true
+}

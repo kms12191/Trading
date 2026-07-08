@@ -25,6 +25,9 @@ from backend.services.market_snapshot_scheduler import start_market_snapshot_sch
 from backend.services.ml_scheduler import start_dart_ingest_scheduler, start_news_ingest_scheduler, start_ml_automation_scheduler
 from backend.services.auto_trading_rule_engine import start_auto_trading_rule_scheduler
 from backend.services.open_order_status_sync_service import start_open_order_status_sync_scheduler
+from backend.services.obsidian_service import ObsidianService
+from backend.services.knowledge_repository import KnowledgeRepository
+from backend.services.knowledge_chunk_service import KnowledgeChunkService
 
 from backend.routes.home import home_bp
 from backend.routes.keys import keys_bp
@@ -35,6 +38,7 @@ from backend.routes.trade import trade_bp
 from backend.routes.transfer import transfer_bp
 from backend.routes.admin_inquiries import admin_inquiries_bp
 from backend.routes.chatbot import chatbot_bp
+from backend.routes.knowledge import knowledge_bp
 
 app = Flask(__name__)
 # 프론트엔드 연동을 위해 CORS 활성화 및 Authorization 헤더 허용
@@ -94,6 +98,9 @@ dart_repository = DartRepository()
 dart_ingest_service = DartIngestService()
 dart_analysis_service = DartDisclosureAnalysisService()
 kis_market_universe_service = KISMarketUniverseService()
+obsidian_service = ObsidianService()
+knowledge_repository = KnowledgeRepository()
+knowledge_chunk_service = KnowledgeChunkService()
 
 app.crypto = crypto
 app.news_repository = news_repository
@@ -103,6 +110,9 @@ app.dart_repository = dart_repository
 app.dart_ingest_service = dart_ingest_service
 app.dart_analysis_service = dart_analysis_service
 app.kis_market_universe_service = kis_market_universe_service
+app.obsidian_service = obsidian_service
+app.knowledge_repository = knowledge_repository
+app.knowledge_chunk_service = knowledge_chunk_service
 
 # Blueprint 등록
 app.register_blueprint(home_bp)
@@ -114,6 +124,7 @@ app.register_blueprint(trade_bp)
 app.register_blueprint(transfer_bp)
 app.register_blueprint(admin_inquiries_bp)
 app.register_blueprint(chatbot_bp)
+app.register_blueprint(knowledge_bp)
 
 # Flask 디버그 모드 리로더에 의한 스케줄러 이중 기동 방지 및 flask run 환경 지원
 is_scheduler_host = (not app.debug) or (os.environ.get("WERKZEUG_RUN_MAIN") == "true")

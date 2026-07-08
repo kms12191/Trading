@@ -157,6 +157,15 @@ python src/run_pipeline_bundle.py \
 
 현재 뉴스 수집 공급원은 `NAVER`와 `FINNHUB`입니다. 문서상 과거에 언급된 Tavily 수집은 현재 코드 기준 기본 경로가 아닙니다.
 
+### 지식/Obsidian 메모리
+
+- `POST /api/knowledge/obsidian/sync-note`
+  - Obsidian 플러그인이 현재 Markdown 노트를 앱으로 동기화합니다.
+  - `vault_name`, `file_path`, `content`, `modified_at`를 받아 `user_knowledge_notes`에 사용자별로 저장합니다.
+  - 저장된 노트 본문은 즉시 `knowledge_chunks`로 분할되며, 각 chunk는 `embedding_status=PENDING` 상태로 저장됩니다.
+- `GET /api/knowledge/obsidian/auto-memory`
+  - 앱/챗봇이 수집한 `user_memory_facts`를 Obsidian 자동메모리 marker에 넣기 좋은 배열 형태로 반환합니다.
+
 ### ML 운영
 
 - `POST /api/ml/export-candles`
