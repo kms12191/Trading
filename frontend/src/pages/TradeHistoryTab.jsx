@@ -68,8 +68,6 @@ const isMissingBrokerHistoryTableError = (error) => {
 
 const TRADE_HISTORY_SELECT_FIELDS = 'id,exchange,asset_type,ticker,symbol,side,price,volume,order_amount,ord_type,market_country,currency,broker_env,client_order_id,external_order_id,external_order_org_no,status,failure_reason,created_at'
 const BROKER_HISTORY_SELECT_FIELDS = 'id,exchange,broker_env,symbol,market_country,side,price,quantity,order_amount,status,raw_status,currency,client_order_id,external_order_id,filled_quantity,average_filled_price,filled_amount,commission,tax,ordered_at,filled_at,settlement_date'
-const TRANSFER_HISTORY_SELECT_FIELDS = 'id,from_exchange,to_exchange,currency,network,amount,status,external_transaction_id,withdraw_fee,expected_receive_amount,received_amount,fee_currency,precheck_payload,binance_deposit_payload,failure_reason,created_at,updated_at,submitted_at,completed_at'
-
 const isCancelReplaceExchange = (exchange) => ['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(String(exchange || '').toUpperCase())
 const symbolDisplayNameCache = new Map()
 
@@ -379,6 +377,19 @@ export default function TradeHistoryTab() {
     })
   }
 
+  const fetchTransferHistory = async (authHeader) => {
+    const response = await fetch(`${API_BASE_URL}/api/transfer/withdraw/status?limit=100`, {
+      headers: {
+        Authorization: authHeader,
+      },
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || !payload.success) {
+      throw new Error(buildApiErrorText(payload, '출금/입금 내역을 불러오지 못했습니다.'))
+    }
+    return Array.isArray(payload.data) ? payload.data : []
+  }
+
   useEffect(() => {
     let ignore = false
     let proposalChannel = null
@@ -405,6 +416,7 @@ export default function TradeHistoryTab() {
           await syncTradeStatuses()
         }
 
+        const authHeader = `Bearer ${session.access_token}`
         const [
           { data: proposalRows, error: proposalError },
           { data: brokerRows, error: brokerError },
@@ -418,10 +430,9 @@ export default function TradeHistoryTab() {
             .from('broker_order_history')
             .select(BROKER_HISTORY_SELECT_FIELDS)
             .order('ordered_at', { ascending: false }),
-          supabase
-            .from('asset_transfer_proposals')
-            .select(TRANSFER_HISTORY_SELECT_FIELDS)
-            .order('created_at', { ascending: false }),
+          fetchTransferHistory(authHeader)
+            .then((data) => ({ data, error: null }))
+            .catch((error) => ({ data: [], error })),
         ])
 
         if (ignore) return
@@ -573,6 +584,7 @@ export default function TradeHistoryTab() {
 
   const refreshTradeHistory = async () => {
     await syncTradeStatuses()
+    const authHeader = await getAuthHeader()
     const [
       { data: proposalRows, error: proposalError },
       { data: brokerRows, error: brokerError },
@@ -586,10 +598,9 @@ export default function TradeHistoryTab() {
         .from('broker_order_history')
         .select(BROKER_HISTORY_SELECT_FIELDS)
         .order('ordered_at', { ascending: false }),
-      supabase
-        .from('asset_transfer_proposals')
-        .select(TRANSFER_HISTORY_SELECT_FIELDS)
-        .order('created_at', { ascending: false }),
+      fetchTransferHistory(authHeader)
+        .then((data) => ({ data, error: null }))
+        .catch((error) => ({ data: [], error })),
     ])
 
     if (proposalError || (brokerError && !isMissingBrokerHistoryTableError(brokerError))) {
@@ -902,11 +913,15 @@ export default function TradeHistoryTab() {
                     <p className="mt-1 text-xs text-slate-500 font-mono">{trade.ticker}</p>
                   </td>
                   <td className="px-4 py-4">
-                    <span className={`font-bold ${trade.side === '매수'
-                        ? 'text-emerald-300'
-                        : 'text-rose-300'
-                      }`}>
-                      {trade.side} {trade.side === '매수' ? '(Buy)' : '(Sell)'}
+                    <span className={`font-bold ${trade.side === '매수' || trade.side === '입금'
+                      ? 'text-emerald-300'
+                      : 'text-rose-300'
+                    }`}>
+                      {trade.side} {trade.side === '매수'
+                        ? '(Buy)'
+                        : trade.side === '매도'
+                          ? '(Sell)'
+                          : ''}
                     </span>
                   </td>
                   <td className="px-4 py-4 font-mono font-bold text-slate-100">{trade.price}</td>

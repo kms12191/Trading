@@ -14,6 +14,7 @@ import { DASHBOARD_TAB_KEYS, DEFAULT_DASHBOARD_TAB } from '../dashboardConstants
 const DASHBOARD_API_BASE_URL = 'http://localhost:5050'
 const BALANCE_EXCHANGE_ORDER = ['TOSS', 'KIS', 'COINONE', 'BINANCE', 'BINANCE_UM_FUTURES']
 const TRADE_PROPOSAL_HOLDING_FIELDS = 'id,exchange,asset_type,ticker,symbol,side,price,volume,order_amount,market_country,currency,status,broker_env,created_at'
+const TRANSFER_PROPOSAL_FIELDS = 'id,from_exchange,to_exchange,currency,amount,status,received_amount,expected_receive_amount,withdraw_fee,fee_currency,binance_deposit_payload,created_at,submitted_at,completed_at,updated_at'
 const DASHBOARD_TAB_SET = new Set(DASHBOARD_TAB_KEYS)
 
 const normalizeDashboardTab = (tab) => (
@@ -54,6 +55,10 @@ const formatCurrency = (value, currency, displayCurrency = 'KRW', exchangeRate =
 const formatUnitCurrency = (value, currency, displayCurrency = 'KRW', exchangeRate = 1500) => {
   const numeric = toNumber(value)
   const rate = toNumber(exchangeRate) || 1500
+  const getMaximumFractionDigits = (displayValue) => {
+    const absoluteValue = Math.abs(toNumber(displayValue))
+    return absoluteValue > 0 && absoluteValue < 0.1 ? 3 : 1
+  }
 
   if (displayCurrency === 'KRW') {
     const displayValue = (currency === 'USD' || currency === 'USDT') ? numeric * rate : numeric
@@ -62,11 +67,11 @@ const formatUnitCurrency = (value, currency, displayCurrency = 'KRW', exchangeRa
 
   if (displayCurrency === 'USD') {
     const displayValue = currency === 'KRW' ? numeric / rate : numeric
-    return `$${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}`
+    return `$${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(displayValue) })}`
   }
 
   if (currency === 'USD' || currency === 'USDT') {
-    return `$${numeric.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}`
+    return `$${numeric.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(numeric) })}`
   }
   return `₩${numeric.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}`
 }
@@ -749,14 +754,27 @@ const getCoinoneTransferDeductionAmount = (row = {}) => {
   return toNumber(row.amount)
 }
 
+const fetchTransferRowsFromSupabase = async () => {
+  const { data, error } = await supabase
+    .from('asset_transfer_proposals')
+    .select(TRANSFER_PROPOSAL_FIELDS)
+    .order('created_at', { ascending: false })
+    .limit(100)
+
+  if (error) throw error
+  return data || []
+}
+
 const deductCoinoneTransfersFromEstimatedHoldings = (mergedBalance, transferRows = []) => {
   const holdings = Array.isArray(mergedBalance?.holdings) ? mergedBalance.holdings : []
   const deductions = new Map()
 
   ;(transferRows || []).forEach((row) => {
+    const fromExchange = String(row.from_exchange || '').toUpperCase()
+    const toExchange = String(row.to_exchange || '').toUpperCase()
     const currency = String(row.currency || '').trim().toUpperCase()
     const amount = getCoinoneTransferDeductionAmount(row)
-    if (!currency || amount <= 0) return
+    if (fromExchange !== 'COINONE' || toExchange !== 'BINANCE' || !currency || amount <= 0) return
     deductions.set(currency, (deductions.get(currency) || 0) + amount)
   })
 
@@ -765,11 +783,10 @@ const deductCoinoneTransfersFromEstimatedHoldings = (mergedBalance, transferRows
   const adjustedHoldings = holdings
     .map((holding) => {
       const rawExchange = String(holding.raw_exchange || holding.exchange || holding.account_type || '').toUpperCase()
-      const source = String(holding.source || '').toUpperCase()
       const symbol = String(holding.symbol || holding.ticker || holding.id || '').trim().toUpperCase()
       const deductionAmount = deductions.get(symbol) || 0
 
-      if (rawExchange !== 'COINONE' || source !== 'DB_ESTIMATED' || deductionAmount <= 0) {
+      if (rawExchange !== 'COINONE' || deductionAmount <= 0) {
         return holding
       }
 
@@ -1129,9 +1146,16 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
         const transferPayload = await transferResponse.json()
         if (transferResponse.ok && transferPayload.success) {
           transferRows = transferPayload.data || []
+        } else {
+          transferRows = await fetchTransferRowsFromSupabase()
         }
       } catch {
-        // 출금 보정 조회 실패는 실잔고 표시를 막지 않습니다.
+        // 바이낸스 상태 조회가 실패해도 저장된 출금 기록만으로 코인원 추정 보유량은 보정합니다.
+        try {
+          transferRows = await fetchTransferRowsFromSupabase()
+        } catch {
+          // 출금 보정 조회 실패는 실잔고 표시를 막지 않습니다.
+        }
       }
 
       setExecutedTradeRows(tradeRows)
@@ -1696,7 +1720,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                 <div className="flex justify-between items-center border-b border-slate-800 pb-2">
                   <h2 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-wider">
                     <span />
-                    보유 주식 자산 현황
+                    투자종목 보유 현황
                   </h2>
                   <button
                     type="button"
@@ -1748,13 +1772,15 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                       <tbody className="block max-h-[378px] overflow-y-auto divide-y divide-slate-800 font-mono [&>tr]:table [&>tr]:w-full [&>tr]:table-fixed">
                         {getSortedHoldings(balance.holdings).map((stock, index) => {
                           const exchangeName = stock.exchange || stock.account_type || '-'
-                          const isCoinone = String(exchangeName).toUpperCase() === 'COINONE'
+                          const normalizedExchange = String(exchangeName).toUpperCase()
+                          const isCoinone = normalizedExchange === 'COINONE'
+                          const isBinance = ['BINANCE', 'BINANCE_UM_FUTURES'].includes(normalizedExchange)
                           const isForeign = /[a-zA-Z]/.test(stock.symbol) && !/^[0-9a-zA-Z]{6,7}$/.test(stock.symbol) && !isCoinone
-                          const stockCurrency = stock.currency || (isForeign ? 'USD' : 'KRW')
+                          const stockCurrency = isCoinone ? 'KRW' : (stock.currency || (isBinance || isForeign ? 'USD' : 'KRW'))
                           const exchangeRate = balance.exchange_rate || 1380
                           const isDomesticStock = String(stock.asset_type || 'STOCK').toUpperCase() === 'STOCK'
                             && getHoldingMarketType(stock) === 'domestic'
-                          const currentDisplayCurrency = isDomesticStock ? 'KRW' : 'USD'
+                          const currentDisplayCurrency = isCoinone || isDomesticStock ? 'KRW' : 'USD'
                           const profitRate = Number(stock.profit_rate)
 
                           return (

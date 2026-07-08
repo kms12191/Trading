@@ -440,6 +440,11 @@ export default function AssetsTab({
     const numeric = Number(value)
     const val = Number.isFinite(numeric) ? numeric : 0
     const rate = Number(exchangeRate) || 1500
+    const getMaximumFractionDigits = (displayValue) => {
+      const numericValue = Number(displayValue)
+      const absoluteValue = Number.isFinite(numericValue) ? Math.abs(numericValue) : 0
+      return absoluteValue > 0 && absoluteValue < 0.1 ? 3 : 1
+    }
 
     if (targetDisplayCurrency === 'KRW') {
       const displayValue = (currency === 'USD' || currency === 'USDT') ? val * rate : val
@@ -448,11 +453,11 @@ export default function AssetsTab({
 
     if (targetDisplayCurrency === 'USD') {
       const displayValue = currency === 'KRW' ? val / rate : val
-      return `$${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}`
+      return `$${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(displayValue) })}`
     }
 
     if (currency === 'USD' || currency === 'USDT') {
-      return `$${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}`
+      return `$${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(val) })}`
     }
     return `₩${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}`
   }
@@ -604,7 +609,7 @@ export default function AssetsTab({
       </section>
 
       <section className="bg-slate-surface border border-slate-700/80 rounded-lg p-5">
-        <SectionHeader title="보유자산 현황 및 자산 배분 상태" />
+        <SectionHeader title="자산 배분 상태" />
         <div className="mt-4 flex justify-center">
           <div
             className="flex aspect-square w-full max-w-[220px] items-center justify-center rounded-full border border-slate-700/70 shadow-inner"
