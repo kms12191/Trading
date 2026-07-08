@@ -122,7 +122,10 @@ def is_existing_ai_analysis(cached: dict[str, Any] | None) -> bool:
     return bool(
         cached.get("plain_summary")
         and raw_payload.get("analysis_version") == DART_ANALYSIS_VERSION
-        and raw_payload.get("analysis_mode") == "v3_ai_refined"
+        and (
+            raw_payload.get("analysis_mode") == "v3_ai_refined"
+            or raw_payload.get("batch_name") == BATCH_NAME
+        )
     )
 
 
