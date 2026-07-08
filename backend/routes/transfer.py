@@ -30,6 +30,27 @@ def _to_float(value, default: float = 0.0) -> float:
         return default
 
 
+def _get_usdt_krw_rate_snapshot() -> dict:
+    captured_at = _utc_now_iso()
+    try:
+        price_data = CoinoneClient(access_token="", secret_key="").get_price("USDT")
+        rate = _to_float(price_data.get("current_price"))
+        if rate > 0:
+            return {
+                "usdt_krw_rate": rate,
+                "usdt_krw_rate_source": "COINONE_USDT_KRW",
+                "usdt_krw_rate_captured_at": captured_at,
+            }
+    except Exception:
+        current_app.logger.warning("[Transfer] USDT/KRW public price lookup failed", exc_info=True)
+
+    return {
+        "usdt_krw_rate": None,
+        "usdt_krw_rate_source": "UNAVAILABLE",
+        "usdt_krw_rate_captured_at": captured_at,
+    }
+
+
 def _load_exchange_client(auth_header: str, user_id: str, exchange: str):
     """
     사용자별 암호화 API 키를 복호화해 거래소 클라이언트를 생성합니다.
@@ -213,6 +234,7 @@ def _build_precheck(auth_header: str, user_id: str, data: dict) -> dict:
         "available_qty": available_qty,
         **destination_payload,
         **fee_payload,
+        **_get_usdt_krw_rate_snapshot(),
         "estimated_receive_amount": max(payload["amount"] - withdrawal_fee, 0),
         "address_matches_binance": address_matches,
         "tag_matches_binance": tag_matches,
@@ -238,6 +260,9 @@ def _insert_transfer_proposal(auth_header: str, user_id: str, precheck: dict, st
         "status": status,
         "raw_request": raw_request,
         "precheck_payload": precheck,
+        "expected_receive_amount": precheck.get("estimated_receive_amount"),
+        "withdraw_fee": precheck.get("withdrawal_fee"),
+        "fee_currency": precheck.get("currency"),
     }
     query_supabase(auth_header, "asset_transfer_proposals", "POST", json_data=payload)
     return proposal_id
@@ -269,7 +294,10 @@ def _build_transfer_amount_payload(row: dict, matched_deposit: dict | None = Non
         payload["received_amount"] = received_amount
         payload["expected_receive_amount"] = received_amount
         if requested_amount > 0:
-            payload["withdraw_fee"] = max(0.0, requested_amount - received_amount)
+            known_fee = _to_float(row.get("withdraw_fee"), default=0.0)
+            if known_fee <= 0:
+                known_fee = _to_float((row.get("precheck_payload") or {}).get("withdrawal_fee"), default=0.0)
+            payload["withdraw_fee"] = known_fee if known_fee > 0 else max(0.0, requested_amount - received_amount)
 
     return payload
 

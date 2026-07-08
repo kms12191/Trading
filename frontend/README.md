@@ -67,6 +67,7 @@ src/components/
 
 - `src/supabaseClient.js`
 - `src/lib/supabaseClient.js`
+- `src/lib/transferBalanceAdjustments.js`
 
 동작 자체는 가능하지만 장기적으로는 한 경로로 통합하는 것이 좋습니다. 문서에서도 두 파일이 동시에 존재한다는 사실을 기준으로 설명해야 맞습니다.
 

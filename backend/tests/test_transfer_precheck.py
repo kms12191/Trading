@@ -70,6 +70,15 @@ def fake_clients(monkeypatch):
         return clients[exchange]
 
     monkeypatch.setattr(transfer, "_load_exchange_client", load_client)
+    monkeypatch.setattr(
+        transfer,
+        "_get_usdt_krw_rate_snapshot",
+        lambda: {
+            "usdt_krw_rate": 1400.0,
+            "usdt_krw_rate_source": "COINONE_USDT_KRW",
+            "usdt_krw_rate_captured_at": "2026-07-08T00:00:00+00:00",
+        },
+    )
 
 
 def test_coinone_to_binance_precheck_includes_coinone_withdrawal_fee(fake_clients):
@@ -91,6 +100,57 @@ def test_coinone_to_binance_precheck_includes_coinone_withdrawal_fee(fake_client
     assert result["withdrawal_min_amount"] == 1.0
     assert result["estimated_receive_amount"] == pytest.approx(1.4)
     assert result["withdrawal_fee_source"] == "COINONE_PUBLIC_CURRENCIES"
+    assert result["usdt_krw_rate"] == pytest.approx(1400.0)
+    assert result["usdt_krw_rate_source"] == "COINONE_USDT_KRW"
+
+
+def test_insert_transfer_proposal_stores_fee_fields(monkeypatch):
+    captured = {}
+
+    def fake_query(auth_header, table, method, json_data=None, params=None):
+        captured["payload"] = json_data
+
+    monkeypatch.setattr(transfer, "query_supabase", fake_query)
+
+    transfer._insert_transfer_proposal(
+        "Bearer test",
+        "user-1",
+        {
+            "from_exchange": "COINONE",
+            "to_exchange": "BINANCE",
+            "currency": "DOGE",
+            "network": "DOGE",
+            "amount": 30.0,
+            "address": "binance-doge-address",
+            "estimated_receive_amount": 30.0,
+            "withdrawal_fee": 20.0,
+        },
+        "APPROVED",
+        {},
+    )
+
+    assert captured["payload"]["withdraw_fee"] == pytest.approx(20.0)
+    assert captured["payload"]["expected_receive_amount"] == pytest.approx(30.0)
+    assert captured["payload"]["fee_currency"] == "DOGE"
+
+
+def test_transfer_amount_payload_preserves_known_coinone_fee():
+    payload = transfer._build_transfer_amount_payload(
+        {
+            "currency": "DOGE",
+            "amount": 30.0,
+            "withdraw_fee": 20.0,
+            "precheck_payload": {
+                "withdrawal_fee": 20.0,
+            },
+        },
+        {
+            "amount": "30.0",
+        },
+    )
+
+    assert payload["received_amount"] == pytest.approx(30.0)
+    assert payload["withdraw_fee"] == pytest.approx(20.0)
 
 
 def test_binance_to_coinone_xrp_precheck_uses_coinone_deposit_address_and_binance_fee(fake_clients):

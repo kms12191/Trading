@@ -15,6 +15,7 @@ from backend.services.toss_client import TossClient
 from backend.services.kis_client import KISClient
 from backend.services.coinone_client import CoinoneClient
 from backend.services.binance_client import BinanceClient, BinanceFuturesClient
+from backend.services.crypto_cost_basis_service import get_transfer_source_amount
 from backend.services.error_message_service import format_error_payload
 from backend.services.exchange_client import MARKET_CLOSED_ORDER_MESSAGE, MarketClosedError, is_market_closed_order_error
 
@@ -847,6 +848,44 @@ def _get_trade_account_candidates(auth_header: str, user_id: str, exchange: str,
         return [_build_trade_account_meta(exchange_upper, None, "REAL")]
 
     return []
+
+
+TRANSFER_NON_DEDUCTIBLE_STATUSES = {"FAILED", "CANCELED", "CANCELLED", "REJECTED", "EXPIRED"}
+
+
+def _get_transfer_deduction_amount(row: dict) -> float:
+    status = str(row.get("status") or "").upper()
+    if status in TRANSFER_NON_DEDUCTIBLE_STATUSES:
+        return 0.0
+    return get_transfer_source_amount(row)
+
+
+def _build_crypto_transfer_deductions(rows: list[dict]) -> dict[str, float]:
+    deductions = {}
+    for row in rows or []:
+        from_exchange = str(row.get("from_exchange") or "").upper()
+        to_exchange = str(row.get("to_exchange") or "").upper()
+        currency = str(row.get("currency") or "").strip().upper()
+        amount = _get_transfer_deduction_amount(row)
+        if "COINONE" not in from_exchange or "BINANCE" not in to_exchange or not currency or amount <= 0:
+            continue
+        deductions[currency] = deductions.get(currency, 0.0) + amount
+    return deductions
+
+
+def _apply_crypto_transfer_deductions(grouped: dict, deductions: dict[str, float]) -> None:
+    if not deductions:
+        return
+    for item in grouped.values():
+        exchange = str(item.get("raw_exchange") or item.get("exchange") or "").upper()
+        symbol = str(item.get("symbol") or "").upper()
+        if exchange != "COINONE" or symbol not in deductions:
+            continue
+        deduct_qty = min(_as_float(item.get("qty")), deductions[symbol])
+        if deduct_qty <= 0:
+            continue
+        item["qty"] = _as_float(item.get("qty")) - deduct_qty
+        item["transfer_deducted_qty"] = _as_float(item.get("transfer_deducted_qty")) + deduct_qty
 
 
 def _extract_synced_account_meta(row: dict, candidates: list[dict]) -> dict | None:
@@ -2159,6 +2198,21 @@ def get_estimated_holdings():
         if price > 0:
             current["last_price"] = price
         grouped[key] = current
+
+    try:
+        transfer_rows = query_supabase(
+            auth_header,
+            "asset_transfer_proposals",
+            "GET",
+            params={
+                "user_id": f"eq.{user_id}",
+                "order": "created_at.desc",
+                "limit": "1000",
+            },
+        ) or []
+        _apply_crypto_transfer_deductions(grouped, _build_crypto_transfer_deductions(transfer_rows))
+    except Exception:
+        current_app.logger.warning("Estimated holdings transfer deduction failed", exc_info=True)
 
     clients = {}
     holdings = []

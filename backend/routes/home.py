@@ -17,6 +17,11 @@ from backend.services.market_repository import MarketRepository
 from backend.services.toss_client import TossClient
 from backend.services.coinone_client import CoinoneClient
 from backend.services.binance_client import BinanceClient, BinanceFuturesClient
+from backend.services.crypto_cost_basis_service import (
+    apply_binance_transfer_cost_basis,
+    build_crypto_average_prices,
+    build_transfer_cost_basis,
+)
 from backend.services.auth_service import get_user_id_from_header
 from backend.services.supabase_client import query_supabase
 from backend.services.error_message_service import format_error_payload
@@ -25,6 +30,50 @@ home_bp = Blueprint("home", __name__)
 
 KIS_MARKET_MASTER_FILE_PATH = os.getenv("KIS_MARKET_MASTER_FILE_PATH", "")
 MARKET_SYNC_ADMIN_TOKEN = os.getenv("MARKET_SYNC_ADMIN_TOKEN", "")
+
+
+def _get_current_usdt_krw_rate() -> float:
+    try:
+        price_data = CoinoneClient(access_token="", secret_key="").get_price("USDT")
+        return float(price_data.get("current_price") or 0.0)
+    except Exception:
+        current_app.logger.warning("[Dashboard] USDT/KRW public price lookup failed", exc_info=True)
+        return 0.0
+
+
+def _apply_binance_cost_basis_overlay(auth_header: str, user_id: str, balance: dict) -> None:
+    try:
+        trade_rows = query_supabase(
+            auth_header,
+            "trade_proposals",
+            "GET",
+            params={
+                "user_id": f"eq.{user_id}",
+                "status": "eq.EXECUTED",
+                "order": "created_at.asc",
+                "limit": "1000",
+            },
+        ) or []
+        transfer_rows = query_supabase(
+            auth_header,
+            "asset_transfer_proposals",
+            "GET",
+            params={
+                "user_id": f"eq.{user_id}",
+                "order": "created_at.asc",
+                "limit": "1000",
+            },
+        ) or []
+
+        source_average_prices = build_crypto_average_prices(trade_rows, exchange="COINONE")
+        cost_basis = build_transfer_cost_basis(
+            transfer_rows,
+            source_average_prices,
+            default_usdt_krw_rate=_get_current_usdt_krw_rate(),
+        )
+        apply_binance_transfer_cost_basis(balance, cost_basis)
+    except Exception:
+        current_app.logger.warning("[Dashboard] Binance transfer cost basis overlay failed", exc_info=True)
 
 
 def build_direct_stock_ranking_rows(rows: list[dict], ranking: str, limit: int, is_foreign: bool = False) -> list[dict]:
@@ -464,6 +513,7 @@ def get_dashboard_balance():
                 env=broker_env,
             )
             balance = client.get_balance()
+            _apply_binance_cost_basis_overlay(auth_header, user_id, balance)
         elif exchange == "BINANCE_UM_FUTURES":
             client = BinanceFuturesClient(
                 api_key=access_key,

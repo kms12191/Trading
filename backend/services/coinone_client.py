@@ -211,32 +211,39 @@ class CoinoneClient:
             try:
                 avail_val = float(item.get("available", 0.0))
                 limit_val = float(item.get("limit", 0.0))
-                balance_val = avail_val + limit_val
+                total_balance_val = avail_val + limit_val
                 avg_price_val = float(item.get("average_price", 0.0))
             except (ValueError, TypeError):
-                balance_val = 0.0
+                total_balance_val = 0.0
                 avail_val = 0.0
+                limit_val = 0.0
                 avg_price_val = 0.0
 
-            if balance_val <= 0:
+            if total_balance_val <= 0:
                 continue
 
             if currency == "KRW":
                 available_cash = avail_val
-                total_eval += balance_val
+                total_eval += avail_val
             else:
                 # 현재가 매핑 (없으면 0.0)
                 curr_price = tickers.get(currency, 0.0)
-                eval_price = curr_price * balance_val
+                display_qty = avail_val
+                if display_qty <= 0:
+                    continue
+                eval_price = curr_price * display_qty
                 total_eval += eval_price
                 
                 holdings.append({
                     "symbol": currency,
                     "name": currency,
-                    "qty": balance_val,
+                    "qty": display_qty,
+                    "available_qty": avail_val,
+                    "locked_qty": limit_val,
+                    "total_qty": total_balance_val,
                     "avg_price": avg_price_val,
                     "current_price": curr_price,
-                    "profit": (curr_price - avg_price_val) * balance_val if avg_price_val > 0 else 0.0,
+                    "profit": (curr_price - avg_price_val) * display_qty if avg_price_val > 0 else 0.0,
                     "profit_rate": ((curr_price - avg_price_val) / avg_price_val) * 100.0 if avg_price_val > 0 else 0.0,
                     "currency": "KRW"
                 })
