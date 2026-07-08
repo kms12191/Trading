@@ -14,6 +14,7 @@ import AssetDetail from './pages/AssetDetail'
 import SearchNotFound from './pages/SearchNotFound'
 import InvestmentSurveyModal from './components/InvestmentSurveyModal'
 import { INQUIRY_ROUTES } from './dashboardConstants.js'
+import ChatbotWidget from './features/chatbot/ChatbotWidget.jsx'
 
 function AppShell({
   isLoggedIn,
@@ -273,6 +274,8 @@ function AppShell({
           />
         </Routes>
       </div>
+
+      <ChatbotWidget enabled={isLoggedIn && !showAdditionalInfo && !showSurvey} />
 
     </>
   )
