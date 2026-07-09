@@ -243,6 +243,58 @@ class OpenOrderStatusSyncService:
             except Exception as exc:
                 print(f"[OpenOrderStatusSyncService] 자동감시 진입가 보정 실패: {exc}")
 
+        if next_status in ("EXECUTED", "CANCELED", "FAILED"):
+            try:
+                self._handle_partial_filled_exit_order(proposal, current_order, next_status)
+            except Exception as exc:
+                print(f"[OpenOrderStatusSyncService] 부분 체결 감시 복구 처리 실패: {exc}")
+
+    def _handle_partial_filled_exit_order(self, proposal: dict, current_order: dict, next_status: str):
+        proposal_id = proposal.get("id")
+        
+        # 1. exit_order_proposal_id가 proposal_id인 규칙 조회
+        rules = query_supabase_as_service_role(
+            "auto_trading_rules",
+            "GET",
+            params={
+                "exit_order_proposal_id": f"eq.{proposal_id}",
+                "limit": "1"
+            }
+        ) or []
+        if not rules:
+            return
+            
+        rule = rules[0]
+        
+        # 2. 부분 체결량 및 남은 수량 계산
+        executed_qty = _as_float(current_order.get("executed_qty") or current_order.get("filled_qty"))
+        requested_qty = _as_float(proposal.get("volume"))
+        
+        # 부분 체결인 경우 (0 초과, 요청량 미만)
+        if 0.0 < executed_qty < requested_qty:
+            remaining_qty = requested_qty - executed_qty
+            if remaining_qty > 1e-6:
+                auto_restart = rule.get("auto_restart_on_partial_fill", True)
+                if auto_restart:
+                    rule_id = rule["id"]
+                    entry_price = _as_float(rule.get("entry_price") or 0.0)
+                    
+                    # 규칙 복구 (상태 -> RUNNING, 수량 차감, exit_proposal 비움)
+                    patch_data = {
+                        "status": "RUNNING",
+                        "quantity": remaining_qty,
+                        "investment_amount": entry_price * remaining_qty if entry_price > 0 else rule.get("investment_amount"),
+                        "exit_order_proposal_id": None, # 새로운 매도 주문 등록이 가능하도록 비움
+                        "updated_at": _utc_now_iso(),
+                        "last_error": f"부분 체결 완료 감지: {executed_qty}개 체결. 남은 {remaining_qty}개 재감시 시작 (상태: {next_status})."
+                    }
+                    query_supabase_as_service_role(
+                        f"auto_trading_rules?id=eq.{rule_id}",
+                        "PATCH",
+                        json_data=patch_data
+                    )
+                    print(f"[OpenOrderStatusSyncService] 조건감시 규칙 {rule_id} 복구 완료. 잔여 {remaining_qty}개 재감시 기동.")
+
     def _update_associated_auto_trading_rule(self, proposal: dict, current_order: dict):
         proposal_id = proposal.get("id")
         exchange = str(proposal.get("exchange") or "").upper()
