@@ -67,6 +67,16 @@ def get_disclosure_analysis(rcept_no):
     try:
         service = current_app.dart_analysis_service
         result = service.ensure_analysis(rcept_no)
+        analysis = result.get("analysis") if isinstance(result, dict) else None
+        if isinstance(analysis, dict):
+            try:
+                disclosure = current_app.dart_repository.get_disclosure_by_rcept_no(rcept_no)
+                result["knowledge_index"] = current_app.disclosure_knowledge_sync_service.sync_analysis(
+                    analysis=analysis,
+                    disclosure=disclosure,
+                )
+            except Exception:
+                result["knowledge_index"] = {"status": "FAILED", "chunk_count": 0}
         return jsonify({"success": True, "data": result})
     except Exception as error:
         return jsonify(format_error_payload(error, "공시 요약 분석 실패")), 500

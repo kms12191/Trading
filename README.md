@@ -223,3 +223,9 @@ python src/run_pipeline_bundle.py \
 - Build chunks with `python backend\scripts\backfill_disclosure_summary_chunks.py`.
 - Embed pending chunks with `python backend\scripts\embed_pending_knowledge_chunks.py`.
 - Retrieval uses `POST /api/knowledge/retrieve-context` and the Supabase `match_knowledge_chunks` vector RPC.
+
+## 2026-07-09 Obsidian note RAG
+
+- `POST /api/knowledge/obsidian/sync-note` stores the note, replaces its `OBSIDIAN` chunks, and immediately embeds only the chunks for that note.
+- The sync response includes `chunk_count` and `embedding_count`; a successful sync is ready for chatbot RAG retrieval without running the manual embedding script.
+- The manual script is still useful for backfill or retries. Set `KNOWLEDGE_EMBEDDING_SOURCE_TYPE=OBSIDIAN` when embedding Obsidian chunks.

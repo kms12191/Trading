@@ -58,7 +58,14 @@ def sync_obsidian_note():
             source_id,
             chunks,
         )
-        return jsonify({"success": True, "data": {**result, **chunk_result}})
+        embedding_count = 0
+        if chunks:
+            embedding_count = current_app.embedding_service.embed_pending_chunks(
+                limit=len(chunks),
+                source_type="OBSIDIAN",
+                source_id=source_id,
+            )
+        return jsonify({"success": True, "data": {**result, **chunk_result, "embedding_count": embedding_count}})
     except Exception as error:
         return jsonify(format_error_payload(error, "Obsidian 노트 동기화 실패")), 500
 

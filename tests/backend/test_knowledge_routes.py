@@ -7,7 +7,7 @@ class FakeObsidianService:
     def parse_markdown(self, file_path, content):
         return {
             "file_path": file_path,
-            "title": "매매 전 체크리스트",
+            "title": "Trade Checklist",
             "content": content,
             "content_hash": "a" * 64,
             "frontmatter": {"template_key": "pre-trade-checklist"},
@@ -33,8 +33,8 @@ class FakeKnowledgeRepository:
 
     def list_auto_memory(self, auth_header, user_id):
         return {
-            "favorite_symbols": ["삼성전자(005930)를 자주 확인합니다."],
-            "repeated_mistakes": ["근거 없이 추격매수하는 패턴이 있습니다."],
+            "favorite_symbols": ["User checks Samsung Electronics often."],
+            "repeated_mistakes": ["User tends to chase entries without evidence."],
         }
 
 
@@ -55,12 +55,26 @@ class FakeKnowledgeChunkService:
         ]
 
 
+class FakeEmbeddingService:
+    def __init__(self):
+        self.embedding_request = None
+
+    def embed_pending_chunks(self, limit=100, source_type=None, source_id=None):
+        self.embedding_request = {
+            "limit": limit,
+            "source_type": source_type,
+            "source_id": source_id,
+        }
+        return 1
+
+
 def create_app():
     app = Flask(__name__)
     app.config["TESTING"] = True
     app.obsidian_service = FakeObsidianService()
     app.knowledge_repository = FakeKnowledgeRepository()
     app.knowledge_chunk_service = FakeKnowledgeChunkService()
+    app.embedding_service = FakeEmbeddingService()
     app.register_blueprint(knowledge_bp)
     return app
 
@@ -74,7 +88,7 @@ def test_sync_note_requires_auth_header():
     assert response.json["success"] is False
 
 
-def test_sync_note_stores_parsed_markdown(monkeypatch):
+def test_sync_note_stores_parsed_markdown_and_embeds_chunks(monkeypatch):
     import backend.routes.knowledge as knowledge
 
     monkeypatch.setattr(knowledge, "get_user_id_from_header", lambda header: ("user-1", "token"))
@@ -86,8 +100,8 @@ def test_sync_note_stores_parsed_markdown(monkeypatch):
         headers={"Authorization": "Bearer test"},
         json={
             "vault_name": "AI-Trading-Vault",
-            "file_path": "AI-Trading/01_매매전_체크리스트.md",
-            "content": "# 매매 전 체크리스트",
+            "file_path": "AI-Trading/01_trade_checklist.md",
+            "content": "# Trade Checklist",
             "modified_at": "2026-07-08T00:00:00Z",
         },
     )
@@ -96,10 +110,16 @@ def test_sync_note_stores_parsed_markdown(monkeypatch):
     assert response.json["success"] is True
     assert response.json["data"]["status"] == "SYNCED"
     assert response.json["data"]["chunk_count"] == 1
+    assert response.json["data"]["embedding_count"] == 1
     assert app.knowledge_repository.synced_payload["user_id"] == "user-1"
-    assert app.knowledge_repository.synced_payload["title"] == "매매 전 체크리스트"
+    assert app.knowledge_repository.synced_payload["title"] == "Trade Checklist"
     assert app.knowledge_repository.replaced_chunks["source_type"] == "OBSIDIAN"
     assert app.knowledge_repository.replaced_chunks["source_id"] == "note-1"
+    assert app.embedding_service.embedding_request == {
+        "limit": 1,
+        "source_type": "OBSIDIAN",
+        "source_id": "note-1",
+    }
 
 
 def test_auto_memory_returns_marker_lists(monkeypatch):
@@ -114,5 +134,5 @@ def test_auto_memory_returns_marker_lists(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json["data"]["favorite_symbols"] == ["삼성전자(005930)를 자주 확인합니다."]
-    assert response.json["data"]["repeated_mistakes"] == ["근거 없이 추격매수하는 패턴이 있습니다."]
+    assert response.json["data"]["favorite_symbols"] == ["User checks Samsung Electronics often."]
+    assert response.json["data"]["repeated_mistakes"] == ["User tends to chase entries without evidence."]

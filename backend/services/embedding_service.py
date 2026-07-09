@@ -53,7 +53,12 @@ class EmbeddingService:
         data = response.json().get("data") or []
         return [item.get("embedding") for item in data if isinstance(item.get("embedding"), list)]
 
-    def embed_pending_chunks(self, limit: int = 100, source_type: str | None = None) -> int:
+    def embed_pending_chunks(
+        self,
+        limit: int = 100,
+        source_type: str | None = None,
+        source_id: str | None = None,
+    ) -> int:
         params: dict[str, str] = {
             "select": "id,chunk_text",
             "embedding_status": "eq.PENDING",
@@ -62,6 +67,8 @@ class EmbeddingService:
         }
         if source_type:
             params["source_type"] = f"eq.{source_type}"
+        if source_id:
+            params["source_id"] = f"eq.{source_id}"
 
         rows = query_supabase_as_service_role("knowledge_chunks", "GET", params=params) or []
         if not isinstance(rows, list) or not rows:

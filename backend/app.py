@@ -30,6 +30,7 @@ from backend.services.knowledge_repository import KnowledgeRepository
 from backend.services.knowledge_chunk_service import KnowledgeChunkService
 from backend.services.embedding_service import EmbeddingService
 from backend.services.rag_retrieval_service import RagRetrievalService
+from backend.services.disclosure_knowledge_sync_service import DisclosureKnowledgeSyncService
 
 from backend.routes.home import home_bp
 from backend.routes.keys import keys_bp
@@ -105,6 +106,7 @@ knowledge_repository = KnowledgeRepository()
 knowledge_chunk_service = KnowledgeChunkService()
 embedding_service = EmbeddingService()
 rag_retrieval_service = RagRetrievalService(embedding_service, knowledge_repository)
+disclosure_knowledge_sync_service = DisclosureKnowledgeSyncService(knowledge_chunk_service, embedding_service)
 
 app.crypto = crypto
 app.news_repository = news_repository
@@ -119,6 +121,7 @@ app.knowledge_repository = knowledge_repository
 app.knowledge_chunk_service = knowledge_chunk_service
 app.embedding_service = embedding_service
 app.rag_retrieval_service = rag_retrieval_service
+app.disclosure_knowledge_sync_service = disclosure_knowledge_sync_service
 
 # Blueprint 등록
 app.register_blueprint(home_bp)
