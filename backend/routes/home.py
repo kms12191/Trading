@@ -1,4 +1,5 @@
 import os
+import requests
 from datetime import datetime
 from pathlib import Path
 from flask import Blueprint, request, jsonify, current_app
@@ -30,6 +31,9 @@ home_bp = Blueprint("home", __name__)
 
 KIS_MARKET_MASTER_FILE_PATH = os.getenv("KIS_MARKET_MASTER_FILE_PATH", "")
 MARKET_SYNC_ADMIN_TOKEN = os.getenv("MARKET_SYNC_ADMIN_TOKEN", "")
+SUPPORTED_EXCHANGE_RATE_CURRENCIES = {
+    "USD", "KRW", "USDT", "JPY", "EUR", "CNY", "GBP", "AUD", "CAD", "HKD", "CHF", "SGD",
+}
 
 
 def _get_current_usdt_krw_rate() -> float:
@@ -39,6 +43,87 @@ def _get_current_usdt_krw_rate() -> float:
     except Exception:
         current_app.logger.warning("[Dashboard] USDT/KRW public price lookup failed", exc_info=True)
         return 0.0
+
+
+def _normalize_currency_code(value: str | None, default: str) -> str:
+    code = str(value or default).strip().upper()
+    if code not in SUPPORTED_EXCHANGE_RATE_CURRENCIES:
+        raise ValueError(f"지원하지 않는 통화입니다: {code}")
+    return code
+
+
+def _invert_rate(rate: float) -> float:
+    if rate <= 0:
+        raise ValueError("환율 값이 비어 있습니다.")
+    return 1.0 / rate
+
+
+def _get_coinone_usdt_krw_rate() -> dict:
+    price_data = CoinoneClient(access_token="", secret_key="").get_price("USDT")
+    rate = float(price_data.get("current_price") or 0.0)
+    if rate <= 0:
+        raise ValueError("코인원 USDT/KRW 현재가를 찾지 못했습니다.")
+    return {
+        "rate": rate,
+        "source": "COINONE_USDT_KRW",
+    }
+
+
+def _get_public_fiat_exchange_rate(base_currency: str, quote_currency: str) -> dict:
+    response = requests.get(
+        "https://api.frankfurter.app/latest",
+        params={
+            "from": base_currency,
+            "to": quote_currency,
+        },
+        timeout=10,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"공개 환율 API 조회 실패: HTTP {response.status_code}")
+    data = response.json()
+    rate = float((data.get("rates") or {}).get(quote_currency) or 0.0)
+    if rate <= 0:
+        raise ValueError(f"{base_currency}/{quote_currency} 환율을 찾지 못했습니다.")
+    return {
+        "rate": rate,
+        "source": "FRANKFURTER_ECB_REFERENCE",
+        "provider_date": data.get("date"),
+    }
+
+
+def _get_toss_exchange_rate_pair(
+    auth_header: str,
+    user_id: str,
+    broker_env: str,
+    base_currency: str,
+    quote_currency: str,
+) -> dict | None:
+    records = query_supabase(
+        auth_header,
+        "user_api_keys",
+        "GET",
+        params={
+            "user_id": f"eq.{user_id}",
+            "exchange": "eq.TOSS",
+            "broker_env": f"eq.{broker_env}",
+            "limit": "1",
+        },
+    )
+    if not records:
+        return None
+
+    record = records[0]
+    client = TossClient(
+        client_id=current_app.crypto.decrypt(record.get("encrypted_access_key")),
+        client_secret=current_app.crypto.decrypt(record.get("encrypted_secret_key")),
+        account_seq=record.get("toss_account_seq"),
+        env=broker_env,
+        user_id=user_id,
+    )
+    return {
+        "rate": client.get_exchange_rate_pair(base_currency, quote_currency),
+        "source": "TOSS",
+    }
 
 
 def _apply_binance_cost_basis_overlay(auth_header: str, user_id: str, balance: dict) -> None:
@@ -552,3 +637,65 @@ def get_dashboard_balance():
                 }
             })
         return jsonify(format_error_payload(e, "잔고 조회 실패", exchange=exchange)), 500
+
+
+@home_bp.route("/api/market/exchange-rate", methods=["GET"])
+def get_market_exchange_rate():
+    """지정 통화쌍의 환율을 조회합니다."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"success": False, "message": "인증 헤더가 필요합니다."}), 401
+
+    try:
+        user_id, _ = get_user_id_from_header(auth_header)
+        base_currency = _normalize_currency_code(request.args.get("base"), "USD")
+        quote_currency = _normalize_currency_code(request.args.get("quote"), "KRW")
+        broker_env = str(request.args.get("broker_env") or "REAL").upper()
+        provider_date = None
+
+        if base_currency == quote_currency:
+            rate_payload = {"rate": 1.0, "source": "IDENTICAL_CURRENCY"}
+        elif {base_currency, quote_currency} == {"USDT", "KRW"}:
+            rate_payload = _get_coinone_usdt_krw_rate()
+            if base_currency == "KRW":
+                rate_payload = {
+                    **rate_payload,
+                    "rate": _invert_rate(rate_payload["rate"]),
+                }
+        elif "USDT" in {base_currency, quote_currency}:
+            raise ValueError("USDT 환율은 현재 KRW 기준 조회만 지원합니다.")
+        else:
+            try:
+                rate_payload = _get_toss_exchange_rate_pair(
+                    auth_header,
+                    user_id,
+                    broker_env,
+                    base_currency,
+                    quote_currency,
+                )
+            except Exception:
+                current_app.logger.warning(
+                    "[ExchangeRate] Toss lookup failed; falling back to public fiat rate",
+                    exc_info=True,
+                )
+                rate_payload = None
+
+            if not rate_payload:
+                rate_payload = _get_public_fiat_exchange_rate(base_currency, quote_currency)
+                provider_date = rate_payload.get("provider_date")
+
+        rate = rate_payload["rate"]
+        return jsonify({
+            "success": True,
+            "data": {
+                "base_currency": base_currency,
+                "quote_currency": quote_currency,
+                "rate": rate,
+                "source": rate_payload.get("source"),
+                "broker_env": broker_env,
+                "captured_at": datetime.utcnow().isoformat() + "Z",
+                "provider_date": provider_date,
+            },
+        })
+    except Exception as error:
+        return jsonify(format_error_payload(error, "환율 조회 실패", exchange="TOSS")), 500

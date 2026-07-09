@@ -1242,7 +1242,7 @@ def build_active_signal_payload(
     summary_path = (((active_result.get("registry") or {}).get("summary_path")) or "")
 
     return {
-        "asset_type": "STOCK" if asset_key == "stock" else "CRYPTO",
+        "asset_type": "STOCK" if asset_key in ("stock", "kr_stock", "us_stock") else "CRYPTO",
         "selected_version": active_result.get("version"),
         "model_version": metrics.get("model_version"),
         "serving_version": selection.get("serving_version"),

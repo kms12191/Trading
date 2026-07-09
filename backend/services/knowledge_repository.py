@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.services.supabase_client import safe_query_supabase
+from backend.services.supabase_client import query_supabase_as_service_role, safe_query_supabase
 
 
 class KnowledgeRepository:
@@ -78,6 +78,12 @@ class KnowledgeRepository:
         if chunks:
             safe_query_supabase(auth_header, "knowledge_chunks", "POST", json_data=chunks)
         return {"chunk_count": len(chunks)}
+
+    def match_knowledge_chunks(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        rows = query_supabase_as_service_role("rpc/match_knowledge_chunks", "POST", json_data=payload) or []
+        if not isinstance(rows, list):
+            return []
+        return [row for row in rows if isinstance(row, dict)]
 
     def list_auto_memory(self, auth_header: str, user_id: str) -> dict[str, list[str]]:
         rows = safe_query_supabase(

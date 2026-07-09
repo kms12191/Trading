@@ -13,6 +13,7 @@
 - 우측 하단에 챗봇 아이콘 표시
 - 아이콘 클릭 시 카카오톡처럼 대화창 표시
 - 사용자의 브라우저 시간대 기준으로 메시지 전송 시간 표시
+- 사용자의 브라우저 시간대 기준으로 챗봇 상대 날짜 해석
 - OpenAI API를 백엔드에서만 호출
 - 시스템 롤과 트레이딩 안전 규칙을 문서 파일로 분리
 - function calling 스키마와 실제 도구 연결부를 분리
@@ -38,6 +39,7 @@
 - 빠른 질문 버튼 표시
 - 메시지별 시간 표시
 - 브라우저 시간대 기반 시간 포맷 처리
+- 챗봇 API 요청 시 브라우저 시간대 전달
 
 시간 표시 방식:
 
@@ -46,6 +48,7 @@ Intl.DateTimeFormat().resolvedOptions().timeZone
 ```
 
 사용자의 브라우저/PC 시간대 기준으로 `오후 1:05` 같은 형식으로 표시됩니다.
+같은 시간대 값을 백엔드에도 전달해 "오늘", "어제", "최근", "이번 주", "지난달" 같은 표현을 사용자의 시간대 기준으로 해석하게 합니다.
 
 현재 초기 메시지:
 
@@ -171,7 +174,11 @@ app.register_blueprint(chatbot_bp)
 
 - 사용자 입력 공백 검증
 - 시스템 프롬프트 로드
+- 요청 시점의 현재 날짜/시간 문맥을 시스템 프롬프트에 추가
 - 로그인 사용자의 `profiles.invest_type`, `profiles.invest_score`를 조회해 투자성향 문맥을 시스템 프롬프트에 추가
+- 사용자별 최근 대화 히스토리를 서버 메모리에 보관해 OpenAI 요청에 함께 전달
+- `조회해도 돼`, `진행해`, `응` 같은 후속 답변을 직전 pending action과 연결
+- `knowledge_chunks` pgvector 검색 결과를 RAG 참고자료로 시스템 프롬프트에 추가
 - `ChatbotLLMClient`를 통해 OpenAI 호출
 - function calling 스키마 전달
 - 응답과 메타 정보 반환
@@ -190,6 +197,23 @@ result = self.llm_client.generate_reply(...)
 ```
 
 현재는 먼저 프로젝트 내부 기능 도구를 확인하고, 해당하지 않는 일반 질문만 OpenAI 응답으로 넘깁니다.
+OpenAI로 넘어가는 일반 질문에는 현재 날짜/시간, 투자성향 문맥, RAG 참고자료가 함께 붙을 수 있습니다.
+
+현재 날짜/시간 처리:
+
+- 프론트엔드가 `Intl.DateTimeFormat().resolvedOptions().timeZone` 값으로 사용자 브라우저 시간대를 보냅니다.
+- 백엔드는 해당 시간대를 기준으로 오늘 날짜, 요일, 현재 시각을 요청마다 동적으로 계산합니다.
+- 시간대가 없거나 잘못된 값이면 `Asia/Seoul` 기준으로 처리합니다.
+- "오늘", "어제", "최근", "이번 주", "지난달" 같은 상대 날짜 표현은 이 문맥을 기준으로 해석하도록 시스템 프롬프트에 넣습니다.
+- 날짜가 중요한 뉴스, 공시, 거래내역, 차트 요청은 가능한 경우 해석한 날짜 범위를 답변이나 도구 호출에 반영하도록 안내합니다.
+
+대화 문맥 처리:
+
+- 최근 대화는 사용자별 서버 메모리에 최대 12개 메시지까지 보관합니다.
+- OpenAI 호출 시 `system prompt + 최근 대화 + 현재 질문` 형태로 전달합니다.
+- 챗봇이 "포트폴리오 요약부터 조회해도 될까요?"처럼 읽기 기능 허락을 구하면 `pending_action=portfolio_summary`를 저장합니다.
+- 사용자가 이어서 "조회해도 돼", "진행해", "응"처럼 답하면 보류된 읽기 기능을 실행합니다.
+- 매수/매도 같은 실거래 주문은 pending action으로 자동 실행하지 않습니다.
 
 투자성향 반영 흐름:
 
@@ -199,6 +223,52 @@ system_prompt = f"{base_system_prompt}\n\n{profile_context}"
 ```
 
 투자성향 정보가 없거나 조회에 실패하면 기본 시스템 프롬프트만 사용합니다. 따라서 프로필 조회 오류가 챗봇 응답 전체를 막지는 않습니다.
+
+---
+
+### `backend/services/chatbot/rag_service.py`
+
+Supabase `knowledge_chunks` pgvector 검색 결과를 챗봇 참고자료로 변환하는 서비스입니다.
+
+주요 역할:
+
+- 사용자 질문을 OpenAI Embeddings API로 벡터화
+- Supabase RPC `match_knowledge_chunks` 호출
+- 검색된 chunk의 `source_type`, `source_id`, `chunk_text`, `similarity`를 참고자료로 정리
+- 정리된 참고자료를 `chat_service.py`의 시스템 프롬프트 뒤에 추가
+- RAG 조회 실패 시 챗봇 전체가 멈추지 않도록 빈 참고자료로 처리
+
+현재 연결된 RPC:
+
+```text
+POST /rest/v1/rpc/match_knowledge_chunks
+```
+
+현재 기대하는 RPC 인자:
+
+```text
+query_embedding
+match_user_id
+match_count
+match_threshold
+```
+
+현재 기대하는 RPC 반환값:
+
+```text
+source_type
+source_id
+chunk_text
+similarity
+rank_score
+metadata
+```
+
+주의:
+
+- `knowledge_chunks.embedding`에 실제 embedding 값이 들어 있어야 검색 결과가 나옵니다.
+- RPC 인자명이 Supabase 함수와 다르면 RAG 참고자료가 비어 있을 수 있습니다.
+- RAG는 참고자료 보강용이며, 기존 프로젝트 도구 조회와 실거래 승인 흐름을 대체하지 않습니다.
 
 ---
 
@@ -254,6 +324,7 @@ OpenAI function calling에 전달할 함수 스키마 정의 파일입니다.
 - `add_watchlist_item`
 - `get_holdings`
 - `search_trade_history`
+- `get_exchange_rate`
 
 중요:
 
@@ -396,6 +467,7 @@ OPENAI_MODEL=FOUND
 
 ```env
 OPENAI_MODEL=gpt-4.1-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
 CHATBOT_MAX_INPUT_CHARS=2000
 CHATBOT_MAX_OUTPUT_TOKENS=1024
@@ -403,6 +475,9 @@ CHATBOT_MAX_HISTORY_MESSAGES=16
 CHATBOT_MAX_TOOL_CALLS=3
 CHATBOT_MINUTE_REQUEST_LIMIT=10
 CHATBOT_DAILY_TOKEN_LIMIT=50000
+CHATBOT_RAG_TOP_K=5
+CHATBOT_RAG_MAX_CONTEXT_CHARS=6000
+CHATBOT_RAG_MATCH_THRESHOLD=0.2
 ```
 
 이미 있던 값:

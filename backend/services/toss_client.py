@@ -1209,7 +1209,7 @@ class TossClient(ExchangeClient):
 
         # 2. 토스 미지원 주기인 경우 자체 리샘플링
         # 2-A. 분봉/시간봉 리샘플링 (5m, 15m, 30m, 60m, 1h 등)
-        if normalized_interval in ("5m", "15m", "30m", "60m", "1h"):
+        if normalized_interval in ("5m", "15m", "30m", "60m", "1h", "4h"):
             interval_minutes = 5
             if normalized_interval == "15m":
                 interval_minutes = 15
@@ -1217,6 +1217,8 @@ class TossClient(ExchangeClient):
                 interval_minutes = 30
             elif normalized_interval in ("60m", "1h"):
                 interval_minutes = 60
+            elif normalized_interval == "4h":
+                interval_minutes = 240
 
             # 1분봉 데이터를 최대한 많이 가져옴 (리샘플링하기 위해 count보다 넉넉히 가져옴, 최대 200개 한계)
             raw_candles = self.get_candles(symbol, interval="1m", count=200)
@@ -1405,7 +1407,14 @@ class TossClient(ExchangeClient):
             
         return data
 
-    def _get_exchange_rate_impl(self) -> float:
+    def _get_exchange_rate_impl(
+        self,
+        base_currency: str = "USD",
+        quote_currency: str = "KRW",
+        allow_default: bool = True,
+    ) -> float:
+        base_currency = str(base_currency or "USD").strip().upper()
+        quote_currency = str(quote_currency or "KRW").strip().upper()
         try:
             token = self._get_cached_token()
             res = self._send_request(
@@ -1416,8 +1425,8 @@ class TossClient(ExchangeClient):
                     "Content-Type": "application/json",
                 },
                 params={
-                    "baseCurrency": "USD",
-                    "quoteCurrency": "KRW",
+                    "baseCurrency": base_currency,
+                    "quoteCurrency": quote_currency,
                 },
                 timeout=15,
             )
@@ -1427,8 +1436,11 @@ class TossClient(ExchangeClient):
                 rate = result.get("rate")
                 if rate:
                     return float(rate)
+            raise Exception(f"Toss exchange-rate failed: {res.text}")
         except Exception as error:
             logger.warning(f"[Toss Client] exchange-rate request failed: {error}")
+            if not allow_default or base_currency != "USD" or quote_currency != "KRW":
+                raise
 
         return 1500.0
 
@@ -1440,6 +1452,12 @@ class TossClient(ExchangeClient):
             return self._get_exchange_rate_impl()
         except Exception:
             return 1500.0
+
+    def get_exchange_rate_pair(self, base_currency: str = "USD", quote_currency: str = "KRW") -> float:
+        """
+        지정한 통화쌍의 실시간 환율 정보를 조회합니다.
+        """
+        return self._get_exchange_rate_impl(base_currency, quote_currency, allow_default=False)
 
     def _get_orderbook_impl(self, symbol: str) -> dict:
         token = self._get_cached_token()

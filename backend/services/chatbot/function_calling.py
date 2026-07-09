@@ -59,4 +59,15 @@ FUNCTION_SCHEMAS = [
             },
         },
     },
+    {
+        "name": "get_exchange_rate",
+        "description": "달러, 엔화, 유로, 위안, 테더(USDT) 등 주요 통화의 환율을 조회합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "base_currency": {"type": "string", "description": "USD, USDT, JPY, EUR, CNY 등 기준 통화"},
+                "quote_currency": {"type": "string", "description": "KRW, USD 등 상대 통화"},
+            },
+        },
+    },
 ]

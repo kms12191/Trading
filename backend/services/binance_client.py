@@ -5,6 +5,7 @@ import requests
 from urllib.parse import urlencode
 
 _FUTURES_EXCHANGE_INFO_CACHE = {}
+_BINANCE_TIME_SYNC_TTL_SECONDS = 300
 
 
 def _normalize_spot_symbol(symbol: str) -> str:
@@ -47,12 +48,33 @@ class BinanceSpotClient:
         "DEMO": "https://demo-api.binance.com",
         "TESTNET": "https://testnet.binance.vision",
     }
+    SERVER_TIME_PATH = "/api/v3/time"
 
     def __init__(self, api_key: str, secret_key: str, env: str = "REAL"):
         self.api_key = api_key
         self.secret_key = secret_key.encode('utf-8')
         self.env = str(env or "REAL").upper()
         self.base_url = self.SPOT_BASE_URLS.get(self.env, self.SPOT_BASE_URLS["REAL"])
+        self._server_time_offset_ms = 0
+        self._server_time_synced_at = 0.0
+
+    def _sync_server_time(self) -> bool:
+        try:
+            res = requests.get(f"{self.base_url}{self.SERVER_TIME_PATH}", timeout=5)
+            if res.status_code != 200:
+                return False
+            server_time = int(res.json().get("serverTime"))
+            local_time = int(time.time() * 1000)
+            self._server_time_offset_ms = server_time - local_time
+            self._server_time_synced_at = time.time()
+            return True
+        except Exception:
+            return False
+
+    def _timestamp_ms(self) -> int:
+        if time.time() - self._server_time_synced_at > _BINANCE_TIME_SYNC_TTL_SECONDS:
+            self._sync_server_time()
+        return int(time.time() * 1000) + self._server_time_offset_ms
 
     def _sign(self, query_params: dict) -> str:
         """
@@ -72,7 +94,7 @@ class BinanceSpotClient:
         """
         request_params = {
             **(params or {}),
-            "timestamp": int(time.time() * 1000),
+            "timestamp": self._timestamp_ms(),
             "recvWindow": 60000,
         }
         request_params["signature"] = self._sign(request_params)
@@ -465,12 +487,33 @@ class BinanceFuturesClient:
         "TESTNET": "https://testnet.binancefuture.com",
         "DEMO": "https://testnet.binancefuture.com",
     }
+    SERVER_TIME_PATH = "/fapi/v1/time"
 
     def __init__(self, api_key: str, secret_key: str, env: str = "TESTNET"):
         self.api_key = api_key
         self.secret_key = secret_key.encode("utf-8")
         self.env = str(env or "TESTNET").upper()
         self.base_url = self.BASE_URLS.get(self.env, self.BASE_URLS["TESTNET"])
+        self._server_time_offset_ms = 0
+        self._server_time_synced_at = 0.0
+
+    def _sync_server_time(self) -> bool:
+        try:
+            res = requests.get(f"{self.base_url}{self.SERVER_TIME_PATH}", timeout=5)
+            if res.status_code != 200:
+                return False
+            server_time = int(res.json().get("serverTime"))
+            local_time = int(time.time() * 1000)
+            self._server_time_offset_ms = server_time - local_time
+            self._server_time_synced_at = time.time()
+            return True
+        except Exception:
+            return False
+
+    def _timestamp_ms(self) -> int:
+        if time.time() - self._server_time_synced_at > _BINANCE_TIME_SYNC_TTL_SECONDS:
+            self._sync_server_time()
+        return int(time.time() * 1000) + self._server_time_offset_ms
 
     def get_futures_symbol_filters(self, symbol: str) -> dict:
         """
@@ -519,7 +562,7 @@ class BinanceFuturesClient:
     def _signed_request(self, method: str, path: str, params: dict | None = None):
         request_params = {
             **(params or {}),
-            "timestamp": int(time.time() * 1000),
+            "timestamp": self._timestamp_ms(),
             "recvWindow": 60000,
         }
         request_params["signature"] = self._sign(request_params)

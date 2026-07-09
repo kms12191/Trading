@@ -6,13 +6,14 @@ from datetime import datetime
 from backend.services.binance_client import BinanceClient, BinanceFuturesClient
 from backend.services.coinone_client import CoinoneClient
 from backend.services.kis_client import KISClient
+from backend.services.toss_client import TossClient
 from backend.services.lock_service import distributed_lock
 from backend.services.supabase_client import query_supabase_as_service_role
 from backend.utils.crypto_helper import CryptoHelper
 
 
 ACTIONABLE_STATUSES = ("PENDING", "APPROVED", "MODIFIED")
-SUPPORTED_SYNC_EXCHANGES = ("KIS", "COINONE", "BINANCE", "BINANCE_UM_FUTURES")
+SUPPORTED_SYNC_EXCHANGES = ("KIS", "COINONE", "BINANCE", "BINANCE_UM_FUTURES", "TOSS")
 SCHEMA_FALLBACK_COLUMNS = {
     "broker_env",
     "raw_order_payload",
@@ -167,6 +168,14 @@ class OpenOrderStatusSyncService:
                 env=broker_env,
                 user_id=user_id,
             )
+        if exchange == "TOSS":
+            return TossClient(
+                client_id=access_key,
+                client_secret=secret_key,
+                account_seq=record.get("toss_account_seq"),
+                env=broker_env,
+                user_id=user_id,
+            )
         if exchange == "COINONE":
             return CoinoneClient(access_token=access_key, secret_key=secret_key)
         if exchange == "BINANCE":
@@ -226,6 +235,122 @@ class OpenOrderStatusSyncService:
                 f"trade_proposals?id=eq.{proposal_id}",
                 "PATCH",
                 json_data=fallback_payload,
+            )
+
+        if next_status == "EXECUTED":
+            try:
+                self._update_associated_auto_trading_rule(proposal, current_order)
+            except Exception as exc:
+                print(f"[OpenOrderStatusSyncService] 자동감시 진입가 보정 실패: {exc}")
+
+        if next_status in ("EXECUTED", "CANCELED", "FAILED"):
+            try:
+                self._handle_partial_filled_exit_order(proposal, current_order, next_status)
+            except Exception as exc:
+                print(f"[OpenOrderStatusSyncService] 부분 체결 감시 복구 처리 실패: {exc}")
+
+    def _handle_partial_filled_exit_order(self, proposal: dict, current_order: dict, next_status: str):
+        proposal_id = proposal.get("id")
+        
+        # 1. exit_order_proposal_id가 proposal_id인 규칙 조회
+        rules = query_supabase_as_service_role(
+            "auto_trading_rules",
+            "GET",
+            params={
+                "exit_order_proposal_id": f"eq.{proposal_id}",
+                "limit": "1"
+            }
+        ) or []
+        if not rules:
+            return
+            
+        rule = rules[0]
+        
+        # 2. 부분 체결량 및 남은 수량 계산
+        executed_qty = _as_float(current_order.get("executed_qty") or current_order.get("filled_qty"))
+        requested_qty = _as_float(proposal.get("volume"))
+        
+        # 부분 체결인 경우 (0 초과, 요청량 미만)
+        if 0.0 < executed_qty < requested_qty:
+            remaining_qty = requested_qty - executed_qty
+            if remaining_qty > 1e-6:
+                auto_restart = rule.get("auto_restart_on_partial_fill", True)
+                if auto_restart:
+                    rule_id = rule["id"]
+                    entry_price = _as_float(rule.get("entry_price") or 0.0)
+                    
+                    # 규칙 복구 (상태 -> RUNNING, 수량 차감, exit_proposal 비움)
+                    patch_data = {
+                        "status": "RUNNING",
+                        "quantity": remaining_qty,
+                        "investment_amount": entry_price * remaining_qty if entry_price > 0 else rule.get("investment_amount"),
+                        "exit_order_proposal_id": None, # 새로운 매도 주문 등록이 가능하도록 비움
+                        "updated_at": _utc_now_iso(),
+                        "last_error": f"부분 체결 완료 감지: {executed_qty}개 체결. 남은 {remaining_qty}개 재감시 시작 (상태: {next_status})."
+                    }
+                    query_supabase_as_service_role(
+                        f"auto_trading_rules?id=eq.{rule_id}",
+                        "PATCH",
+                        json_data=patch_data
+                    )
+                    print(f"[OpenOrderStatusSyncService] 조건감시 규칙 {rule_id} 복구 완료. 잔여 {remaining_qty}개 재감시 기동.")
+
+    def _update_associated_auto_trading_rule(self, proposal: dict, current_order: dict):
+        proposal_id = proposal.get("id")
+        exchange = str(proposal.get("exchange") or "").upper()
+        
+        # 1. entry_order_proposal_id가 proposal_id인 활성 감시 규칙 조회
+        rules = query_supabase_as_service_role(
+            "auto_trading_rules",
+            "GET",
+            params={
+                "entry_order_proposal_id": f"eq.{proposal_id}",
+                "status": "eq.RUNNING"
+            }
+        ) or []
+        if not rules:
+            return
+
+        # 2. 거래소별 평균체결단가 추출
+        avg_price = 0.0
+        if exchange == "TOSS":
+            raw_result = current_order.get("raw", {}).get("result", {})
+            execution = raw_result.get("execution") or {}
+            avg_price = _as_float(
+                raw_result.get("averageFilledPrice")
+                or execution.get("averageFilledPrice")
+            )
+        elif exchange == "KIS":
+            # KIS matched 이력의 avg_price 취함
+            raw_matched = current_order.get("raw", [])
+            if isinstance(raw_matched, list) and len(raw_matched) > 0:
+                avg_price = _as_float(raw_matched[0].get("avg_price"))
+        elif exchange == "COINONE":
+            raw_data = current_order.get("raw", {})
+            avg_price = _as_float(raw_data.get("average_price"))
+        elif exchange in ("BINANCE", "BINANCE_UM_FUTURES"):
+            raw_data = current_order.get("raw", {})
+            avg_price = _as_float(raw_data.get("price") or raw_data.get("avgPrice"))
+            
+        if avg_price <= 0.0:
+            avg_price = _as_float(proposal.get("price")) # Fallback to order price
+
+        if avg_price <= 0.0:
+            return
+
+        # 3. DB 업데이트
+        for rule in rules:
+            rule_id = rule["id"]
+            qty = _as_float(rule.get("quantity")) or _as_float(proposal.get("volume"))
+            patch_data = {
+                "entry_price": avg_price,
+                "investment_amount": avg_price * qty,
+                "updated_at": _utc_now_iso()
+            }
+            query_supabase_as_service_role(
+                f"auto_trading_rules?id=eq.{rule_id}",
+                "PATCH",
+                json_data=patch_data
             )
 
 

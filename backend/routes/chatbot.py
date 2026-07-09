@@ -21,7 +21,12 @@ def send_chatbot_message():
 
     try:
         data = request.json or {}
-        result = chatbot_service.reply(data.get("message"), user_id=user_id, auth_header=auth_header)
+        result = chatbot_service.reply(
+            data.get("message"),
+            user_id=user_id,
+            auth_header=auth_header,
+            user_timezone=data.get("timezone"),
+        )
         return jsonify({"success": True, "data": result})
     except Exception as error:
         return jsonify(format_error_payload(error, "챗봇 응답 생성 실패")), 500

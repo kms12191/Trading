@@ -286,3 +286,13 @@ supabase/
 * `backend/routes/trade.py`
   * `POST /api/trade/orders/sync-status`: Syncs KIS DB order records with real KIS execution status, then falls back to balance checks.
   * `POST /api/trade/estimated-holdings`: Builds DB-estimated holdings from executed `trade_proposals`, enriches stock positions with broker prices, and calculates valuation profit and profit rate.
+
+## 6. Disclosure summary RAG additions
+
+* `backend/services/disclosure_knowledge_index_service.py`: Builds summary-only DART disclosure documents/chunks for `knowledge_chunks`.
+* `backend/services/embedding_service.py`: Embeds pending knowledge chunks with OpenAI embeddings.
+* `backend/services/rag_retrieval_service.py`: Embeds a question and retrieves ranked context through Supabase vector search.
+* `backend/scripts/backfill_disclosure_summary_chunks.py`: Rebuilds `DISCLOSURE` chunks from cached DART AI/rule summaries.
+* `backend/scripts/embed_pending_knowledge_chunks.py`: Embeds pending chunks, defaulting to `DISCLOSURE`.
+* `supabase/migrations/20260709103000_add_knowledge_chunk_vector_search.sql`: Adds the vector index and `match_knowledge_chunks` RPC.
+* This flow excludes news and DART original text; only saved disclosure summaries and metadata are indexed.

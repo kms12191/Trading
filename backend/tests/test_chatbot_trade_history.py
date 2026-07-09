@@ -63,3 +63,66 @@ def test_search_trade_history_filters_by_symbol_name(monkeypatch):
     tool_registry.search_trade_history("Bearer test", "테슬라 거래내역 보여줘")
 
     assert captured_params["symbol"] == "eq.TSLA"
+
+
+def test_strategy_request_with_holdings_keyword_does_not_route_to_holdings_tool():
+    result = tool_registry.run_chatbot_tool(
+        "Bearer test",
+        "현재 관심 종목이나 보유 종목을 기준으로 구체적인 매수 타이밍과 비중 조절 전략도 함께 제안해줘",
+    )
+
+    assert result is None
+
+
+def test_exchange_rate_routes_currency_pair_to_internal_api(monkeypatch):
+    captured = {}
+
+    def fake_get_internal(path, auth_header, params=None):
+        captured["path"] = path
+        captured["params"] = params
+        return {
+            "data": {
+                "base_currency": "JPY",
+                "quote_currency": "KRW",
+                "rate": 9.1234,
+                "source": "TOSS",
+                "captured_at": "2026-07-09T03:00:00Z",
+            }
+        }
+
+    monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "엔화 환율 알려줘")
+
+    assert captured["path"] == "/api/market/exchange-rate"
+    assert captured["params"]["base"] == "JPY"
+    assert captured["params"]["quote"] == "KRW"
+    assert "JPY/KRW" in result["reply"]
+    assert "2026-07-09 기준\nJPY/KRW 환율은 1 JPY = 9.12 KRW입니다.\n출처: TOSS" in result["reply"]
+
+
+def test_tether_exchange_rate_routes_to_usdt_krw(monkeypatch):
+    captured = {}
+
+    def fake_get_internal(path, auth_header, params=None):
+        captured["path"] = path
+        captured["params"] = params
+        return {
+            "data": {
+                "base_currency": "USDT",
+                "quote_currency": "KRW",
+                "rate": 1388.5,
+                "source": "COINONE_USDT_KRW",
+                "captured_at": "2026-07-09T03:00:00Z",
+            }
+        }
+
+    monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "테더 환율 조회해줘")
+
+    assert captured["path"] == "/api/market/exchange-rate"
+    assert captured["params"]["base"] == "USDT"
+    assert captured["params"]["quote"] == "KRW"
+    assert "USDT/KRW" in result["reply"]
+    assert "1 USDT = 1,388.50 KRW" in result["reply"]

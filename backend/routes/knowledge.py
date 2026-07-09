@@ -5,6 +5,7 @@ from backend.services.error_message_service import format_error_payload
 
 
 knowledge_bp = Blueprint("knowledge", __name__)
+DEFAULT_RAG_SOURCE_TYPES = ["DISCLOSURE", "OBSIDIAN", "AUTO_MEMORY", "APP_NOTE"]
 
 
 @knowledge_bp.route("/api/knowledge/obsidian/sync-note", methods=["POST"])
@@ -75,3 +76,27 @@ def get_obsidian_auto_memory():
         return jsonify({"success": True, "data": data})
     except Exception as error:
         return jsonify(format_error_payload(error, "Obsidian 자동메모리 조회 실패")), 500
+@knowledge_bp.route("/api/knowledge/retrieve-context", methods=["POST"])
+def retrieve_context():
+    auth_header = request.headers.get("Authorization", "")
+    try:
+        user_id, _ = get_user_id_from_header(auth_header)
+    except Exception as error:
+        return jsonify(format_error_payload(error, "RAG 검색 인증 실패")), 401
+
+    try:
+        data = request.get_json(silent=True) or {}
+        question = str(data.get("question") or "").strip()
+        if not question:
+            raise ValueError("question이 필요합니다.")
+        result = current_app.rag_retrieval_service.retrieve_context(
+            user_id=user_id,
+            question=question,
+            symbol=str(data.get("symbol") or "").strip() or None,
+            market=str(data.get("market") or "").strip() or None,
+            source_types=data.get("source_types") or DEFAULT_RAG_SOURCE_TYPES,
+            limit=int(data.get("limit") or 12),
+        )
+        return jsonify({"success": True, "data": result})
+    except Exception as error:
+        return jsonify(format_error_payload(error, "RAG 검색 실패")), 500

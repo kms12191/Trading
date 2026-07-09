@@ -12,7 +12,7 @@ import AdminMlData from './AdminMlData.jsx'
 import { getApiErrorMessage } from '../lib/apiError.js'
 import {
   deductCoinoneTransfersFromEstimatedHoldings,
-  getTransferReceivedAmount,
+  mergeCompletedTransfersIntoCash,
 } from '../lib/transferBalanceAdjustments.js'
 import { DASHBOARD_TAB_KEYS, DEFAULT_DASHBOARD_TAB } from '../dashboardConstants.js'
 
@@ -766,11 +766,6 @@ const mergeBalanceWithTradeEstimates = (mergedBalance, tradeRows = [], showMockA
   }
 }
 
-const buildTransferHoldingIdentity = (currency) => {
-  const symbol = String(currency || '').trim().toUpperCase()
-  return symbol ? `CRYPTO:BINANCE:REAL:${symbol}` : ''
-}
-
 const fetchTransferRowsFromSupabase = async () => {
   const { data, error } = await supabase
     .from('asset_transfer_proposals')
@@ -783,57 +778,7 @@ const fetchTransferRowsFromSupabase = async () => {
 }
 
 const mergeBalanceWithCompletedTransfers = (mergedBalance, transferRows = []) => {
-  const holdings = Array.isArray(mergedBalance?.holdings) ? mergedBalance.holdings : []
-  const liveKeys = new Set(holdings.map(getHoldingIdentity).filter(Boolean))
-  const transferHoldings = (transferRows || [])
-    .filter((row) => String(row.status || '').toUpperCase() === 'COMPLETED')
-    .map((row) => {
-      const currency = String(row.currency || '').trim().toUpperCase()
-      const qty = getTransferReceivedAmount(row)
-      const currentPrice = toNumber(row.current_price)
-      const evalAmount = toNumber(row.eval_amount) || qty * currentPrice
-      if (!currency || qty <= 0 || liveKeys.has(buildTransferHoldingIdentity(currency))) return null
-      return {
-        symbol: currency,
-        name: currency,
-        qty,
-        avg_price: 0,
-        current_price: currentPrice,
-        eval_amount: evalAmount,
-        profit: 0,
-        profit_rate: 0,
-        currency: 'USDT',
-        exchange: 'BINANCE 현물',
-        raw_exchange: 'BINANCE',
-        account_type: 'BINANCE 입금확인',
-        asset_type: 'CRYPTO',
-        env: 'REAL',
-        source: 'TRANSFER_COMPLETED',
-        transfer_id: row.id,
-      }
-    })
-    .filter(Boolean)
-
-  if (transferHoldings.length === 0) return mergedBalance
-
-  const transferEvaluationUsdt = transferHoldings.reduce((sum, item) => sum + getHoldingEvaluationNative(item), 0)
-  const exchangeRate = toNumber(mergedBalance?.exchange_rate) || 1500
-  const totalByCurrency = { ...(mergedBalance?.total_by_currency || {}) }
-  totalByCurrency.USDT = toNumber(totalByCurrency.USDT) + transferEvaluationUsdt
-
-  const totalBreakdownByCurrency = { ...(mergedBalance?.total_breakdown_by_currency || {}) }
-  const usdtBreakdown = Array.isArray(totalBreakdownByCurrency.USDT) ? [...totalBreakdownByCurrency.USDT] : []
-  usdtBreakdown.push({ source: '바이낸스 입금확인', amount: transferEvaluationUsdt })
-  totalBreakdownByCurrency.USDT = usdtBreakdown
-
-  return {
-    ...mergedBalance,
-    total_evaluation: toNumber(mergedBalance?.total_evaluation) + transferEvaluationUsdt * exchangeRate,
-    total_by_currency: totalByCurrency,
-    total_breakdown_by_currency: totalBreakdownByCurrency,
-    holdings: [...holdings, ...transferHoldings],
-    sources: [...new Set([...(mergedBalance?.sources || []), 'BINANCE_TRANSFER'])],
-  }
+  return mergeCompletedTransfersIntoCash(mergedBalance, transferRows)
 }
 
 const getBalanceRequestLabel = (exchange, env) => {

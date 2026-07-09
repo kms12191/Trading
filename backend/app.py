@@ -28,6 +28,8 @@ from backend.services.open_order_status_sync_service import start_open_order_sta
 from backend.services.obsidian_service import ObsidianService
 from backend.services.knowledge_repository import KnowledgeRepository
 from backend.services.knowledge_chunk_service import KnowledgeChunkService
+from backend.services.embedding_service import EmbeddingService
+from backend.services.rag_retrieval_service import RagRetrievalService
 
 from backend.routes.home import home_bp
 from backend.routes.keys import keys_bp
@@ -101,6 +103,8 @@ kis_market_universe_service = KISMarketUniverseService()
 obsidian_service = ObsidianService()
 knowledge_repository = KnowledgeRepository()
 knowledge_chunk_service = KnowledgeChunkService()
+embedding_service = EmbeddingService()
+rag_retrieval_service = RagRetrievalService(embedding_service, knowledge_repository)
 
 app.crypto = crypto
 app.news_repository = news_repository
@@ -113,6 +117,8 @@ app.kis_market_universe_service = kis_market_universe_service
 app.obsidian_service = obsidian_service
 app.knowledge_repository = knowledge_repository
 app.knowledge_chunk_service = knowledge_chunk_service
+app.embedding_service = embedding_service
+app.rag_retrieval_service = rag_retrieval_service
 
 # Blueprint 등록
 app.register_blueprint(home_bp)

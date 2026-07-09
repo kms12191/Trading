@@ -20,6 +20,7 @@ def list_available_tools() -> list[str]:
         "add_watchlist_item",
         "get_holdings",
         "search_trade_history",
+        "get_exchange_rate",
     ]
 
 
@@ -310,6 +311,31 @@ def get_portfolio_summary(auth_header: str, message: str) -> dict:
     }
 
 
+def get_exchange_rate(auth_header: str, message: str) -> dict:
+    base_currency, quote_currency = _detect_currency_pair(message)
+    env = _detect_env(message) or "REAL"
+    payload = _get_internal(
+        "/api/market/exchange-rate",
+        auth_header,
+        params={
+            "base": base_currency,
+            "quote": quote_currency,
+            "broker_env": env,
+        },
+    )
+    data = payload.get("data") or {}
+    rate = _to_float(data.get("rate"))
+    base = data.get("base_currency") or base_currency
+    quote = data.get("quote_currency") or quote_currency
+    source = data.get("source") or "TOSS"
+    captured_at = str(data.get("captured_at") or "")[:10]
+
+    return {
+        "reply": f"{captured_at} 기준\n{base}/{quote} 환율은 1 {base} = {rate:,.2f} {quote}입니다.\n출처: {source}",
+        "data": data,
+    }
+
+
 def add_watchlist_item(auth_header: str, message: str) -> dict:
     user_id, _ = get_user_id_from_header(auth_header)
     symbol_query = _extract_symbol_query(message)
@@ -545,14 +571,70 @@ def run_chatbot_tool(auth_header: str | None, message: str) -> dict | None:
         return None
 
     text = str(message or "")
+    is_strategy_request = any(keyword in text for keyword in ["전략", "제안", "추천", "타이밍", "비중", "시나리오", "리밸런싱"])
+    is_direct_read_request = any(keyword in text for keyword in ["보여줘", "조회", "알려줘", "뽑아줘", "요약", "뭐뭐 있어", "얼마"])
+    if any(keyword in text for keyword in ["환율", "환전", "원달러", "달러원", "엔화", "유로", "위안", "테더", "USDT"]):
+        return get_exchange_rate(auth_header, text)
     if any(keyword in text for keyword in ["순위", "랭킹", "상위", "필터"]):
         return get_home_market_rankings(auth_header, text)
     if any(keyword in text for keyword in ["관심종목", "관심 종목"]) and any(keyword in text for keyword in ["설정", "추가", "등록"]):
         return add_watchlist_item(auth_header, text)
     if any(keyword in text for keyword in ["거래내역", "거래 내역", "주문내역", "주문 내역"]):
         return search_trade_history(auth_header, text)
-    if any(keyword in text for keyword in ["보유", "내 주식", "뭐뭐 있어", "잔고"]):
+    if not is_strategy_request and any(keyword in text for keyword in ["보유", "내 주식", "뭐뭐 있어", "잔고"]):
         return get_holdings(auth_header, text)
-    if any(keyword in text for keyword in ["평가 자산", "평가자산", "내 돈", "얼마 있어", "자산 얼마"]):
+    if (not is_strategy_request or is_direct_read_request) and any(keyword in text for keyword in ["평가 자산", "평가자산", "내 돈", "얼마 있어", "자산 얼마"]):
         return get_portfolio_summary(auth_header, text)
     return None
+
+
+CURRENCY_ALIASES = {
+    "달러": "USD",
+    "미국달러": "USD",
+    "미달러": "USD",
+    "USD": "USD",
+    "테더": "USDT",
+    "테더달러": "USDT",
+    "TETHER": "USDT",
+    "USDT": "USDT",
+    "원": "KRW",
+    "원화": "KRW",
+    "KRW": "KRW",
+    "엔": "JPY",
+    "엔화": "JPY",
+    "JPY": "JPY",
+    "유로": "EUR",
+    "EUR": "EUR",
+    "위안": "CNY",
+    "위안화": "CNY",
+    "CNY": "CNY",
+    "파운드": "GBP",
+    "GBP": "GBP",
+    "호주달러": "AUD",
+    "AUD": "AUD",
+    "캐나다달러": "CAD",
+    "CAD": "CAD",
+    "홍콩달러": "HKD",
+    "HKD": "HKD",
+    "스위스프랑": "CHF",
+    "CHF": "CHF",
+    "싱가포르달러": "SGD",
+    "SGD": "SGD",
+}
+
+
+def _detect_currency_pair(text: str) -> tuple[str, str]:
+    upper_text = str(text or "").upper()
+    detected = []
+    for alias, code in CURRENCY_ALIASES.items():
+        haystack = upper_text if alias.isascii() else text
+        needle = alias.upper() if alias.isascii() else alias
+        if needle in haystack and code not in detected:
+            detected.append(code)
+
+    non_krw = [code for code in detected if code != "KRW"]
+    if len(non_krw) >= 2:
+        return non_krw[0], non_krw[1]
+    if non_krw:
+        return non_krw[0], "KRW"
+    return "USD", "KRW"

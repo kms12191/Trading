@@ -282,6 +282,16 @@ AI 에이전트는 데이터 변경이나 조회 쿼리를 작성할 때 다음 
    * 로컬 파일 시스템에 임시 저장되던 Toss/KIS OAuth 토큰은 파일 동기화 문제를 막기 위해 완전히 제거되었으므로, 모든 비즈니스 레이어에서는 `token_cache_service`를 거쳐 Supabase `token_caches` 테이블에 암호화 보관된 토큰을 읽고 써야(Upsert) 합니다.
 20. **환경 변수 추가 시 .env.example 갱신 필수화**:
    * 새로운 기능 개발이나 스케줄러 도입 등으로 인해 백엔드(`backend/.env`) 혹은 프론트엔드(`frontend/.env`)에 환경 변수가 신규 추가되거나 변경될 경우, 반드시 루트 디렉토리의 `.env.example` 파일의 매칭되는 섹션에 변수명과 설명 및 교체 예시값(`replace-me`)을 작성하여 최신화해 두어야 합니다. 이는 신규 팀원 참여 및 다중 분산 협업 시의 실행 정합성을 담보하기 위함입니다.
+21. **무조건적 보안 하드캡 및 Fail-Fast 설계 규칙 (보안 필수)**:
+    * **암호화 키 Fail-Fast**: `ENCRYPTION_KEY`와 같은 대칭 키 복호화용 환경 변수가 빈 값이거나 누락되었을 경우, 코드에 절대 하드코딩된 기본값(Default)을 대안으로 제공하지 마십시오. 환경 변수가 확보되지 않으면 구동 즉시 강제 예외(Raise Exception)를 던져 서버 프로세스를 즉각 종료시키십시오.
+    * **비용 청구 라우트 방어**: 실시간 뉴스 수집(`/api/news/sync`), LLM 요약(`/api/news/summaries/ensure`) 등 외부 유료 API(Tavily, OpenAI, Gemini) 비용을 유발하는 백엔드 Route는 비인증 노출을 금지합니다. 무조건 어드민 토큰(`X-Admin-Token`) 헤더 검증 또는 JWT 세션 인증 데코레이터를 적용하십시오.
+    * **에러 응답 마스킹 확대**: `admin_inquiries.py`, `ml.py` 등 백엔드 API 라우트 내에서 에러 발생 시 `str(e)` 예외 원문을 직접 반환하지 마십시오. 시스템 내부 정보 유출을 막기 위해 무조건 `format_error_payload`를 통하게 하여 민감한 DB 스택이나 파일 경로를 숨기고 마스킹 처리하십시오.
+22. **Supabase RLS 공용-개인 데이터 분리 격리 규칙 (DB 필수)**:
+    * **공용 데이터 변조 방지**: `knowledge_chunks` 등 공용 지식 데이터(공시, 뉴스 등 `user_id IS NULL`인 상태)가 담기는 테이블의 RLS 정책에서 일반 인증 사용자(`authenticated`)에게 Insert, Update, Delete를 허용하는 `user_id IS NULL` 조건을 절대 부여하지 마십시오.
+    * 일반 사용자 권한의 쓰기(Insert/Update/Delete) 정책에서는 무조건 `user_id = auth.uid()` 조건만 강제하고, 공용 데이터 영역은 오직 `service_role` 세션을 통해서만 쓰기 작업을 하도록 철저히 격리하십시오.
+23. **개발 종료 전 정적 코드 검증 의무화 (품질 필수)**:
+    * **Vite React 컴파일 전 정밀 진단**: 프론트엔드 작업 완료 전 반드시 ESLint를 활용하여 컴파일 및 린트 경고를 확인하고, 미사용 변수(`no-unused-vars`) 및 호이스팅 TDZ(선언 전 접근 오류) 가능성을 완전히 해결하십시오.
+    * **디버그 잔재 제거**: 코드를 커밋하기 전 `grep` 등의 도구를 통해 소스 코드 전반에 `print`, `console.log` 및 `traceback.print_exc()` 잔재가 남아 있는지 전수 확인하고, 정상적인 표준 로그(`logger.info`, `logger.error`) 구문으로 모두 대체 또는 소거하십시오.
 
 
 ---

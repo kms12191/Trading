@@ -215,3 +215,11 @@ python src/run_pipeline_bundle.py \
 - [system_workflow.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/system_workflow.md:1)
 - [database_specification.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/database_specification.md:1)
 - [ml/README.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레잉/teamproject/ml/README.md:1)
+
+## 2026-07-09 DART summary RAG
+
+- DART disclosure RAG is summary-only: it indexes saved disclosure analysis summaries and basic metadata, not original disclosure bodies.
+- News is excluded from this indexing path.
+- Build chunks with `python backend\scripts\backfill_disclosure_summary_chunks.py`.
+- Embed pending chunks with `python backend\scripts\embed_pending_knowledge_chunks.py`.
+- Retrieval uses `POST /api/knowledge/retrieve-context` and the Supabase `match_knowledge_chunks` vector RPC.

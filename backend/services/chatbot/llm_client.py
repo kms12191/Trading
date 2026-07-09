@@ -86,6 +86,7 @@ class ChatbotLLMClient:
         user_message: str,
         user_id: str | None = None,
         function_schemas: list[dict] | None = None,
+        history: list[dict] | None = None,
     ) -> dict:
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY가 설정되어 있지 않습니다.")
@@ -102,12 +103,25 @@ class ChatbotLLMClient:
         )
         self._check_token_limit(user_id, estimated_tokens)
 
+        history_messages = []
+        for item in history or []:
+            role = item.get("role")
+            content = str(item.get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                history_messages.append({"role": role, "content": content})
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            *history_messages,
+            {"role": "user", "content": text},
+        ]
+
+        if len(messages) > self.max_history_messages + 1:
+            messages = [messages[0], *messages[-self.max_history_messages:]]
+
         payload = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": text},
-            ][-self.max_history_messages:],
+            "messages": messages,
             "temperature": 0.3,
             "max_tokens": self.max_output_tokens,
         }

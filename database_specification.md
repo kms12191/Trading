@@ -495,3 +495,14 @@ erDiagram
     *   답글은 원댓글 아래 1단계까지만 UI에서 허용하며, `parent_id`가 자기 자신을 참조하지 못하도록 DB 제약조건을 둡니다.
     *   `profiles.role = 'ADMIN'` 사용자는 댓글/답글을 `HIDDEN` 처리할 수 있습니다.
     *   Supabase Realtime publication에 등록되어 종목별 새 글을 즉시 반영할 수 있습니다.
+
+---
+
+## 2026-07-09 disclosure summary RAG update
+
+* `knowledge_chunks` now also stores public DART disclosure analysis summaries with `source_type = 'DISCLOSURE'`.
+* Disclosure RAG chunks are built from `dart_disclosure_analyses` summary/classification fields and basic `dart_disclosures` metadata only.
+* DART original body text and news articles are intentionally excluded from this disclosure RAG index.
+* `embedding` uses `vector(1536)` and `embedding_status` tracks `PENDING`, `EMBEDDED`, or `FAILED`.
+* `match_knowledge_chunks(...)` is the vector search RPC used by the backend retrieval service.
+* The vector index is created only for `embedding_status = 'EMBEDDED'` rows to keep retrieval focused on ready chunks.

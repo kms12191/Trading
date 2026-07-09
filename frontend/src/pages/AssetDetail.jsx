@@ -193,8 +193,6 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const [loadingChart, setLoadingChart] = useState(true)
   const [currentPrice, setCurrentPrice] = useState(0)
   const [priceChangeRate, setPriceChangeRate] = useState(0)
-  const [previousClosePrice, setPreviousClosePrice] = useState(null)
-  const [hasAuthoritativeChangeRate, setHasAuthoritativeChangeRate] = useState(false)
   const [oppositeCurrentPrice, setOppositeCurrentPrice] = useState(null)
 
   // 4. 주문 폼 상태
@@ -207,6 +205,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const [stopLossRate, setStopLossRate] = useState(-3.0)
   const [autoExitExecutionMode, setAutoExitExecutionMode] = useState('PROPOSAL')
   const [autoExitRateType, setAutoExitRateType] = useState('PRICE') // PRICE | ROE
+  const [autoRestartOnPartialFill, setAutoRestartOnPartialFill] = useState(true)
   const [futuresIntent, setFuturesIntent] = useState('LONG_OPEN')
   const [futuresLeverage, setFuturesLeverage] = useState(1)
   const [futuresMarginType, setFuturesMarginType] = useState('CROSSED')
@@ -308,6 +307,18 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const [isMlSignalExpanded, setIsMlSignalExpanded] = useState(false)
   const [isFavorite, setIsFavorite] = useState(false)
   const [symbolLookupReady, setSymbolLookupReady] = useState(false)
+
+  // URL 파라미터 변경 시 렌더링 도중에 상태 즉시 동기화 (컴포넌트 재사용 버그 원천 차단)
+  const [prevSymbol, setPrevSymbol] = useState(symbol)
+  const [prevAssetType, setPrevAssetType] = useState(assetType)
+
+  if (symbol !== prevSymbol || assetType !== prevAssetType) {
+    setPrevSymbol(symbol)
+    setPrevAssetType(assetType)
+    setResolvedSymbol(normalizeStockSymbol(symbol))
+    setResolvedAssetType(normalizedRouteAssetType)
+    setSymbolLookupReady(false)
+  }
   const [isChartExpanded, setIsChartExpanded] = useState(false)
   const [openOrders, setOpenOrders] = useState([])
   const [openOrdersLoading, setOpenOrdersLoading] = useState(false)
@@ -330,6 +341,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const [addRuleProfitRate, setAddRuleProfitRate] = useState('5.0')
   const [addRuleStopRate, setAddRuleStopRate] = useState('-3.0')
   const [addRuleExecutionMode, setAddRuleExecutionMode] = useState('PROPOSAL')
+  const [addRuleAutoRestart, setAddRuleAutoRestart] = useState(true)
 
   const handleAddRule = async () => {
     if (!addRulePrice || parseFloat(addRulePrice) <= 0) {
@@ -367,6 +379,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
           target_profit_rate: parseFloat(addRuleProfitRate),
           stop_loss_rate: parseFloat(addRuleStopRate),
           execution_mode: addRuleExecutionMode,
+          auto_restart_on_partial_fill: addRuleAutoRestart,
           broker_env: brokerEnv,
         }),
       })
@@ -375,6 +388,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         setShowAddRuleForm(false)
         setAddRulePrice('')
         setAddRuleQty('')
+        setAddRuleAutoRestart(true)
         loadAutoTradingRules()
       } else {
         alert(result.message || '조건감시 규칙 등록에 실패했습니다.')
@@ -392,6 +406,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const candleSeriesRef = useRef(null)
   const hasAppliedInitialFitRef = useRef(false)
   const abortControllerRef = useRef(null)
+  const metadataAbortControllerRef = useRef(null)
   const lastCandleSignatureRef = useRef('')
   const orderbookTradesInFlightRef = useRef(false)
   const candlesInFlightRef = useRef(false)
@@ -406,6 +421,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       ? 'USD'
       : (isResolvedUsStock ? 'USD' : 'KRW')
   const showLevel2Panel = false
+  const [balanceCooldown, setBalanceCooldown] = useState(0)
   const [isMarketClosed, setIsMarketClosed] = useState(false)
   const chartPollMs = isMarketClosed
     ? 60000
@@ -605,7 +621,14 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     
     // 반대 환경(REAL/MOCK)의 실시간 시세도 비동기로 함께 확보하여 감시 수익률 계산에 대입
     const oppositeEnv = brokerEnv === 'REAL' ? 'MOCK' : 'REAL'
-    fetch(`${API_BASE_URL}/api/chart/candles?exchange=${exchange}&symbol=${encodeURIComponent(getExchangeSymbol(exchange))}&interval=1m&limit=1&broker_env=${oppositeEnv}`)
+    const authHeader = await getAuthHeader()
+    const fetchHeaders = {}
+    if (authHeader) {
+      fetchHeaders['Authorization'] = authHeader
+    }
+    fetch(`${API_BASE_URL}/api/chart/candles?exchange=${exchange}&symbol=${encodeURIComponent(getExchangeSymbol(exchange))}&interval=1m&limit=1&broker_env=${oppositeEnv}`, {
+      headers: fetchHeaders
+    })
       .then(res => res.json())
       .then(data => {
         if (data.success && data.data && data.data.length > 0) {
@@ -867,9 +890,17 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
 
   // 종목 메타데이터(한글명 등) 조회
   const fetchSymbolMetadata = async () => {
+    if (metadataAbortControllerRef.current) {
+      metadataAbortControllerRef.current.abort()
+    }
+    const controller = new AbortController()
+    metadataAbortControllerRef.current = controller
+
     setSymbolLookupReady(false)
     try {
-      const response = await fetch(`${API_BASE_URL}/api/symbol/lookup?query=${symbol}&asset_type=${normalizedRouteAssetType}`)
+      const response = await fetch(`${API_BASE_URL}/api/symbol/lookup?query=${symbol}&asset_type=${normalizedRouteAssetType}`, {
+        signal: controller.signal
+      })
       const resData = await response.json()
       if (resData.success && resData.data && resData.data.display_name) {
         setDisplayName(resData.data.display_name)
@@ -886,12 +917,19 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         navigate(`/search/not-found?${params.toString()}`, { replace: true })
       }
     } catch (error) {
+      if (error.name === 'AbortError') {
+        return
+      }
       console.error("종목명 로드 실패:", error)
       const params = new URLSearchParams({
         query: symbol || '',
         assetType: normalizedRouteAssetType,
       })
       navigate(`/search/not-found?${params.toString()}`, { replace: true })
+    } finally {
+      if (metadataAbortControllerRef.current === controller) {
+        metadataAbortControllerRef.current = null
+      }
     }
   }
 
@@ -1840,6 +1878,16 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         if (signature !== lastCandleSignatureRef.current) {
           lastCandleSignatureRef.current = signature
           setCandleData(uniqueFormatted)
+
+          if (chartRef.current && candleSeriesRef.current) {
+            try {
+              candleSeriesRef.current.setData(uniqueFormatted)
+              chartRef.current.timeScale().fitContent()
+              hasAppliedInitialFitRef.current = true
+            } catch (err) {
+              console.error('API 로드 즉시 데이터 주입 실패:', err)
+            }
+          }
         }
         if (resData.meta?.cache_ttl_seconds && resData.meta.cache_ttl_seconds > 600) {
           setIsMarketClosed(true)
@@ -1859,43 +1907,78 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         const lastCandle = uniqueFormatted[uniqueFormatted.length - 1];
         setCurrentPrice(lastCandle.close);
         
-        if (chartInterval === '1d' && uniqueFormatted.length > 1) {
-          const prevCandle = uniqueFormatted[uniqueFormatted.length - 2]
-          setPreviousClosePrice(Number(prevCandle.close || 0) || null)
-        } else {
-          setPreviousClosePrice(null)
-        }
 
-        setHasAuthoritativeChangeRate(false)
-
-        if (resData.meta && typeof resData.meta.change_rate === 'number') {
-          setHasAuthoritativeChangeRate(true);
-          setPriceChangeRate(resData.meta.change_rate);
-        } else if (chartInterval === '1d' && uniqueFormatted.length > 1) {
-          const prevCandle = uniqueFormatted[uniqueFormatted.length - 2];
-          const referenceCurrentPrice = Number(resData.meta?.current_price ?? lastCandle.close ?? 0);
-          const previousClose = Number(prevCandle.close || 0);
-          const change = previousClose !== 0 ? ((referenceCurrentPrice - previousClose) / previousClose) * 100 : 0;
-          setHasAuthoritativeChangeRate(false);
-          setPriceChangeRate(change);
-        } else {
-          setPriceChangeRate(0);
-        }
         
         setPrice(prev => prev === '' ? lastCandle.close.toString() : prev);
       } else {
         console.error('시세 데이터를 가져오지 못했습니다:', resData.message);
+        setCandleData([])
+        if (candleSeriesRef.current) {
+          try {
+            candleSeriesRef.current.setData([])
+          } catch (err) {}
+        }
       }
     } catch (error) {
       if (error.name === 'AbortError') {
         return
       }
       console.error('시세 API 호출 오류:', error)
+      setCandleData([])
+      if (candleSeriesRef.current) {
+        try {
+          candleSeriesRef.current.setData([])
+        } catch (err) {}
+      }
     } finally {
       candlesInFlightRef.current = false
       if (abortControllerRef.current === controller) {
         setLoadingChart(false)
       }
+    }
+  }
+
+  // 1-b. 경량 시세(전일대비) 독립 조회
+  const fetchQuote = async () => {
+    try {
+      const authHeader = await getAuthHeader()
+      const chartEx = exchange
+      const chartEnv = brokerEnv
+      const chartSymbol = resolvedSymbol || symbol
+      const headers = {}
+      if (authHeader) headers['Authorization'] = authHeader
+
+      // 1차: quote API 조회
+      const url = `${API_BASE_URL}/api/chart/quote?exchange=${chartEx}&symbol=${encodeURIComponent(chartSymbol)}&broker_env=${chartEnv}`
+      const res = await fetch(url, { headers })
+      if (res.ok) {
+        const json = await res.json()
+        if (json.success && json.data && typeof json.data.change_rate === 'number' && json.data.change_rate !== 0) {
+          setPriceChangeRate(json.data.change_rate)
+          return
+        }
+      }
+
+      // 2차 fallback: 일봉 캔들 2개로 직접 계산
+      const candleUrl = `${API_BASE_URL}/api/chart/candles?exchange=${chartEx}&symbol=${encodeURIComponent(chartSymbol)}&interval=1d&broker_env=${chartEnv}&count=2`
+      const candleRes = await fetch(candleUrl, { headers })
+      if (candleRes.ok) {
+        const candleJson = await candleRes.json()
+        if (candleJson.success && candleJson.data && candleJson.data.length >= 2) {
+          const prevClose = parseFloat(candleJson.data[candleJson.data.length - 2].close || 0)
+          const todayClose = parseFloat(candleJson.data[candleJson.data.length - 1].close || 0)
+          if (prevClose > 0) {
+            setPriceChangeRate(((todayClose - prevClose) / prevClose) * 100)
+            return
+          }
+        }
+        // 캔들 meta에 change_rate가 있으면 사용
+        if (candleJson.meta && typeof candleJson.meta.change_rate === 'number' && candleJson.meta.change_rate !== 0) {
+          setPriceChangeRate(candleJson.meta.change_rate)
+        }
+      }
+    } catch (err) {
+      // quote fetch failure is non-critical
     }
   }
 
@@ -1985,6 +2068,20 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     }
   }
 
+  useEffect(() => {
+    if (balanceCooldown <= 0) return
+    const timer = window.setInterval(() => {
+      setBalanceCooldown(prev => prev - 1)
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [balanceCooldown])
+
+  const handleRefreshBalance = async () => {
+    if (balanceCooldown > 0) return
+    setBalanceCooldown(5) // 5초 쿨다운
+    await fetchUserBalance()
+  }
+
   const fetchOrderPrecheck = async () => {
     const authHeader = await getAuthHeader()
     if (!authHeader) {
@@ -2046,19 +2143,30 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     }
   }
 
-  // 거래소 토글 시 환경값 변경
+  // 0. 종목 변경 즉시 시세 및 관련 데이터 초기화
   useEffect(() => {
-    if (hasAuthoritativeChangeRate) return
-    if (chartInterval !== '1d') {
-      setPriceChangeRate(0)
-      return
-    }
-    if (!previousClosePrice) return
-    if (!currentPrice) return
+    setSymbolLookupReady(false)
+    setResolvedSymbol(normalizeStockSymbol(symbol))
+    setResolvedAssetType(normalizedRouteAssetType)
 
-    const change = ((Number(currentPrice) - Number(previousClosePrice)) / Number(previousClosePrice)) * 100
-    setPriceChangeRate(Number.isFinite(change) ? change : 0)
-  }, [currentPrice, previousClosePrice, chartInterval, hasAuthoritativeChangeRate])
+    setCandleData([])
+    setCurrentPrice(0)
+    setPriceChangeRate(0)
+    setLoadingChart(true)
+    setNewsList([])
+    setDisclosureList([])
+    setStockWarnings([])
+    setOrderPrecheck(null)
+    setPrecheckMessage('')
+    setDisplayName(symbol)
+
+    // 비동기 꼬임 방지를 위한 Ref 변수 강제 초기화
+    hasAppliedInitialFitRef.current = false
+    lastCandleSignatureRef.current = ''
+    candlesInFlightRef.current = false
+  }, [symbol, normalizedRouteAssetType])
+
+  // 거래소 토글 시 환경값 변경
 
   const handleExchangeChange = (newEx, newEnv = 'REAL') => {
     // 해외 주식인 경우 KIS 선택 차단
@@ -2090,6 +2198,8 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
 
   useEffect(() => {
     fetchSymbolMetadata()
+    loadBrokerAvailability()
+    loadTradeHoldingContext()
   }, [symbol, normalizedRouteAssetType])
 
   useEffect(() => {
@@ -2098,6 +2208,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     setNewsSyncMessage({ text: '', isError: false })
     fetchStockWarnings()
     fetchCandles()
+    fetchQuote()
     fetchUserBalance()
     loadTradeHoldingContext()
     loadOpenOrders()
@@ -2105,13 +2216,17 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     fetchNewsList()
     fetchDisclosureList()
     fetchCommunityPosts()
-  }, [exchange, symbol, chartInterval, brokerEnv, symbolLookupReady, resolvedAssetType])
+  }, [exchange, symbol, resolvedSymbol, chartInterval, brokerEnv, symbolLookupReady, resolvedAssetType])
 
+  // 전일대비 독립 폴링 (30초)
   useEffect(() => {
-    fetchSymbolMetadata()
-    loadBrokerAvailability()
-    loadTradeHoldingContext()
-  }, [symbol])
+    const quoteIntervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchQuote()
+      }
+    }, 30000)
+    return () => window.clearInterval(quoteIntervalId)
+  }, [exchange, symbol, resolvedSymbol, brokerEnv])
 
   useEffect(() => {
     loadFavoriteStatus()
@@ -2201,7 +2316,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     if (!['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1M'].includes(chartInterval)) {
       setChartInterval('1h')
     }
-  }, [resolvedAssetType, exchange, brokerEnv, chartInterval, brokerAvailability, tradeHoldingContext, symbol, isResolvedUsStock])
+  }, [resolvedAssetType, exchange, brokerEnv, chartInterval, brokerAvailability, tradeHoldingContext, symbol, resolvedSymbol, isResolvedUsStock])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -2258,10 +2373,13 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     if (!symbolLookupReady) return
     if (!chartContainerRef.current || chartRef.current) return
 
+    let chart = null
+    let candleSeries = null
+
     try {
       const containerWidth = chartContainerRef.current.clientWidth || chartContainerRef.current.parentElement?.clientWidth || 800
 
-      const chart = createChart(chartContainerRef.current, {
+      chart = createChart(chartContainerRef.current, {
         layout: {
           background: { type: 'solid', color: '#0e1529' }, // Obsidian Navy 테마
           textColor: '#94a3b8',
@@ -2297,7 +2415,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         height: 300,
       })
 
-      const candleSeries = chart.addSeries(CandlestickSeries, {
+      candleSeries = chart.addSeries(CandlestickSeries, {
         upColor: '#ef4444', // 한국 상승 빨강
         downColor: '#3b82f6', // 한국 하락 파랑
         borderVisible: false,
@@ -2309,11 +2427,22 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       chartRef.current = chart
       candleSeriesRef.current = candleSeries
 
+      // 차트 생성 시점에 이미 로드된 캔들 데이터가 있다면 즉시 주입하여 비동기 완료 순서로 인한 차트 누락(검은 화면) 방지
+      if (candleData && candleData.length > 0) {
+        try {
+          candleSeries.setData(candleData)
+          chart.timeScale().fitContent()
+          hasAppliedInitialFitRef.current = true
+        } catch (err) {
+          console.error('차트 생성 시 초기 데이터 주입 실패:', err)
+        }
+      }
+
       const handleResize = () => {
-        if (chartRef.current && chartContainerRef.current) {
+        if (chart && chartContainerRef.current) {
           try {
             const newWidth = chartContainerRef.current.clientWidth || 800
-            chartRef.current.applyOptions({ width: newWidth })
+            chart.applyOptions({ width: newWidth })
           } catch (err) {
             console.error('차트 리사이즈 조절 에러:', err)
           }
@@ -2323,25 +2452,24 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       window.addEventListener('resize', handleResize)
 
       setTimeout(() => {
-        if (chartRef.current && chartContainerRef.current) {
+        if (chart && chartContainerRef.current) {
           const fitWidth = chartContainerRef.current.clientWidth || 800
-          chartRef.current.applyOptions({ width: fitWidth })
+          chart.applyOptions({ width: fitWidth })
         }
       }, 50)
 
       return () => {
         window.removeEventListener('resize', handleResize)
         try {
-          chart.remove()
+          if (chart) {
+            chart.remove()
+          }
         } catch (e) {
           console.error('차트 소멸 정리 에러:', e)
         }
         chartRef.current = null
         candleSeriesRef.current = null
         hasAppliedInitialFitRef.current = false
-        if (chartContainerRef.current) {
-          chartContainerRef.current.innerHTML = ''
-        }
       }
     } catch (err) {
       console.error('TradingView 차트 생성 치명적 에러:', err)
@@ -2355,6 +2483,13 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     try {
       candleSeriesRef.current.setData(candleData)
 
+      // 데이터가 성공적으로 들어왔을 때, 컨테이너 크기를 최종적으로 한번 더 정밀 싱크
+      if (chartContainerRef.current) {
+        const nextWidth = chartContainerRef.current.clientWidth || 800
+        const nextHeight = isChartExpanded ? 720 : 300
+        chartRef.current.applyOptions({ width: nextWidth, height: nextHeight })
+      }
+
       if (!hasAppliedInitialFitRef.current) {
         chartRef.current.timeScale().fitContent()
         hasAppliedInitialFitRef.current = true
@@ -2362,7 +2497,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     } catch (err) {
       console.error('차트 데이터 갱신 실패:', err)
     }
-  }, [candleData, symbolLookupReady])
+  }, [candleData, isChartExpanded])
 
   useEffect(() => {
     if (!candleSeriesRef.current) return
@@ -2458,6 +2593,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
             : parseFloat(stopLossRate)
         ) : null,
         auto_exit_execution_mode: autoExit ? autoExitExecutionMode : 'PROPOSAL',
+        auto_restart_on_partial_fill: autoExit ? autoRestartOnPartialFill : false,
         position_side: exchange === 'BINANCE_UM_FUTURES' ? 'BOTH' : null,
         reduce_only: exchange === 'BINANCE_UM_FUTURES' ? effectiveReduceOnly : false,
         leverage: exchange === 'BINANCE_UM_FUTURES' ? Number(futuresLeverage) : null,
@@ -2482,6 +2618,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
           isError: false
         })
         setQuantity('')
+        setAutoRestartOnPartialFill(true)
         fetchUserBalance() // 주문 성공 시 보유 자산 즉시 갱신
         loadOpenOrders()
         loadAutoTradingRules()
@@ -2520,7 +2657,18 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const myHoldingAbsQty = Math.abs(myHoldingQty)
   const myHoldingEvalAmount = Number(myHolding?.eval_amount ?? (Number(myHolding?.current_price || 0) * myHoldingAbsQty))
   const myHoldingDirection = myHolding?.position_direction || (myHoldingQty < 0 ? 'SHORT' : 'LONG')
-  const baseAvailableCash = Number(userBalance?.available_cash ?? NaN)
+  const baseAvailableCash = (() => {
+    if (!userBalance) return NaN;
+    if (exchange === 'TOSS') {
+      const components = userBalance.available_cash_details?.components || [];
+      const targetCurrency = isResolvedUsStock ? 'USD' : 'KRW';
+      const found = components.find(c => String(c.currency).toUpperCase() === targetCurrency);
+      if (found && found.cash_buying_power != null) {
+        return Number(found.cash_buying_power);
+      }
+    }
+    return Number(userBalance.available_cash ?? NaN);
+  })();
   const overallFeedStatus = getOverallFeedStatus()
   const isTradingSuspended = resolvedAssetType === 'STOCK' && stockWarnings.some((warning) => String(warning.warning_type || '').toUpperCase() === 'TRADING_SUSPENDED')
   const tradeRestrictionMessage = isTradingSuspended
@@ -2806,11 +2954,9 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
 
               {/* 차트 영역 */}
               <div className={chartPanelClassName}>
-                {loadingChart && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-[#0e1529]/95 z-10 rounded">
-                    <span className="text-xs text-cyan-400 font-mono animate-pulse">시세 차트 로드 중...</span>
-                  </div>
-                )}
+                <div className={`absolute inset-0 flex items-center justify-center bg-[#0e1529]/95 z-10 rounded transition-opacity duration-200 ${loadingChart ? 'opacity-100' : 'opacity-0 pointer-events-none hidden'}`}>
+                  <span className="text-xs text-cyan-400 font-mono animate-pulse">시세 차트 로드 중...</span>
+                </div>
                 <div ref={chartContainerRef} className="h-full w-full" />
               </div>
             </div>
@@ -3010,7 +3156,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                   <button
                     type="button"
                     onClick={() => {
-                      setAddRulePrice(String(currentPrice || ''))
+                      setAddRulePrice(myHolding && myHolding.avg_price ? String(myHolding.avg_price) : String(currentPrice || ''))
                       setAddRuleQty(myHolding ? String(myHolding.qty || '') : '')
                       setShowAddRuleForm(!showAddRuleForm)
                     }}
@@ -3073,6 +3219,19 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                         className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:border-cyan-400 focus:outline-none"
                       />
                     </div>
+                  </div>
+
+                  <div className="mt-2.5 flex items-center gap-2 select-none cursor-pointer">
+                    <input
+                      type="checkbox"
+                      id="rule-auto-restart"
+                      checked={addRuleAutoRestart}
+                      onChange={(e) => setAddRuleAutoRestart(e.target.checked)}
+                      className="accent-cyan-400 rounded"
+                    />
+                    <label htmlFor="rule-auto-restart" className="text-[10px] text-slate-400 font-bold cursor-pointer">
+                      부분 체결 시 남은 수량 자동 재감시
+                    </label>
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2.5 items-center justify-between border-t border-[#1f2945]/40 pt-2.5">
@@ -4529,6 +4688,19 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                           </div>
                         )}
 
+                        <div className="flex items-center gap-2 px-1 py-0.5 select-none cursor-pointer">
+                          <input
+                            type="checkbox"
+                            id="order-auto-restart"
+                            checked={autoRestartOnPartialFill}
+                            onChange={(e) => setAutoRestartOnPartialFill(e.target.checked)}
+                            className="accent-cyan-400 rounded"
+                          />
+                          <label htmlFor="order-auto-restart" className="text-[10px] text-slate-400 font-bold cursor-pointer">
+                            부분 체결 시 남은 수량 자동 재감시
+                          </label>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-2 bg-[#070b19] border border-[#1f2945] rounded p-2.5">
                           <div className="flex flex-col gap-1">
                             <label className="text-[9px] font-bold text-green-400">
@@ -4621,15 +4793,29 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                   <span className="w-1.5 h-3 bg-cyan-400 rounded-full" />
                   <span className="text-xs font-bold text-white">내 보유 현황</span>
                 </div>
-                {(myHoldingAbsQty > 0 || dbEstimatedHolding?.estimatedQty > 0) && (
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={handleFillFullExitOrder}
-                    className="rounded border border-rose-500/30 px-2.5 py-1 text-[10px] font-black text-rose-300 transition hover:bg-rose-950/30"
+                    onClick={handleRefreshBalance}
+                    disabled={balanceCooldown > 0}
+                    className={`rounded border px-2 py-1 text-[10px] font-black transition ${
+                      balanceCooldown > 0
+                        ? 'text-slate-500 border-slate-800/40 bg-slate-900/20 cursor-not-allowed'
+                        : 'text-cyan-400 border-cyan-500/20 hover:bg-cyan-950/30 hover:border-cyan-500/40'
+                    }`}
                   >
-                    {exchange === 'BINANCE_UM_FUTURES' ? '전량 청산 입력' : '전량 매도 입력'}
+                    {balanceCooldown > 0 ? `대기 ${balanceCooldown}초` : '새로고침'}
                   </button>
-                )}
+                  {(myHoldingAbsQty > 0 || dbEstimatedHolding?.estimatedQty > 0) && (
+                    <button
+                      type="button"
+                      onClick={handleFillFullExitOrder}
+                      className="rounded border border-rose-500/30 px-2.5 py-1 text-[10px] font-black text-rose-300 transition hover:bg-rose-950/30"
+                    >
+                      {exchange === 'BINANCE_UM_FUTURES' ? '전량 청산 입력' : '전량 매도 입력'}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {myHolding && myHoldingAbsQty > 0 ? (
