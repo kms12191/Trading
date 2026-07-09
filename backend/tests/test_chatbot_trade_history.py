@@ -74,6 +74,17 @@ def test_strategy_request_with_holdings_keyword_does_not_route_to_holdings_tool(
     assert result is None
 
 
+def test_investment_profile_reanalysis_routes_to_settings_guide():
+    result = tool_registry.run_chatbot_tool("Bearer test", "투자성향 재분석 하고싶어")
+
+    assert result is not None
+    assert "설정 메뉴" in result["reply"]
+    assert "투자 성향 재분석" in result["reply"]
+    assert result["actions"][0]["type"] == "navigate"
+    assert result["actions"][0]["to"] == "/settings"
+    assert result["data"]["source"] == "SETTINGS_INVESTMENT_PROFILE_GUIDE"
+
+
 def test_exchange_rate_routes_currency_pair_to_internal_api(monkeypatch):
     captured = {}
 
@@ -126,3 +137,46 @@ def test_tether_exchange_rate_routes_to_usdt_krw(monkeypatch):
     assert captured["params"]["quote"] == "KRW"
     assert "USDT/KRW" in result["reply"]
     assert "1 USDT = 1,388.50 KRW" in result["reply"]
+
+
+def test_web_search_routes_to_tavily(monkeypatch):
+    class FakeTavilyClient:
+        def search(self, query, max_results=5):
+            return {
+                "answer": "삼성전자 관련 최신 이슈 요약입니다.",
+                "results": [
+                    {
+                        "title": "삼성전자 뉴스",
+                        "url": "https://example.com/samsung",
+                        "content": "삼성전자 시장 이슈 요약",
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(tool_registry, "TavilyClient", FakeTavilyClient)
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "삼성전자 최신 뉴스 찾아줘")
+
+    assert result is not None
+    assert "Tavily 웹 검색 결과입니다." in result["reply"]
+    assert "삼성전자 관련 최신 이슈 요약입니다." in result["reply"]
+    assert "출처: Tavily" in result["reply"]
+    assert result["data"]["source"] == "TAVILY"
+
+
+def test_web_search_routes_to_tavily(monkeypatch):
+    class FakeWebFallbackSearchService:
+        def search(self, auth_header=None, user_id=None, query="", limit=None):
+            return {
+                "reply": "내부 지식/DB/API 결과가 부족해 Tavily를 최후 fallback으로 사용했습니다.\n출처: Tavily + OpenAI 요약",
+                "data": {"source": "TAVILY_FALLBACK", "query": query},
+            }
+
+    monkeypatch.setattr(tool_registry, "ChatbotWebFallbackSearchService", FakeWebFallbackSearchService)
+    monkeypatch.setattr(tool_registry, "get_user_id_from_header", lambda auth_header: ("user-1", "token"))
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "삼성전자 최신 뉴스 찾아줘")
+
+    assert result is not None
+    assert "Tavily" in result["reply"]
+    assert result["data"]["source"] == "TAVILY_FALLBACK"

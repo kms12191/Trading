@@ -579,3 +579,102 @@ OpenAI 응답도 정상 수신했습니다.
 
 이 흐름을 벗어나는 직접 실거래 실행은 금지입니다.
 
+
+---
+
+## 10. 챗봇 검색 Fallback 구조 보강 - 2026-07-09
+
+### 목표
+
+챗봇이 뉴스, 공시, 최신 이슈를 조회할 때 Tavily를 기본 검색 엔진처럼 바로 쓰지 않고, 내부 자산을 먼저 사용한 뒤 마지막 보루로만 사용하도록 변경했습니다.
+
+### 적용된 검색 우선순위
+
+```text
+1. Vector DB
+   - knowledge_chunks
+   - match_knowledge_chunks RPC
+   - 이미 저장된 요약/임베딩 지식 우선 사용
+
+2. 내부 DB 원문/요약
+   - 뉴스: news_articles
+   - 공시: dart_disclosures, dart_disclosure_analyses
+
+3. 기존 Open API
+   - 뉴스: Naver News API, Finnhub API
+   - 공시: OpenDART API
+   - 조회 결과는 가능하면 DB에 저장해 다음 검색부터 재사용
+
+4. Tavily Fallback
+   - 위 단계에서 결과가 없거나 부족할 때만 사용
+   - Tavily 결과는 OpenAI 요약을 거쳐 답변
+   - 원문 출처 URL을 답변에 함께 표시
+```
+
+### 수정/추가 파일
+
+- `backend/services/tavily_client.py`
+  - Tavily Search API 호출 전용 클라이언트입니다.
+  - `TAVILY_API_KEY`, `TAVILY_SEARCH_DEPTH`, `TAVILY_TIMEOUT_SECONDS`를 사용합니다.
+
+- `backend/services/chatbot/web_fallback_search_service.py`
+  - 챗봇 뉴스/공시/웹 검색 fallback 흐름을 담당합니다.
+  - RAG -> DB -> Naver/Finnhub/DART -> Tavily 순서로 검색합니다.
+  - Tavily 결과는 `NewsSummaryService`를 통해 OpenAI로 요약합니다.
+
+- `backend/services/chatbot/tool_registry.py`
+  - `search_web` 도구를 계층형 fallback 서비스에 연결했습니다.
+  - 기존 거래내역, 보유자산, 환율, 순위 도구가 먼저 처리되고, 뉴스/공시/최신 검색성 질문만 fallback 검색으로 넘어가도록 유지했습니다.
+
+- `backend/services/chatbot/function_calling.py`
+  - `search_web` function schema를 추가했습니다.
+
+- `.env.example`
+  - Tavily 및 챗봇 검색 fallback 설정 예시를 추가했습니다.
+
+- `backend/tests/test_chatbot_trade_history.py`
+  - 챗봇 웹 검색 라우팅 테스트를 추가했습니다.
+
+### 추가된 환경변수
+
+```env
+TAVILY_API_KEY=replace-me
+TAVILY_SEARCH_DEPTH=basic
+TAVILY_TIMEOUT_SECONDS=20
+CHATBOT_TAVILY_FALLBACK_ENABLED=true
+CHATBOT_WEB_SEARCH_MAX_RESULTS=5
+```
+
+### 현재 키 연결 상태
+
+`backend/.env`에서 아래 항목 사용을 전제로 동작합니다.
+
+```text
+OPENAI_API_KEY
+NAVER_CLIENT_ID
+NAVER_CLIENT_SECRET
+FINNHUB_API_KEY
+DART_API_KEY
+TAVILY_API_KEY
+```
+
+주의: `TAVILY_API_KEY = ...`처럼 `=` 앞뒤에 공백이 있어도 대부분의 dotenv 로더는 처리하지만, 안전하게는 `TAVILY_API_KEY=...` 형태를 권장합니다.
+
+### 동작 예시
+
+```text
+삼성전자 최신 뉴스 찾아줘
+테슬라 최근 이슈 검색해줘
+현대건설 최근 공시 알려줘
+리플 관련 최근 뉴스 찾아봐
+```
+
+위 질문이 들어오면 챗봇은 Tavily부터 호출하지 않고, 저장된 벡터 DB와 내부 DB, 기존 뉴스/공시 API를 먼저 확인합니다.
+
+Tavily는 내부 결과가 부족할 때만 최후 fallback으로 호출됩니다.
+
+### 비용/쿼터 보호
+
+- Tavily 무료 플랜 호출량을 아끼기 위해 기본 검색 경로에서 제외했습니다.
+- Tavily 호출 결과는 답변에 `출처: Tavily + OpenAI 요약`으로 표시합니다.
+- OpenAI 요약은 상위 검색 결과만 사용하도록 제한했습니다.

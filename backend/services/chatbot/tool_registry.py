@@ -8,6 +8,7 @@ import requests
 from backend.services.auth_service import get_user_id_from_header
 from backend.services.supabase_client import query_supabase, safe_query_supabase
 from backend.services.symbol_metadata import enrich_symbol
+from backend.services.chatbot.web_fallback_search_service import ChatbotWebFallbackSearchService
 
 
 API_BASE_URL = os.getenv("CHATBOT_INTERNAL_API_BASE_URL", "http://localhost:5050")
@@ -21,6 +22,7 @@ def list_available_tools() -> list[str]:
         "get_holdings",
         "search_trade_history",
         "get_exchange_rate",
+        "search_web",
     ]
 
 
@@ -76,8 +78,7 @@ def _format_money(value, currency: str = "KRW") -> str:
 def _extract_symbol_query(text: str) -> str:
     cleaned = re.sub(r"(관심\s*종목|관심종목|설정해줘|추가해줘|등록해줘|보여줘|조회해줘|거래내역|거래\s*내역|주문내역|주문\s*내역|뉴스|공시)", " ", text)
     cleaned = re.sub(r"\d+(?:\.\d+)?\s*(만원|천원|원|만)", " ", cleaned)
-    cleaned = re.sub(r"[일한이삼사오육칠팔구십백천만]+\s*원\s*(이상|이하|초과|미만|넘는|넘어|부터)?", " ", cleaned)
-    cleaned = re.sub(r"[일한이삼사오육칠팔구십백천]+만\s*(이상|이하|초과|미만|넘는|넘어|부터)", " ", cleaned)
+    cleaned = re.sub(r"[일한이삼사오육칠팔구십백천만]+\s*(원|이상|이하|초과|미만|넘는|넘어|부터)?", " ", cleaned)
     cleaned = re.sub(r"(이상|이하|초과|미만|넘는|넘어|부터|전체|최근|상태|매수|매도|취소|체결|완료|실패)", " ", cleaned)
     cleaned = re.sub(r"[^0-9A-Za-z가-힣._-]+", " ", cleaned)
     candidates = [part.strip() for part in cleaned.split() if part.strip()]
@@ -175,7 +176,7 @@ def _numeric_change(row: dict) -> float:
 
 
 def _numeric_metric(row: dict, ranking: str) -> float:
-    raw = row.get("trading_volume") or row.get("volume") if ranking == "거래량" else row.get("trading_value") or row.get("value")
+    raw = (row.get("trading_volume") or row.get("volume")) if ranking == "거래량" else (row.get("trading_value") or row.get("value"))
     text = str(raw or "").replace(",", "").strip()
     try:
         number_part = float(re.sub(r"[^0-9.-]", "", text))
@@ -303,7 +304,7 @@ def get_portfolio_summary(auth_header: str, message: str) -> dict:
             f"- {item['exchange']} {item['env']}: 평가 {_format_money(item['total_evaluation'])}, 현금 {_format_money(item['available_cash'])}"
         )
     if errors and not summaries:
-        lines.append("조회 가능한 계좌가 없습니다. 설정의 API 키 상태를 확인해 주세요.")
+        lines.append("조회 가능한 계좌가 없습니다. 설정의 API 키와 거래소 계정 상태를 확인해 주세요.")
 
     return {
         "reply": "\n".join(lines),
@@ -334,6 +335,25 @@ def get_exchange_rate(auth_header: str, message: str) -> dict:
         "reply": f"{captured_at} 기준\n{base}/{quote} 환율은 1 {base} = {rate:,.2f} {quote}입니다.\n출처: {source}",
         "data": data,
     }
+
+
+def get_investment_profile_reanalysis_guide() -> dict:
+    return {
+        "reply": (
+            "투자성향 재분석은 설정 메뉴에서 진행할 수 있습니다.\n"
+            "설정 메뉴로 이동한 뒤, 하단의 '투자 성향 재분석' 버튼을 이용해 주세요."
+        ),
+        "actions": [
+            {
+                "type": "navigate",
+                "label": "설정탭으로 이동",
+                "to": "/settings",
+            }
+        ],
+        "data": {"source": "SETTINGS_INVESTMENT_PROFILE_GUIDE"},
+    }
+
+
 
 
 def add_watchlist_item(auth_header: str, message: str) -> dict:
@@ -377,7 +397,7 @@ def add_watchlist_item(auth_header: str, message: str) -> dict:
         action = "관심종목에 추가했습니다."
 
     return {
-        "reply": f"{payload['name']}({symbol})을 {action}",
+        "reply": f"{payload['name']}({symbol}) {action}",
         "data": payload,
     }
 
@@ -402,7 +422,7 @@ def get_holdings(auth_header: str, message: str) -> dict:
 
     if not holdings:
         return {
-            "reply": "현재 조회된 보유 종목이 없습니다. API 키 권한, 계좌 환경, 모의/실전 선택을 확인해 주세요.",
+            "reply": "현재 조회된 보유 종목이 없습니다.\nAPI 키 권한, 계좌 환경, 모의/실전 선택을 확인해 주세요.",
             "data": {"summaries": summaries},
         }
 
@@ -566,6 +586,34 @@ def search_trade_history(auth_header: str, message: str) -> dict:
     }
 
 
+def search_web(auth_header: str, message: str) -> dict:
+    user_id, _ = get_user_id_from_header(auth_header)
+    return ChatbotWebFallbackSearchService().search(
+        auth_header=auth_header,
+        user_id=user_id,
+        query=message,
+        limit=_detect_limit(message, default=5, maximum=5),
+    )
+
+
+def _is_web_search_request(text: str) -> bool:
+    normalized = str(text or "").upper()
+    web_keywords = [
+        "웹검색",
+        "웹 검색",
+        "검색해",
+        "찾아줘",
+        "찾아봐",
+        "최신",
+        "최근 뉴스",
+        "뉴스",
+        "공시",
+        "구글",
+        "TAVILY",
+    ]
+    return any(keyword.upper() in normalized for keyword in web_keywords)
+
+
 def run_chatbot_tool(auth_header: str | None, message: str) -> dict | None:
     if not auth_header:
         return None
@@ -573,7 +621,9 @@ def run_chatbot_tool(auth_header: str | None, message: str) -> dict | None:
     text = str(message or "")
     is_strategy_request = any(keyword in text for keyword in ["전략", "제안", "추천", "타이밍", "비중", "시나리오", "리밸런싱"])
     is_direct_read_request = any(keyword in text for keyword in ["보여줘", "조회", "알려줘", "뽑아줘", "요약", "뭐뭐 있어", "얼마"])
-    if any(keyword in text for keyword in ["환율", "환전", "원달러", "달러원", "엔화", "유로", "위안", "테더", "USDT"]):
+    if "투자성향" in text and any(keyword in text for keyword in ["재분석", "다시", "변경", "수정"]):
+        return get_investment_profile_reanalysis_guide()
+    if any(keyword in text for keyword in ["환율", "환전", "달러", "미달러", "엔화", "유로", "위안", "테더", "USDT"]):
         return get_exchange_rate(auth_header, text)
     if any(keyword in text for keyword in ["순위", "랭킹", "상위", "필터"]):
         return get_home_market_rankings(auth_header, text)
@@ -581,10 +631,12 @@ def run_chatbot_tool(auth_header: str | None, message: str) -> dict | None:
         return add_watchlist_item(auth_header, text)
     if any(keyword in text for keyword in ["거래내역", "거래 내역", "주문내역", "주문 내역"]):
         return search_trade_history(auth_header, text)
-    if not is_strategy_request and any(keyword in text for keyword in ["보유", "내 주식", "뭐뭐 있어", "잔고"]):
+    if not is_strategy_request and any(keyword in text for keyword in ["보유", "내 주식", "뭐뭐 있어", "들고"]):
         return get_holdings(auth_header, text)
     if (not is_strategy_request or is_direct_read_request) and any(keyword in text for keyword in ["평가 자산", "평가자산", "내 돈", "얼마 있어", "자산 얼마"]):
         return get_portfolio_summary(auth_header, text)
+    if _is_web_search_request(text):
+        return search_web(auth_header, text)
     return None
 
 

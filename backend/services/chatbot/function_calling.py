@@ -1,4 +1,4 @@
-"""Basic function-calling schemas for the chatbot."""
+"""챗봇 function calling 도구 스키마입니다."""
 
 FUNCTION_SCHEMAS = [
     {
@@ -68,6 +68,18 @@ FUNCTION_SCHEMAS = [
                 "base_currency": {"type": "string", "description": "USD, USDT, JPY, EUR, CNY 등 기준 통화"},
                 "quote_currency": {"type": "string", "description": "KRW, USD 등 상대 통화"},
             },
+        },
+    },
+    {
+        "name": "search_web",
+        "description": "내부 RAG, DB, 기존 뉴스/공시 API를 우선 확인하고 부족할 때 Tavily로 최신 웹 검색을 수행합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "검색할 문장 또는 키워드"},
+                "limit": {"type": "number", "description": "검색 결과 개수"},
+            },
+            "required": ["query"],
         },
     },
 ]

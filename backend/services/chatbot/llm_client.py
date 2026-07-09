@@ -9,7 +9,7 @@ OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 
 
 class ChatbotLimitError(Exception):
-    """챗봇 사용량 제한을 넘었을 때 발생하는 예외입니다."""
+    """챗봇 사용량 제한에 도달했을 때 발생하는 예외입니다."""
 
 
 class ChatbotLLMClient:
@@ -55,7 +55,7 @@ class ChatbotLLMClient:
             window.popleft()
 
         if len(window) >= self.minute_request_limit:
-            raise ChatbotLimitError("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
+            raise ChatbotLimitError("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.")
 
         window.append(now)
 
@@ -72,7 +72,7 @@ class ChatbotLLMClient:
 
     def _to_openai_tools(self, function_schemas: list[dict] | None) -> list[dict]:
         tools = []
-        for schema in (function_schemas or [])[: self.max_tool_calls]:
+        for schema in (function_schemas or []):
             tools.append({
                 "type": "function",
                 "function": schema,
@@ -153,11 +153,8 @@ class ChatbotLLMClient:
         content = (message.get("content") or "").strip()
         tool_calls = message.get("tool_calls") or []
 
-        if not content and tool_calls:
-            content = "필요한 기능 호출을 확인했습니다. 실제 기능 연결은 다음 단계에서 활성화할 수 있습니다."
-
         if not content:
-            content = "응답을 만들지 못했습니다. 잠시 후 다시 시도해주세요."
+            content = "응답을 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
 
         return {
             "reply": content,

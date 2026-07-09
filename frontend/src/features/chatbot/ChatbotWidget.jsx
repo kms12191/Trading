@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { sendChatbotMessage } from './chatbotApi'
 import { getDefaultChatbotSize, resizeChatbotPanel } from './chatbotResize'
 
@@ -36,9 +37,10 @@ function formatMessageTime(createdAt) {
   }
 }
 
-function ChatMessage({ message }) {
+function ChatMessage({ message, onAction }) {
   const isUser = message.role === 'user'
   const messageTime = formatMessageTime(message.createdAt)
+  const actions = Array.isArray(message.actions) ? message.actions : []
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -57,12 +59,27 @@ function ChatMessage({ message }) {
             {messageTime}
           </time>
         )}
+        {!isUser && actions.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-1">
+            {actions.map((action, index) => (
+              <button
+                key={`${action.type || 'action'}-${action.to || index}`}
+                type="button"
+                onClick={() => onAction(action)}
+                className="rounded border border-ai-cyan/60 bg-ai-cyan/10 px-2.5 py-1.5 text-[11px] font-bold text-ai-cyan transition hover:bg-ai-cyan hover:text-[#07111f]"
+              >
+                {action.label || '이동'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 export default function ChatbotWidget({ enabled = true }) {
+  const navigate = useNavigate()
   const [isOpen, setIsOpen] = useState(false)
   const [panelSize, setPanelSize] = useState(getDefaultChatbotSize)
   const [messages, setMessages] = useState(INITIAL_MESSAGES)
@@ -132,13 +149,21 @@ export default function ChatbotWidget({ enabled = true }) {
     window.addEventListener('mouseup', stopResize)
   }
 
-  const addMessage = (role, text) => {
+  const handleAction = (action) => {
+    if (action?.type === 'navigate' && action.to) {
+      navigate(action.to)
+      closeChat()
+    }
+  }
+
+  const addMessage = (role, text, actions = []) => {
     setMessages((prev) => [
       ...prev,
       {
         id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         role,
         text,
+        actions,
         createdAt: new Date().toISOString(),
       },
     ])
@@ -154,7 +179,11 @@ export default function ChatbotWidget({ enabled = true }) {
 
     try {
       const result = await sendChatbotMessage(trimmed, { timezone: getUserTimeZone() })
-      addMessage('assistant', result?.reply || '응답을 만들지 못했습니다. 잠시 후 다시 시도해주세요.')
+      addMessage(
+        'assistant',
+        result?.reply || '응답을 만들지 못했습니다. 잠시 후 다시 시도해주세요.',
+        result?.actions || [],
+      )
     } catch (error) {
       addMessage('assistant', error.message || '챗봇 연결 중 문제가 발생했습니다.')
     } finally {
@@ -218,7 +247,7 @@ export default function ChatbotWidget({ enabled = true }) {
 
           <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
             {messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
+              <ChatMessage key={message.id} message={message} onAction={handleAction} />
             ))}
             {isSending && (
               <div className="w-fit rounded-lg border border-slate-700/80 bg-[#111827] px-3 py-2 text-xs text-slate-400">

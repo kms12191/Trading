@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict, deque
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -6,16 +7,26 @@ from backend.services.chatbot.function_calling import FUNCTION_SCHEMAS
 from backend.services.chatbot.llm_client import ChatbotLLMClient
 from backend.services.chatbot.prompt_registry import build_system_prompt
 from backend.services.chatbot.rag_service import ChatbotRAGService
-from backend.services.chatbot.tool_registry import get_portfolio_summary, list_available_tools, run_chatbot_tool
+from backend.services.chatbot.tool_registry import (
+    add_watchlist_item,
+    get_exchange_rate,
+    get_holdings,
+    get_home_market_rankings,
+    get_portfolio_summary,
+    list_available_tools,
+    run_chatbot_tool,
+    search_trade_history,
+    search_web,
+)
 from backend.services.supabase_client import safe_query_supabase
 
 
 INVESTMENT_PROFILE_GUIDES = {
     "안정형": "원금 보전, 낮은 변동성, 손절 기준, 현금 비중과 분산 투자를 우선해서 설명합니다.",
-    "안정추구형": "안정성을 우선하되 제한적인 수익 기회를 함께 검토하고, 과도한 집중 투자를 피하도록 설명합니다.",
-    "위험중립형": "기대수익과 리스크의 균형, 분할 매수·매도, 포트폴리오 비중 조절을 함께 설명합니다.",
-    "적극투자형": "성장성과 수익 기회를 검토하되 변동성, 손실 가능성, 익절·손절 시나리오를 함께 설명합니다.",
-    "공격투자형": "높은 변동성과 손실 가능성을 명확히 경고하면서 성장성, 모멘텀, 손익 시나리오를 함께 설명합니다.",
+    "안정추구형": "안정성을 우선하되 제한적인 수익 기회를 함께 검토하고 과도한 집중 투자를 피하도록 설명합니다.",
+    "위험중립형": "기대수익과 리스크의 균형, 분할 매수/매도, 포트폴리오 비중 조절을 함께 설명합니다.",
+    "적극투자형": "성장성과 수익 기회를 검토하되 변동성, 손실 가능성, 익절/손절 시나리오를 함께 설명합니다.",
+    "공격투자형": "높은 변동성과 손실 가능성을 명확히 경고하면서 성장 모멘텀과 수익 시나리오를 함께 설명합니다.",
 }
 
 CONFIRMATION_PHRASES = (
@@ -27,7 +38,12 @@ CONFIRMATION_PHRASES = (
     "그래",
     "좋아",
     "해줘",
+    "해봐",
     "시작해",
+    "해죠",
+    "ㄱㄱ",
+    "고고",
+    "오키",
 )
 
 PENDING_ACTION_TTL_SECONDS = 300
@@ -52,9 +68,9 @@ def build_current_datetime_context(user_timezone: str | None = None) -> str:
         f"- 오늘 날짜: {now:%Y년 %m월 %d일} {weekday}",
         f"- ISO 날짜: {now:%Y-%m-%d}",
         f"- 현재 시각: {now:%H:%M:%S}",
-        "- 사용자가 오늘, 어제, 최근, 이번 주, 지난달 같은 상대 날짜를 말하면 반드시 위 날짜를 기준으로 해석합니다.",
+        "- 사용자가 오늘, 어제, 최근, 이번 주, 지난달 같은 상대 날짜를 말하면 반드시 이 날짜를 기준으로 해석합니다.",
         "- 날짜가 중요한 뉴스, 공시, 거래내역, 차트 요청은 가능한 경우 해석한 start_date와 end_date 범위를 도구 호출이나 답변에 반영합니다.",
-        "- 답변에서도 필요하면 'YYYY-MM-DD 기준'처럼 해석한 날짜 기준을 표시합니다.",
+        "- 답변에서는 필요한 경우 'YYYY-MM-DD 기준'처럼 해석한 날짜 기준을 표시합니다.",
     ])
 
 
@@ -82,7 +98,10 @@ def load_user_investment_profile_context(auth_header: str | None, user_id: str |
         return ""
 
     score = profile.get("invest_score")
-    guide = INVESTMENT_PROFILE_GUIDES.get(invest_type, "해당 투자성향에 맞춰 위험 설명과 제안 강도를 보수적으로 조절합니다.")
+    guide = INVESTMENT_PROFILE_GUIDES.get(
+        invest_type,
+        "해당 투자성향에 맞춰 위험 설명과 제안 강도를 보수적으로 조절합니다.",
+    )
     score_text = f" / 점수: {score}" if score is not None else ""
 
     return "\n".join(
@@ -90,7 +109,7 @@ def load_user_investment_profile_context(auth_header: str | None, user_id: str |
             "로그인 사용자 투자성향 문맥:",
             f"- 투자성향: {invest_type}{score_text}",
             f"- 제안 기준: {guide}",
-            "- 매매 제안 시 사용자의 투자성향에 맞지 않는 과도한 위험은 먼저 경고하고, 가능한 대안을 함께 제시합니다.",
+            "- 매매 제안 때 사용자의 투자성향에 맞지 않는 과도한 위험은 먼저 경고하고, 가능한 대안을 함께 제시합니다.",
         ]
     )
 
@@ -194,6 +213,58 @@ class ChatbotService:
             return get_portfolio_summary(auth_header, text or "평가 자산 요약해줘")
         return None
 
+    def _tool_message_from_arguments(self, tool_name: str, arguments: dict, fallback_text: str) -> str:
+        if tool_name in {"search_web", "add_watchlist_item"}:
+            return str(arguments.get("query") or fallback_text)
+        if tool_name == "search_trade_history":
+            parts = ["거래내역"]
+            if arguments.get("symbol"):
+                parts.append(str(arguments["symbol"]))
+            if arguments.get("min_amount"):
+                parts.append(f"{arguments['min_amount']}원 이상")
+            if arguments.get("limit"):
+                parts.append(f"상위 {arguments['limit']}개")
+            return " ".join(parts)
+        if tool_name == "get_exchange_rate":
+            base = str(arguments.get("base_currency") or "").strip()
+            quote = str(arguments.get("quote_currency") or "KRW").strip()
+            return f"{base}/{quote} 환율 알려줘".strip()
+        if tool_name == "get_home_market_rankings":
+            asset_type = str(arguments.get("asset_type") or "").upper()
+            asset_text = "코인" if asset_type == "CRYPTO" else "국내주식" if asset_type == "STOCK" else ""
+            ranking = arguments.get("ranking") or "상승률"
+            limit = arguments.get("limit") or 5
+            return f"{asset_text} {ranking} 순위 상위 {limit}개"
+        return fallback_text
+
+    def _run_llm_tool_call(self, auth_header: str | None, tool_call: dict, fallback_text: str) -> dict | None:
+        if not auth_header:
+            return None
+
+        function_info = tool_call.get("function") or {}
+        tool_name = function_info.get("name")
+        raw_arguments = function_info.get("arguments") or "{}"
+        try:
+            arguments = json.loads(raw_arguments) if isinstance(raw_arguments, str) else dict(raw_arguments)
+        except (TypeError, ValueError):
+            arguments = {}
+
+        tool_map = {
+            "get_home_market_rankings": get_home_market_rankings,
+            "get_portfolio_summary": get_portfolio_summary,
+            "add_watchlist_item": add_watchlist_item,
+            "get_holdings": get_holdings,
+            "search_trade_history": search_trade_history,
+            "get_exchange_rate": get_exchange_rate,
+            "search_web": search_web,
+        }
+        tool_func = tool_map.get(tool_name)
+        if not tool_func:
+            return None
+
+        tool_message = self._tool_message_from_arguments(tool_name, arguments, fallback_text)
+        return tool_func(auth_header, tool_message)
+
     def reply(
         self,
         message: str,
@@ -204,7 +275,7 @@ class ChatbotService:
         text = str(message or "").strip()
         if not text:
             return {
-                "reply": "궁금한 내용을 입력해 주세요. 예: 내 보유자산 요약해줘, XRP 시세 알려줘",
+                "reply": "궁금한 내용을 입력해 주세요. 예: 보유자산 요약해줘, XRP 시세 알려줘",
                 "actions": [],
             }
 
@@ -217,7 +288,7 @@ class ChatbotService:
                     self._append_history(user_id, "assistant", tool_result["reply"])
                     return {
                         "reply": tool_result["reply"],
-                        "actions": [],
+                        "actions": tool_result.get("actions") or [],
                         "meta": {
                             "user_id": user_id,
                             "available_tools": list_available_tools(),
@@ -233,7 +304,7 @@ class ChatbotService:
             self._append_history(user_id, "assistant", tool_result["reply"])
             return {
                 "reply": tool_result["reply"],
-                "actions": [],
+                "actions": tool_result.get("actions") or [],
                 "meta": {
                     "user_id": user_id,
                     "available_tools": list_available_tools(),
@@ -249,6 +320,23 @@ class ChatbotService:
             function_schemas=FUNCTION_SCHEMAS,
             history=self._get_recent_history(user_id),
         )
+
+        for tool_call in result.get("tool_calls") or []:
+            tool_result = self._run_llm_tool_call(auth_header, tool_call, text)
+            if tool_result:
+                self._append_history(user_id, "user", text)
+                self._append_history(user_id, "assistant", tool_result["reply"])
+                return {
+                    "reply": tool_result["reply"],
+                    "actions": tool_result.get("actions") or [],
+                    "meta": {
+                        "user_id": user_id,
+                        "available_tools": list_available_tools(),
+                        "tool_result": tool_result.get("data"),
+                        "tool_call": tool_call,
+                        "source": "OPENAI_TOOL_CALL",
+                    },
+                }
 
         reply_text = result["reply"]
         self._append_history(user_id, "user", text)
