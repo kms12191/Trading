@@ -50,6 +50,21 @@ backend/
 │   ├── auto_trading_rule_engine.py
 │   ├── binance_client.py
 │   ├── broker_order_history_service.py
+│   ├── chatbot/
+│   │   ├── __init__.py
+│   │   ├── chat_service.py
+│   │   ├── conversation_repository.py
+│   │   ├── function_calling.py
+│   │   ├── llm_client.py
+│   │   ├── memory_service.py
+│   │   ├── order_parser.py
+│   │   ├── portfolio_summary_service.py
+│   │   ├── prompt_registry.py
+│   │   ├── rag_service.py
+│   │   ├── recommendation_service.py
+│   │   ├── safety_guard.py
+│   │   ├── tool_registry.py
+│   │   └── web_fallback_search_service.py
 │   ├── coinone_client.py
 │   ├── dart_ingest.py
 │   ├── dart_repository.py
@@ -104,6 +119,9 @@ backend/
   - `knowledge.py`는 Obsidian Markdown 노트 동기화와 앱 자동메모리 조회 API를 담당
 - `services/`
   - 거래소 연동, Supabase, 스케줄러, ML 운영 로직
+  - `chatbot/conversation_repository.py`는 Supabase `chat_history`와 `chatbot_conversation_states`를 사용해 다중 워커 간 대화 이력, 만료 가능한 대기 작업, 최근 추천 상태를 공유
+  - `chatbot/portfolio_summary_service.py`는 거래소별 KRW·USD·USDT 잔고를 원화로 환산하고 REAL/MOCK 계좌 합계를 분리
+  - `chatbot/llm_client.py`는 OpenAI Chat Completions 스트림의 텍스트 delta를 전달하고 분할된 tool-call과 usage를 누적
   - `obsidian_service.py`는 Markdown frontmatter/title/hash 정규화를 담당
   - `knowledge_chunk_service.py`는 저장된 노트 본문을 RAG/embedding 대상 chunk로 분할
   - `knowledge_repository.py`는 `user_knowledge_notes`, `user_memory_facts` Supabase 저장/조회 래퍼를 담당

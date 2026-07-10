@@ -52,5 +52,3 @@ assert.deepEqual(
   }),
   CHATBOT_MAX_SIZE,
 )
-
-console.log('chatbot resize tests passed')

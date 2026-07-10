@@ -103,6 +103,8 @@ erDiagram
 *   **원자 승인 RPC**:
     *   `claim_trade_proposal_for_execution(p_proposal_id uuid)`는 호출 사용자가 소유한 `PENDING` 제안만 `APPROVED`로 변경하고 `approved_at`을 기록합니다. 이미 선점된 제안은 반환되지 않습니다.
     *   함수는 `SECURITY INVOKER`로 실행하며 `authenticated`, `service_role`만 실행할 수 있습니다.
+*   **챗봇 제안 생성 규칙**:
+    *   챗봇 경로의 `PENDING` 제안은 `raw_order_payload.precheck_status=OK`이고 현재가·예상 주문금액을 확인했으며 장 운영, 잔고·보유수량, 거래 권한, 지원 주문유형, 실거래 한도 검증에 차단 사유가 없을 때만 생성합니다.
 *   **현재 구현 메모**:
     *   `COINONE` 실주문은 백엔드 `trade` 라우트에서 지정가(`LIMIT`) 매수/매도와 미체결 주문 취소까지 연결되어 있습니다.
     *   `COINONE` 시장가(`MARKET`) 주문은 API 정책 검증 전까지 프론트엔드와 백엔드에서 차단합니다.
@@ -428,10 +430,22 @@ erDiagram
     *   사용자 입력과 AI 답변은 한 번의 요청에서 각각 `user`, `assistant` 행으로 저장합니다.
     *   비로그인 요청은 API 인증 단계에서 차단하며, 익명 사용자용 공용 대화 키나 이력을 생성하지 않습니다.
 
-### chatbot_conversation_states
-* **용도**: 여러 Flask 워커가 공유해야 하는 챗봇 대기 작업과 최근 추천 후보를 사용자별로 저장합니다.
-* **TTL**: `pending_expires_at`, `recommendation_expires_at`이 지난 상태는 대화 해석에 사용하지 않습니다.
-* **RLS**: `authenticated` 사용자는 `auth.uid() = user_id`인 자신의 행만 조회·삽입·수정·삭제할 수 있습니다.
+### 2.16.1 chatbot_conversation_states
+*   **용도**: 여러 Flask 워커가 공유해야 하는 챗봇 대기 작업과 최근 추천 후보를 사용자별로 저장합니다.
+*   **주요 컬럼**:
+    *   `user_id` (UUID, PK, FK) - `profiles.id`를 참조하며 사용자별 상태를 1행으로 유지합니다.
+    *   `pending_action` (TEXT) - 추가 입력이나 확인을 기다리는 작업 이름
+    *   `pending_payload` (JSONB) - 대기 작업의 구조화 데이터이며 JSON object만 허용합니다.
+    *   `pending_expires_at` (TIMESTAMPTZ) - 대기 작업 만료 시각
+    *   `recommendation_items` (JSONB) - 최근 추천 후보 배열이며 JSON array만 허용합니다.
+    *   `recommendation_source` (TEXT) - 추천 후보 생성 출처
+    *   `recommendation_expires_at` (TIMESTAMPTZ) - 최근 추천 후보 만료 시각
+    *   `updated_at` (TIMESTAMPTZ)
+*   **TTL**:
+    *   기본 대기 작업은 300초, 최근 추천 후보는 600초 동안 유효하며 각 만료 시각이 지난 상태는 대화 해석에 사용하지 않습니다.
+*   **RLS**:
+    *   `authenticated` 역할에 조회·삽입·수정·삭제 권한을 부여하고 `anon` 권한은 회수합니다.
+    *   사용자는 `auth.uid() = user_id`인 자신의 행만 접근할 수 있으며, `UPDATE` 정책은 `USING`과 `WITH CHECK`를 모두 적용합니다.
 
 ### 2.17 chatbot_usage_counters
 *   **용도**: 여러 Flask 워커가 공유하는 챗봇 분당 요청 수와 일일 토큰 예약량을 원자적으로 관리합니다.

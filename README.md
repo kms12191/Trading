@@ -15,6 +15,10 @@
   - `home`, `keys`, `ml`, `news`, `trade`, `transfer` Blueprint API
   - `chatbot` Blueprint API: Supabase Auth 검증, 로그인 사용자별 대화 이력 복원·저장, 도구 호출 및 LLM 응답
   - 챗봇 매매 제안은 `trade_proposals.status=PENDING`으로만 생성되며, 승인 카드에서만 주문 승인/거절 가능
+  - 환경 미지정 챗봇 주문 제안은 MOCK이 기본이며 REAL은 사용자가 명시한 경우에만 허용됩니다.
+  - 사전검증 실패, API 키 미등록, 지원하지 않는 주문유형, 실거래 10만 원 초과 요청은 PENDING 제안을 생성하지 않습니다.
+  - 승인 요청은 Supabase RPC로 원자 선점되어 같은 `proposal_id`가 중복 주문으로 전송되지 않습니다.
+  - 챗봇 SSE 오류는 사용자에게 `request_id`를 제공하고 서버 로그는 같은 `request_id`로 조회합니다.
   - 챗봇 사용량은 Supabase `chatbot_usage_counters` RPC로 워커 간 공유 집계
   - Toss/KIS/Coinone/Binance 클라이언트
   - 코인원 계좌 잔고 조회, 현재가 조회, 지정가 주문, 미체결 주문 취소
