@@ -1,14 +1,17 @@
 import json
 from collections import defaultdict, deque
 from datetime import datetime
+from typing import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from backend.services.chatbot.function_calling import FUNCTION_SCHEMAS
 from backend.services.chatbot.llm_client import ChatbotLLMClient
+from backend.services.chatbot.memory_service import ChatbotMemoryService
 from backend.services.chatbot.prompt_registry import build_system_prompt
 from backend.services.chatbot.rag_service import ChatbotRAGService
 from backend.services.chatbot.tool_registry import (
     add_watchlist_item,
+    create_trade_proposal,
     get_exchange_rate,
     get_holdings,
     get_home_market_rankings,
@@ -19,6 +22,8 @@ from backend.services.chatbot.tool_registry import (
     search_trade_history,
     search_web,
 )
+from backend.services.chatbot.safety_guard import enforce_tool_safety
+from backend.services.knowledge_repository import KnowledgeRepository
 from backend.services.supabase_client import safe_query_supabase
 
 
@@ -50,6 +55,37 @@ CONFIRMATION_PHRASES = (
 PENDING_ACTION_TTL_SECONDS = 300
 CHAT_HISTORY_MAXLEN = 12
 DEFAULT_CHATBOT_TIMEZONE = "Asia/Seoul"
+TraceCallback = Callable[[dict], None]
+
+
+def build_tool_trace_steps(tool_result_data: dict | None) -> list[dict]:
+    data = tool_result_data if isinstance(tool_result_data, dict) else {}
+    source = str(data.get("source") or "").upper()
+    citations = data.get("citations") if isinstance(data.get("citations"), list) else []
+    raw_order_payload = data.get("raw_order_payload") if isinstance(data.get("raw_order_payload"), dict) else {}
+    steps = []
+    seen = set()
+
+    def add(kind: str, label: str) -> None:
+        if kind in seen:
+            return
+        seen.add(kind)
+        steps.append({"kind": kind, "label": label})
+
+    if source in {"ML_ACTIVE_SIGNAL"}:
+        add("ml", "ML 신호")
+    if source in {"TAVILY", "TAVILY_FALLBACK", "TAVILY_API"}:
+        add("tavily", "Tavily 웹검색")
+    if source in {"DISCLOSURE_DB", "NEWS_DB", "VECTOR_DB", "HOME_MARKET", "OPEN_ORDERS"}:
+        add("db", "Supabase DB 조회")
+    if source in {"VECTOR_DB"} or citations:
+        add("rag", "RAG 벡터검색")
+    if any(str(row.get("source_type") or "").upper() == "DISCLOSURE" for row in citations if isinstance(row, dict)):
+        add("disclosure", "DART 공시")
+    if raw_order_payload.get("precheck") or raw_order_payload.get("precheck_status"):
+        add("precheck", "주문 사전검증")
+
+    return steps
 
 
 def build_current_datetime_context(user_timezone: str | None = None) -> str:
@@ -122,16 +158,23 @@ class ChatbotService:
         self.system_prompt = build_system_prompt()
         self.llm_client = ChatbotLLMClient()
         self.rag_service = ChatbotRAGService()
+        self.knowledge_repository = KnowledgeRepository()
+        self.memory_service = ChatbotMemoryService(self.knowledge_repository)
         self._history_by_user = defaultdict(lambda: deque(maxlen=CHAT_HISTORY_MAXLEN))
+        self._history_loaded_users = set()
         self._pending_actions = {}
 
-    def _conversation_key(self, user_id: str | None) -> str:
-        return user_id or "anonymous"
+    def _conversation_key(self, user_id: str | None) -> str | None:
+        return user_id
 
     def _get_recent_history(self, user_id: str | None) -> list[dict]:
+        if not user_id:
+            return []
         return list(self._history_by_user[self._conversation_key(user_id)])
 
     def _append_history(self, user_id: str | None, role: str, content: str) -> None:
+        if not user_id:
+            return
         text = str(content or "").strip()
         if not text:
             return
@@ -140,7 +183,64 @@ class ChatbotService:
             "content": text,
         })
 
+    def _load_persisted_history(self, auth_header: str | None, user_id: str | None) -> None:
+        if not auth_header or not user_id or user_id in self._history_loaded_users:
+            return
+
+        rows = safe_query_supabase(
+            auth_header,
+            "chat_history",
+            "GET",
+            params={
+                "user_id": f"eq.{user_id}",
+                "select": "role,message,created_at,id",
+                "order": "created_at.desc,id.desc",
+                "limit": str(CHAT_HISTORY_MAXLEN),
+            },
+        ) or []
+        history = self._history_by_user[self._conversation_key(user_id)]
+        history.clear()
+        for row in reversed(rows):
+            role = str((row or {}).get("role") or "").strip()
+            message = str((row or {}).get("message") or "").strip()
+            if role in {"user", "assistant"} and message:
+                history.append({"role": role, "content": message})
+        self._history_loaded_users.add(user_id)
+
+    def _record_exchange(
+        self,
+        auth_header: str | None,
+        user_id: str | None,
+        user_message: str,
+        assistant_message: str,
+    ) -> None:
+        if not user_id:
+            return
+
+        self._append_history(user_id, "user", user_message)
+        self._append_history(user_id, "assistant", assistant_message)
+        safe_query_supabase(
+            auth_header,
+            "chat_history",
+            "POST",
+            json_data=[
+                {"user_id": user_id, "role": "user", "message": str(user_message).strip()},
+                {"user_id": user_id, "role": "assistant", "message": str(assistant_message).strip()},
+            ],
+        )
+        try:
+            self.memory_service.capture_from_exchange(
+                auth_header=auth_header,
+                user_id=user_id,
+                user_message=user_message,
+                assistant_message=assistant_message,
+            )
+        except Exception:
+            pass
+
     def _set_pending_action(self, user_id: str | None, action: str) -> None:
+        if not user_id:
+            return
         import time
 
         self._pending_actions[self._conversation_key(user_id)] = {
@@ -149,6 +249,8 @@ class ChatbotService:
         }
 
     def _pop_pending_action(self, user_id: str | None) -> str | None:
+        if not user_id:
+            return None
         import time
 
         key = self._conversation_key(user_id)
@@ -162,6 +264,8 @@ class ChatbotService:
         return pending.get("action")
 
     def _peek_pending_action(self, user_id: str | None) -> str | None:
+        if not user_id:
+            return None
         import time
 
         key = self._conversation_key(user_id)
@@ -179,6 +283,7 @@ class ChatbotService:
         user_id: str | None,
         user_message: str = "",
         user_timezone: str | None = None,
+        trace_callback: TraceCallback | None = None,
     ) -> str:
         prompt_parts = [
             self.system_prompt,
@@ -188,17 +293,40 @@ class ChatbotService:
         if profile_context:
             prompt_parts.append(profile_context)
 
+        memory_context = ""
+        if auth_header and user_id:
+            try:
+                memory_context = self.knowledge_repository.list_chatbot_memory_context(auth_header, user_id)
+            except Exception:
+                memory_context = ""
+        if memory_context:
+            prompt_parts.append(memory_context)
+
+        self._emit_trace(trace_callback, "rag", "RAG 벡터검색")
         rag_context, _ = self.rag_service.build_context(auth_header, user_id, user_message)
         if rag_context:
+            self._emit_trace(trace_callback, "rag_context", "RAG 참고자료 반영")
             prompt_parts.append(rag_context)
 
         return "\n\n".join(prompt_parts)
+
+    @staticmethod
+    def _emit_trace(trace_callback: TraceCallback | None, kind: str, label: str, **extra) -> None:
+        if not trace_callback:
+            return
+        trace_callback({"kind": kind, "label": label, **extra})
+
+    def _emit_tool_trace_steps(self, trace_callback: TraceCallback | None, tool_data: dict | None) -> list[dict]:
+        steps = build_tool_trace_steps(tool_data)
+        for step in steps:
+            self._emit_trace(trace_callback, step.get("kind") or "tool", step.get("label") or "도구 처리")
+        return steps
 
     def _is_confirmation(self, text: str) -> bool:
         normalized = str(text or "").replace(" ", "").strip()
         if not normalized:
             return False
-        return any(phrase.replace(" ", "") in normalized for phrase in CONFIRMATION_PHRASES)
+        return normalized in {phrase.replace(" ", "") for phrase in CONFIRMATION_PHRASES}
 
     def _maybe_set_pending_from_reply(self, user_id: str | None, user_text: str, assistant_reply: str) -> None:
         combined = f"{user_text}\n{assistant_reply}"
@@ -261,6 +389,10 @@ class ChatbotService:
         except (TypeError, ValueError):
             arguments = {}
 
+        enforce_tool_safety(tool_name, arguments)
+        if tool_name == "create_trade_proposal":
+            return create_trade_proposal(auth_header, arguments)
+
         tool_map = {
             "get_home_market_rankings": get_home_market_rankings,
             "get_portfolio_summary": get_portfolio_summary,
@@ -284,6 +416,7 @@ class ChatbotService:
         user_id: str | None = None,
         auth_header: str | None = None,
         user_timezone: str | None = None,
+        trace_callback: TraceCallback | None = None,
     ) -> dict:
         text = str(message or "").strip()
         if not text:
@@ -293,67 +426,80 @@ class ChatbotService:
             }
 
         if self._is_confirmation(text):
+            self._emit_trace(trace_callback, "pending_action", "대기 작업 확인")
             pending_action = self._pop_pending_action(user_id)
             if pending_action:
+                self._emit_trace(trace_callback, "tool", "보유자산 조회")
                 tool_result = self._run_pending_action(pending_action, auth_header, text)
                 if tool_result:
-                    self._append_history(user_id, "user", text)
-                    self._append_history(user_id, "assistant", tool_result["reply"])
+                    tool_data = tool_result.get("data")
+                    trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
+                    self._record_exchange(auth_header, user_id, text, tool_result["reply"])
                     return {
                         "reply": tool_result["reply"],
                         "actions": tool_result.get("actions") or [],
                         "meta": {
                             "user_id": user_id,
                             "available_tools": list_available_tools(),
-                            "tool_result": tool_result.get("data"),
+                            "tool_result": tool_data,
+                            "trace_steps": trace_steps,
                             "pending_action": pending_action,
                             "source": "PROJECT_TOOL_PENDING",
                         },
                     }
 
+        self._emit_trace(trace_callback, "tool_routing", "도구 확인")
         tool_result = run_chatbot_tool(auth_header, text)
         if tool_result:
-            self._append_history(user_id, "user", text)
-            self._append_history(user_id, "assistant", tool_result["reply"])
+            tool_data = tool_result.get("data")
+            trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
+            self._record_exchange(auth_header, user_id, text, tool_result["reply"])
             return {
                 "reply": tool_result["reply"],
                 "actions": tool_result.get("actions") or [],
                 "meta": {
                     "user_id": user_id,
                     "available_tools": list_available_tools(),
-                    "tool_result": tool_result.get("data"),
+                    "tool_result": tool_data,
+                    "trace_steps": trace_steps,
                     "source": "PROJECT_TOOL",
                 },
             }
 
+        self._emit_trace(trace_callback, "history", "대화 이력 확인")
+        self._load_persisted_history(auth_header, user_id)
+        self._emit_trace(trace_callback, "llm", "LLM 답변 준비")
         result = self.llm_client.generate_reply(
-            system_prompt=self._build_prompt_for_user(auth_header, user_id, text, user_timezone),
+            system_prompt=self._build_prompt_for_user(auth_header, user_id, text, user_timezone, trace_callback),
             user_message=text,
             user_id=user_id,
+            auth_header=auth_header,
             function_schemas=FUNCTION_SCHEMAS,
             history=self._get_recent_history(user_id),
         )
 
         for tool_call in result.get("tool_calls") or []:
+            self._emit_trace(trace_callback, "openai_tool_call", "OpenAI 도구 호출")
             tool_result = self._run_llm_tool_call(auth_header, tool_call, text)
             if tool_result:
-                self._append_history(user_id, "user", text)
-                self._append_history(user_id, "assistant", tool_result["reply"])
+                tool_data = tool_result.get("data")
+                trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
+                self._record_exchange(auth_header, user_id, text, tool_result["reply"])
                 return {
                     "reply": tool_result["reply"],
                     "actions": tool_result.get("actions") or [],
                     "meta": {
                         "user_id": user_id,
                         "available_tools": list_available_tools(),
-                        "tool_result": tool_result.get("data"),
+                        "tool_result": tool_data,
+                        "trace_steps": trace_steps,
                         "tool_call": tool_call,
                         "source": "OPENAI_TOOL_CALL",
                     },
                 }
 
         reply_text = result["reply"]
-        self._append_history(user_id, "user", text)
-        self._append_history(user_id, "assistant", reply_text)
+        self._record_exchange(auth_header, user_id, text, reply_text)
         self._maybe_set_pending_from_reply(user_id, text, reply_text)
 
         return {

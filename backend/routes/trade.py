@@ -590,6 +590,29 @@ def _load_user_trade_proposal(auth_header: str, user_id: str, proposal_id: str) 
     return records[0]
 
 
+def _resolve_proposal_order_data(auth_header: str, user_id: str, data: dict) -> tuple[dict, dict | None]:
+    """승인 카드 실행 시 PENDING 제안의 주문 필드를 서버 기준으로 고정합니다."""
+    proposal_id = str(data.get("proposal_id") or "").strip()
+    if not proposal_id:
+        return data, None
+
+    proposal = _load_user_trade_proposal(auth_header, user_id, proposal_id)
+    if str(proposal.get("status") or "").upper() != "PENDING":
+        raise ValueError("대기 중인 매매 제안만 승인할 수 있습니다.")
+
+    resolved = {
+        **data,
+        "exchange": proposal.get("exchange"),
+        "symbol": proposal.get("symbol") or proposal.get("ticker"),
+        "action": proposal.get("side"),
+        "order_type": proposal.get("ord_type") or proposal.get("order_type"),
+        "price": proposal.get("price"),
+        "quantity": proposal.get("volume") or proposal.get("quantity"),
+        "broker_env": proposal.get("broker_env") or "REAL",
+    }
+    return resolved, proposal
+
+
 def _patch_trade_proposal(auth_header: str, proposal_id: str, payload: dict):
     """
     trade_proposals 레코드를 부분 업데이트합니다.
@@ -1608,6 +1631,10 @@ def place_manual_order():
         return jsonify({"success": False, "message": f"인증 실패: {str(e)}"}), 401
 
     data = request.json or {}
+    try:
+        data, approval_proposal = _resolve_proposal_order_data(auth_header, user_id, data)
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error)}), 400
     exchange = str(data.get("exchange") or "").upper()
     symbol = data.get("symbol")
     action = data.get("action")  # BUY or SELL
@@ -1700,6 +1727,9 @@ def place_manual_order():
     if precheck["insufficient_holding"]:
         return jsonify({"success": False, "message": "보유 수량을 초과하는 매도 주문입니다."}), 400
 
+    if approval_proposal:
+        _patch_trade_proposal(auth_header, approval_proposal["id"], {"status": "APPROVED"})
+
     # 4. 주문 실행
     client = None
     try:
@@ -1731,8 +1761,20 @@ def place_manual_order():
         else:
             return jsonify({"success": False, "message": f"{exchange} 거래소는 현재 수동 주문 기능이 지원되지 않습니다."}), 400
     except MarketClosedError:
+        if approval_proposal:
+            _patch_trade_proposal(
+                auth_header,
+                approval_proposal["id"],
+                {"status": "FAILED", "failure_reason": MARKET_CLOSED_ORDER_MESSAGE},
+            )
         return jsonify({"success": False, "message": MARKET_CLOSED_ORDER_MESSAGE}), 400
     except Exception as e:
+        if approval_proposal:
+            _patch_trade_proposal(
+                auth_header,
+                approval_proposal["id"],
+                {"status": "FAILED", "failure_reason": "주문 전송 실패"},
+            )
         if is_market_closed_order_error(str(e)):
             return jsonify({"success": False, "message": MARKET_CLOSED_ORDER_MESSAGE}), 400
         if exchange in ("KIS", "TOSS") and not is_stock_order_market_open(exchange, symbol):
@@ -1756,7 +1798,7 @@ def place_manual_order():
             "post_order_status_check": kis_status_detail,
         }
 
-    proposal_id = str(uuid.uuid4())
+    proposal_id = str(approval_proposal["id"] if approval_proposal else uuid.uuid4())
     auto_exit_result = None
     auto_exit = data.get("auto_exit", False)
     if auto_exit and action.upper() == "BUY":
@@ -1850,7 +1892,10 @@ def place_manual_order():
             },
             "status": order_status_for_db
         }
-        _insert_trade_proposal_with_schema_fallback(auth_header, proposal_data)
+        if approval_proposal:
+            _patch_trade_proposal(auth_header, proposal_id, proposal_data)
+        else:
+            _insert_trade_proposal_with_schema_fallback(auth_header, proposal_data)
     except Exception as e:
         current_app.logger.error(f"주문 이력 기록 실패: {str(e)}")
 
@@ -1862,6 +1907,35 @@ def place_manual_order():
         "auto_exit": auto_exit_result,
         "detail": order_res
     })
+
+
+@trade_bp.route("/api/trade/proposal/approve", methods=["POST"])
+def approve_trade_proposal():
+    """승인 카드에서만 PENDING 매매 제안을 주문으로 전환합니다."""
+    return place_manual_order()
+
+
+@trade_bp.route("/api/trade/proposal/reject", methods=["POST"])
+def reject_trade_proposal():
+    """사용자 승인 카드의 거절 동작을 처리합니다."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"success": False, "message": "인증 헤더가 누락되었습니다."}), 401
+
+    try:
+        user_id, _ = get_user_id_from_header(auth_header)
+        proposal_id = str((request.json or {}).get("proposal_id") or "").strip()
+        if not proposal_id:
+            return jsonify({"success": False, "message": "proposal_id가 필요합니다."}), 400
+        proposal = _load_user_trade_proposal(auth_header, user_id, proposal_id)
+        if str(proposal.get("status") or "").upper() != "PENDING":
+            return jsonify({"success": False, "message": "대기 중인 매매 제안만 거절할 수 있습니다."}), 409
+        updated = _patch_trade_proposal(auth_header, proposal_id, {"status": "REJECTED"})
+        return jsonify({"success": True, "data": updated, "message": "매매 제안을 거절했습니다."})
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error)}), 400
+    except Exception as error:
+        return jsonify(format_error_payload(error, "매매 제안 거절 실패")), 500
 
 
 @trade_bp.route("/api/trade/orders/sync-status", methods=["POST"])
@@ -4350,5 +4424,3 @@ def get_stocks_warnings():
         current_app.logger.exception("종목 유의사항 조회 실패")
         err_payload = format_error_payload(e, context="종목 유의사항 조회 실패", exchange="TOSS")
         return jsonify(err_payload), 500
-
-

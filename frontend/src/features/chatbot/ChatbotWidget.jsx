@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { sendChatbotMessage } from './chatbotApi'
+import { supabase } from '../../supabaseClient'
+import { streamChatbotMessage } from './chatbotApi'
+import { buildChatbotCitations } from './chatbotCitations'
 import { buildDisclosurePresentation } from './chatbotDisclosurePresentation'
+import { buildProposalPrecheckSummary } from './chatbotProposalPrecheck'
 import { getDefaultChatbotSize, resizeChatbotPanel } from './chatbotResize'
+import { buildChatbotTraceBadges } from './chatbotTrace'
 
 const INITIAL_MESSAGES = [
   {
@@ -38,16 +42,61 @@ function formatMessageTime(createdAt) {
   }
 }
 
+function formatProposalNumber(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return '-'
+  return numeric.toLocaleString('ko-KR', { maximumFractionDigits: 8 })
+}
+
+function mergePendingProposal(items, proposal) {
+  if (!proposal?.id || proposal.status !== 'PENDING') {
+    return items.filter((item) => item.id !== proposal?.id)
+  }
+  const next = items.filter((item) => item.id !== proposal.id)
+  return [proposal, ...next]
+}
+
+function ProposalPrecheckSummary({ proposal }) {
+  const summary = buildProposalPrecheckSummary(proposal)
+  if (!summary) return null
+
+  return (
+    <div className={`space-y-1 rounded border px-2 py-2 text-[10px] ${
+      summary.status === 'OK'
+        ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-100'
+        : 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+    }`}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-bold">{summary.status === 'OK' ? '사전검증 완료' : '사전검증 확인 필요'}</span>
+        {summary.estimatedAmountText && <span>예상 {summary.estimatedAmountText}</span>}
+        {summary.availableCashText && <span>주문가능 {summary.availableCashText}</span>}
+      </div>
+      {summary.warnings.length > 0 && (
+        <ul className="space-y-1 text-amber-100/90">
+          {summary.warnings.slice(0, 3).map((warning) => (
+            <li key={warning} className="break-words">- {warning}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function ChatMessage({ message, onAction }) {
   const isUser = message.role === 'user'
   const messageTime = formatMessageTime(message.createdAt)
   const actions = Array.isArray(message.actions) ? message.actions : []
   const disclosurePresentation = buildDisclosurePresentation(message.toolResult)
   const hasDisclosureCards = !isUser && disclosurePresentation.items.length > 0
+  const citations = !isUser ? buildChatbotCitations(message.toolResult) : []
+  const traceBadges = !isUser ? buildChatbotTraceBadges({ traceSteps: message.traceSteps, toolResult: message.toolResult }) : []
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`flex flex-col gap-1 ${hasDisclosureCards ? 'w-full max-w-[96%]' : 'max-w-[84%]'} ${isUser ? 'items-end' : 'items-start'}`}>
+        {!isUser && traceBadges.length > 0 && (
+          <TraceBadges badges={traceBadges} />
+        )}
         <div
           className={`${hasDisclosureCards ? 'w-full' : 'whitespace-pre-wrap break-words'} rounded-lg px-3 py-2 text-xs leading-5 ${
             isUser
@@ -55,9 +104,9 @@ function ChatMessage({ message, onAction }) {
               : 'border border-slate-700/80 bg-[#111827] text-slate-100'
           }`}
         >
-          {hasDisclosureCards ? (
+          {hasDisclosureCards && !message.isStreaming ? (
             <DisclosureResults presentation={disclosurePresentation} />
-          ) : message.text}
+          ) : (message.text || (message.isStreaming ? '...' : ''))}
         </div>
         {messageTime && (
           <time className="px-1 text-[10px] font-medium text-slate-500" dateTime={message.createdAt}>
@@ -78,7 +127,43 @@ function ChatMessage({ message, onAction }) {
             ))}
           </div>
         )}
+        {!isUser && citations.length > 0 && (
+          <CitationList citations={citations} />
+        )}
       </div>
+    </div>
+  )
+}
+
+function TraceBadges({ badges }) {
+  return (
+    <div className="flex max-w-full flex-wrap gap-1 px-1">
+      {badges.map((badge) => (
+        <span
+          key={`${badge.kind}-${badge.label}`}
+          className="rounded border border-cyan-500/30 bg-cyan-950/35 px-1.5 py-0.5 text-[10px] font-bold text-cyan-100"
+        >
+          {badge.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function CitationList({ citations }) {
+  return (
+    <div className="w-full max-w-full space-y-1 rounded border border-slate-700/70 bg-slate-950/45 px-2.5 py-2 text-[10px] text-slate-300">
+      <p className="font-bold text-cyan-200">근거</p>
+      <ul className="space-y-1.5">
+        {citations.map((citation, index) => (
+          <li key={`${citation.label}-${citation.sourceId || index}`} className="min-w-0 break-words">
+            <span className="font-bold text-slate-100">{citation.label}</span>
+            {citation.title ? <span> · {citation.title}</span> : null}
+            {citation.similarityText ? <span className="text-slate-500"> · {citation.similarityText}</span> : null}
+            {citation.summary ? <p className="mt-0.5 text-slate-400">{citation.summary}</p> : null}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -169,13 +254,15 @@ function DisclosureResults({ presentation }) {
   )
 }
 
-export default function ChatbotWidget({ enabled = true }) {
+export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
   const navigate = useNavigate()
   const [isOpen, setIsOpen] = useState(false)
   const [panelSize, setPanelSize] = useState(getDefaultChatbotSize)
   const [messages, setMessages] = useState(INITIAL_MESSAGES)
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [pendingProposals, setPendingProposals] = useState([])
+  const [proposalActionId, setProposalActionId] = useState('')
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
   const resizeStateRef = useRef(null)
@@ -187,6 +274,63 @@ export default function ChatbotWidget({ enabled = true }) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     })
   }, [enabled, isOpen, messages, isSending])
+
+  useEffect(() => {
+    let active = true
+    let channel = null
+
+    if (!enabled || !isLoggedIn) {
+      queueMicrotask(() => {
+        if (active) setPendingProposals([])
+      })
+      return () => {
+        active = false
+      }
+    }
+
+    const loadPendingProposals = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      const userId = session?.user?.id
+      if (!userId || !active) return
+
+      const { data, error } = await supabase
+        .from('trade_proposals')
+        .select('id,exchange,asset_type,symbol,ticker,side,price,volume,order_amount,ord_type,broker_env,market_country,currency,status,raw_order_payload,created_at')
+        .eq('user_id', userId)
+        .eq('status', 'PENDING')
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      if (!error && active) setPendingProposals(data || [])
+
+      channel = supabase
+        .channel(`chatbot-trade-proposals-${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'trade_proposals',
+            filter: `user_id=eq.${userId}`,
+          },
+          (payload) => {
+            if (!active) return
+            if (payload.eventType === 'DELETE') {
+              setPendingProposals((items) => items.filter((item) => item.id !== payload.old?.id))
+              return
+            }
+            setPendingProposals((items) => mergePendingProposal(items, payload.new))
+          },
+        )
+        .subscribe()
+    }
+
+    loadPendingProposals()
+    return () => {
+      active = false
+      if (channel) supabase.removeChannel(channel)
+    }
+  }, [enabled, isLoggedIn])
 
   if (!enabled) return null
 
@@ -247,7 +391,53 @@ export default function ChatbotWidget({ enabled = true }) {
     }
   }
 
-  const addMessage = (role, text, actions = [], toolResult = null) => {
+  const handleRejectProposal = async (proposalId) => {
+    setProposalActionId(proposalId)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('로그인이 필요합니다.')
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'}/api/trade/proposal/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ proposal_id: proposalId }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload.success === false) throw new Error(payload.message || '매매 제안 거절에 실패했습니다.')
+      setPendingProposals((items) => items.filter((item) => item.id !== proposalId))
+    } catch (error) {
+      addMessage('assistant', error.message || '매매 제안 거절에 실패했습니다.')
+    } finally {
+      setProposalActionId('')
+    }
+  }
+
+  const handleApproveProposal = async (proposal) => {
+    setProposalActionId(proposal.id)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('로그인이 필요합니다.')
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'}/api/trade/proposal/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ proposal_id: proposal.id }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload.success === false) throw new Error(payload.message || '매매 제안 승인에 실패했습니다.')
+      setPendingProposals((items) => items.filter((item) => item.id !== proposal.id))
+    } catch (error) {
+      addMessage('assistant', error.message || '매매 제안 승인에 실패했습니다.')
+    } finally {
+      setProposalActionId('')
+    }
+  }
+
+  const addMessage = (role, text, actions = [], toolResult = null, traceSteps = []) => {
     setMessages((prev) => [
       ...prev,
       {
@@ -256,29 +446,98 @@ export default function ChatbotWidget({ enabled = true }) {
         text,
         actions,
         toolResult,
+        traceSteps,
+        isStreaming: false,
         createdAt: new Date().toISOString(),
       },
     ])
   }
 
+  const addStreamingAssistantMessage = () => {
+    const id = `assistant-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    setMessages((prev) => [
+      ...prev,
+      {
+        id,
+        role: 'assistant',
+        text: '',
+        actions: [],
+        toolResult: null,
+        traceSteps: [],
+        isStreaming: true,
+        createdAt: new Date().toISOString(),
+      },
+    ])
+    return id
+  }
+
+  const appendAssistantDelta = (messageId, text) => {
+    if (!text) return
+    setMessages((prev) => prev.map((message) => (
+      message.id === messageId
+        ? { ...message, text: `${message.text || ''}${text}` }
+        : message
+    )))
+  }
+
+  const appendAssistantTrace = (messageId, traceStep) => {
+    if (!traceStep?.kind && !traceStep?.label) return
+    setMessages((prev) => prev.map((message) => {
+      if (message.id !== messageId) return message
+      const traceSteps = Array.isArray(message.traceSteps) ? message.traceSteps : []
+      if (traceSteps.some((step) => step.kind === traceStep.kind && step.label === traceStep.label)) {
+        return message
+      }
+      return { ...message, traceSteps: [...traceSteps, traceStep] }
+    }))
+  }
+
+  const completeAssistantStream = (messageId, payload) => {
+    setMessages((prev) => prev.map((message) => (
+      message.id === messageId
+        ? {
+          ...message,
+          text: payload?.reply || message.text,
+          actions: payload?.actions || [],
+          toolResult: payload?.meta?.tool_result || null,
+          traceSteps: payload?.meta?.trace_steps || message.traceSteps || [],
+          isStreaming: false,
+        }
+        : message
+    )))
+  }
+
   const submitMessage = async (text = input) => {
+    if (!isLoggedIn) {
+      navigate('/login')
+      closeChat()
+      return
+    }
+
     const trimmed = text.trim()
     if (!trimmed || isSending) return
 
     setInput('')
     addMessage('user', trimmed)
     setIsSending(true)
+    const assistantMessageId = addStreamingAssistantMessage()
 
     try {
-      const result = await sendChatbotMessage(trimmed, { timezone: getUserTimeZone() })
-      addMessage(
-        'assistant',
-        result?.reply || '응답을 만들지 못했습니다. 잠시 후 다시 시도해주세요.',
-        result?.actions || [],
-        result?.meta?.tool_result || null,
+      await streamChatbotMessage(
+        trimmed,
+        {
+          onTrace: (traceStep) => appendAssistantTrace(assistantMessageId, traceStep),
+          onDelta: (textChunk) => appendAssistantDelta(assistantMessageId, textChunk),
+          onDone: (payload) => completeAssistantStream(assistantMessageId, payload),
+        },
+        { timezone: getUserTimeZone() },
       )
     } catch (error) {
-      addMessage('assistant', error.message || '챗봇 연결 중 문제가 발생했습니다.')
+      completeAssistantStream(assistantMessageId, {
+        reply: error.message || '챗봇 연결 중 문제가 발생했습니다.',
+        actions: [],
+        meta: {},
+      })
     } finally {
       setIsSending(false)
       window.setTimeout(() => inputRef.current?.focus(), 80)
@@ -339,6 +598,46 @@ export default function ChatbotWidget({ enabled = true }) {
           </header>
 
           <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+            {pendingProposals.length > 0 && (
+              <section className="space-y-2 rounded border-2 border-l-ai-cyan border-r-ai-cyan/20 border-y-ai-cyan/20 bg-ai-cyan/5 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-ai-cyan">승인 대기 매매 제안</p>
+                  <span className="text-[10px] text-slate-400">실행 전 확인 필요</span>
+                </div>
+                {pendingProposals.map((proposal) => (
+                  <article key={proposal.id} className="space-y-2 rounded border border-slate-700 bg-[#0b1120] p-3">
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <strong className="text-slate-100">{proposal.symbol || proposal.ticker}</strong>
+                      <span className={proposal.side === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>
+                        {proposal.side === 'BUY' ? '매수' : '매도'}
+                      </span>
+                    </div>
+                    <p className="break-words text-[11px] text-slate-400">
+                      {proposal.exchange} · {proposal.broker_env || 'REAL'} · 수량 {formatProposalNumber(proposal.volume)} · 가격 {formatProposalNumber(proposal.price)}
+                    </p>
+                    <ProposalPrecheckSummary proposal={proposal} />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={proposalActionId === proposal.id}
+                        onClick={() => handleApproveProposal(proposal)}
+                        className="min-h-9 flex-1 rounded bg-ai-cyan px-3 py-2 text-[11px] font-bold text-[#07111f] disabled:opacity-50"
+                      >
+                        승인 후 실행
+                      </button>
+                      <button
+                        type="button"
+                        disabled={proposalActionId === proposal.id}
+                        onClick={() => handleRejectProposal(proposal.id)}
+                        className="min-h-9 rounded border border-rose-500/50 px-3 py-2 text-[11px] font-bold text-rose-300 disabled:opacity-50"
+                      >
+                        거절
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </section>
+            )}
             {messages.map((message) => (
               <ChatMessage key={message.id} message={message} onAction={handleAction} />
             ))}
@@ -351,24 +650,29 @@ export default function ChatbotWidget({ enabled = true }) {
           </div>
 
           <div className="border-t border-slate-800 bg-[#0b1120] p-3">
-            <div className="mb-3 flex flex-wrap gap-2">
-              {QUICK_MESSAGES.map((message) => (
-                <button
-                  key={message}
-                  type="button"
-                  onClick={() => submitMessage(message)}
-                  disabled={isSending}
-                  className="rounded border border-slate-700 px-2.5 py-1.5 text-[11px] font-bold text-slate-300 transition hover:border-ai-cyan hover:text-ai-cyan disabled:opacity-50"
-                >
-                  {message}
-                </button>
-              ))}
-            </div>
+            {isLoggedIn ? (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {QUICK_MESSAGES.map((message) => (
+                  <button
+                    key={message}
+                    type="button"
+                    onClick={() => submitMessage(message)}
+                    disabled={isSending}
+                    className="rounded border border-slate-700 px-2.5 py-1.5 text-[11px] font-bold text-slate-300 transition hover:border-ai-cyan hover:text-ai-cyan disabled:opacity-50"
+                  >
+                    {message}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <form onSubmit={handleSubmit} className="flex items-end gap-2">
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
+                onClick={() => {
+                  if (!isLoggedIn) navigate('/login')
+                }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault()
@@ -376,15 +680,16 @@ export default function ChatbotWidget({ enabled = true }) {
                   }
                 }}
                 rows={2}
-                placeholder="메시지를 입력하세요"
-                className="min-h-11 flex-1 resize-none rounded border border-slate-700 bg-[#111827] px-3 py-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-ai-cyan"
+                readOnly={!isLoggedIn}
+                placeholder={isLoggedIn ? '메시지를 입력하세요' : '로그인 후 이용 가능합니다'}
+                className="min-h-11 flex-1 resize-none rounded border border-slate-700 bg-[#111827] px-3 py-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-ai-cyan read-only:cursor-pointer read-only:border-ai-cyan/40"
               />
               <button
                 type="submit"
-                disabled={isSending || !input.trim()}
+                disabled={isLoggedIn ? isSending || !input.trim() : false}
                 className="h-11 shrink-0 rounded bg-ai-cyan px-4 text-xs font-bold text-[#07111f] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                전송
+                {isLoggedIn ? '전송' : '로그인'}
               </button>
             </form>
           </div>
