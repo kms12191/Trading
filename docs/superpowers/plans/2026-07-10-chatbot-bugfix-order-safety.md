@@ -20,6 +20,7 @@
 - 코인원 챗봇 제안은 현재 구현 범위인 `LIMIT`만 허용한다. 가격 없는 `MARKET` 제안을 만들어 승인 단계에서 실패시키지 않는다.
 - 동일 `proposal_id`는 외부 주문 API로 최대 한 번만 전달되어야 한다.
 - 승인과 거절은 모두 `PENDING` 조건부 갱신으로 경쟁 상태를 원자적으로 해결해야 한다.
+- 외부 주문 접수 후 상태와 외부 주문 ID 저장이 실패하면 최소 식별자를 복구하고, 복구도 실패한 요청은 성공으로 응답하지 않는다.
 - SSE 로그에는 `request_id`, `user_id`, 예외 스택만 남기고 사용자 메시지 원문, JWT, API 키, 거래소 비밀값은 기록하지 않는다.
 - 사용자에게 보이는 오류는 `format_error_payload()`와 프론트 `buildApiErrorText()`를 사용한다. 원문 예외는 기본 문구로 노출하지 않는다.
 - 공시·Obsidian `knowledge_chunks` 검색, `ChatbotRAGService`, citation payload와 기존 자동메모리 동작은 회귀시키지 않는다.
