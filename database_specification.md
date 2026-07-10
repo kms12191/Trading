@@ -419,8 +419,23 @@ erDiagram
     *   `created_at` (TIMESTAMPTZ)
 *   **RLS**:
     *   `auth.uid() = user_id` 조건으로 자신의 챗 로그에만 보안 격리 적용.
+*   **챗봇 서비스 동작**:
+    *   로그인 사용자의 최근 12개 메시지를 `created_at` 및 `id` 역순으로 읽어 LLM 문맥에 복원합니다.
+    *   사용자 입력과 AI 답변은 한 번의 요청에서 각각 `user`, `assistant` 행으로 저장합니다.
+    *   비로그인 요청은 API 인증 단계에서 차단하며, 익명 사용자용 공용 대화 키나 이력을 생성하지 않습니다.
 
-### 2.17 user_knowledge_notes
+### 2.17 chatbot_usage_counters
+*   **용도**: 여러 Flask 워커가 공유하는 챗봇 분당 요청 수와 일일 토큰 예약량을 원자적으로 관리합니다.
+*   **주요 컬럼**:
+    *   `user_id` (UUID, FK) - Supabase Auth 사용자
+    *   `usage_date` (DATE) - 사용량 집계 기준일
+    *   `request_count` (INTEGER) - 제한 윈도우 내 요청 수
+    *   `token_count` (BIGINT) - 일일 예약 토큰 수
+    *   `updated_at` (TIMESTAMPTZ)
+*   **RPC**: `consume_chatbot_usage()`가 advisory lock으로 동시 요청을 직렬화하고 한도를 초과하면 증가 없이 `allowed=false`를 반환합니다.
+*   **RLS**: 사용자별 행만 접근할 수 있도록 `auth.uid() = user_id`를 적용합니다.
+
+### 2.18 user_knowledge_notes
 *   **용도**: 앱 내부 투자노트와 Obsidian 플러그인에서 동기화한 Markdown 노트를 사용자별로 저장합니다. 현재 1차 구현은 원문 저장과 해시 기반 변경 감지만 담당하며, 후속 단계에서 `knowledge_chunks`/vector 검색으로 확장합니다.
 *   **주요 컬럼**:
     *   `id` (UUID, PK)
@@ -440,7 +455,7 @@ erDiagram
     *   `auth.uid() = user_id` 조건으로 자신의 지식 노트만 조회/생성/수정 가능.
 
 ### 2.18 user_memory_facts
-*   **용도**: 챗봇/앱 행동 로그에서 추출한 자동메모리 후보를 사용자별 fact로 저장합니다. Obsidian 플러그인의 `자동메모리 가져오기`는 이 테이블을 읽어 marker 영역에 반영합니다.
+*   **용도**: 챗봇/앱 행동 로그에서 추출한 자동메모리 후보를 사용자별 fact로 저장합니다. 챗봇은 명시적인 사용자 선호, 리스크 회피 성향, 관심종목, 반복 실수, 답변 선호를 대화 종료 시 best-effort로 저장하고, 이후 시스템 프롬프트의 자동메모리 문맥과 Obsidian 플러그인의 `자동메모리 가져오기` marker 영역에 반영합니다.
 *   **주요 컬럼**:
     *   `id` (UUID, PK)
     *   `user_id` (UUID, FK) - Supabase Auth 사용자

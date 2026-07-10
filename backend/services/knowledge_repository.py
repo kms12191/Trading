@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from backend.services.supabase_client import query_supabase_as_service_role, safe_query_supabase
@@ -115,3 +116,101 @@ class KnowledgeRepository:
             "favorite_symbols": favorite_symbols,
             "repeated_mistakes": repeated_mistakes,
         }
+
+    def upsert_memory_fact(self, auth_header: str, user_id: str, fact: dict[str, Any]) -> dict[str, Any]:
+        memory_type = str(fact.get("memory_type") or "").strip()
+        content = str(fact.get("content") or "").strip()
+        symbol = str(fact.get("symbol") or "").strip().upper() or None
+        if not memory_type or not content:
+            raise ValueError("memory_type과 content가 필요합니다.")
+
+        params = {
+            "user_id": f"eq.{user_id}",
+            "memory_type": f"eq.{memory_type}",
+            "content": f"eq.{content}",
+            "is_active": "eq.true",
+            "select": "id,evidence_count,confidence,metadata",
+            "limit": "1",
+        }
+        if symbol:
+            params["symbol"] = f"eq.{symbol}"
+        else:
+            params["symbol"] = "is.null"
+
+        existing = safe_query_supabase(auth_header, "user_memory_facts", "GET", params=params) or []
+        confidence = _bounded_confidence(fact.get("confidence"), default=0.7)
+        metadata = fact.get("metadata") if isinstance(fact.get("metadata"), dict) else {}
+
+        if existing:
+            row = existing[0] or {}
+            row_id = row.get("id")
+            payload = {
+                "confidence": max(_bounded_confidence(row.get("confidence"), default=0.5), confidence),
+                "evidence_count": int(row.get("evidence_count") or 1) + 1,
+                "metadata": {**(row.get("metadata") or {}), **metadata},
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+            result = safe_query_supabase(
+                auth_header,
+                f"user_memory_facts?id=eq.{row_id}",
+                "PATCH",
+                json_data=payload,
+                params={"select": "id,memory_type,content,symbol,confidence,evidence_count"},
+            )
+        else:
+            payload = {
+                "user_id": user_id,
+                "memory_type": memory_type,
+                "content": content,
+                "symbol": symbol,
+                "confidence": confidence,
+                "evidence_count": 1,
+                "source": fact.get("source") or "behavioral_event",
+                "is_active": True,
+                "metadata": metadata,
+            }
+            result = safe_query_supabase(
+                auth_header,
+                "user_memory_facts",
+                "POST",
+                json_data=payload,
+                params={"select": "id,memory_type,content,symbol,confidence,evidence_count"},
+            )
+
+        return (result[0] if isinstance(result, list) and result else {}) or {}
+
+    def list_chatbot_memory_context(self, auth_header: str, user_id: str, limit: int = 12) -> str:
+        rows = safe_query_supabase(
+            auth_header,
+            "user_memory_facts",
+            "GET",
+            params={
+                "user_id": f"eq.{user_id}",
+                "is_active": "eq.true",
+                "select": "memory_type,content,symbol,confidence,evidence_count",
+                "order": "confidence.desc,evidence_count.desc,updated_at.desc",
+                "limit": str(limit),
+            },
+        )
+        lines = []
+        for row in rows if isinstance(rows, list) else []:
+            memory_type = str(row.get("memory_type") or "").strip()
+            content = str(row.get("content") or "").strip()
+            if memory_type and content:
+                lines.append(f"- {memory_type}: {content}")
+
+        if not lines:
+            return ""
+        return "\n".join([
+            "자동메모리:",
+            "아래 내용은 사용자가 대화와 행동으로 명시한 선호/주의점입니다. 추천과 설명 톤을 조절할 때만 사용하고 단정하지 마세요.",
+            *lines,
+        ])
+
+
+def _bounded_confidence(value, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return min(max(number, 0.0), 1.0)

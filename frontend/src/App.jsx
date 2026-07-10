@@ -275,7 +275,7 @@ function AppShell({
         </Routes>
       </div>
 
-      <ChatbotWidget enabled={isLoggedIn && !showAdditionalInfo && !showSurvey} />
+      <ChatbotWidget enabled={!showAdditionalInfo && !showSurvey} isLoggedIn={isLoggedIn} />
 
     </>
   )

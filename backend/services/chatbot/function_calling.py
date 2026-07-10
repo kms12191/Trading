@@ -95,4 +95,24 @@ FUNCTION_SCHEMAS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "create_trade_proposal",
+        "description": "주문을 실행하지 않고 사용자 승인 대기 상태(PENDING)의 매매 제안만 생성합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "exchange": {"type": "string", "enum": ["TOSS", "KIS", "COINONE", "BINANCE", "BINANCE_UM_FUTURES"]},
+                "asset_type": {"type": "string", "enum": ["STOCK", "CRYPTO"]},
+                "symbol": {"type": "string"},
+                "side": {"type": "string", "enum": ["BUY", "SELL"]},
+                "order_type": {"type": "string", "enum": ["LIMIT", "MARKET"]},
+                "quantity": {"type": "number"},
+                "price": {"type": "number"},
+                "broker_env": {"type": "string", "enum": ["MOCK", "REAL"]},
+                "market_country": {"type": "string", "enum": ["KR", "US"]},
+                "currency": {"type": "string", "enum": ["KRW", "USD", "USDT"]},
+            },
+            "required": ["exchange", "asset_type", "symbol", "side", "order_type", "quantity", "broker_env"],
+        },
+    },
 ]

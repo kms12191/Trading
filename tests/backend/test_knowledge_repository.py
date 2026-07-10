@@ -81,6 +81,55 @@ def test_list_auto_memory_groups_facts_for_obsidian_markers(monkeypatch):
     assert result["repeated_mistakes"] == ["추격매수 후 손절이 늦습니다."]
 
 
+def test_upsert_memory_fact_increments_existing_fact(monkeypatch):
+    calls = []
+
+    def fake_safe_query(auth_header, endpoint, method="GET", json_data=None, params=None):
+        calls.append((endpoint, method, json_data, params))
+        if method == "GET":
+            return [{"id": "memory-1", "evidence_count": 2, "confidence": 0.7}]
+        return [{"id": "memory-1", **(json_data or {})}]
+
+    monkeypatch.setattr("backend.services.knowledge_repository.safe_query_supabase", fake_safe_query)
+    repository = KnowledgeRepository()
+
+    result = repository.upsert_memory_fact(
+        "Bearer token",
+        "user-1",
+        {
+            "memory_type": "risk_preference",
+            "content": "사용자는 국내주식 위주 검토를 선호합니다.",
+            "confidence": 0.82,
+            "metadata": {"source_message": "국내주식 위주로 보고 싶어"},
+        },
+    )
+
+    assert result["id"] == "memory-1"
+    assert calls[0][0] == "user_memory_facts"
+    assert calls[0][3]["memory_type"] == "eq.risk_preference"
+    assert calls[1][0] == "user_memory_facts?id=eq.memory-1"
+    assert calls[1][1] == "PATCH"
+    assert calls[1][2]["evidence_count"] == 3
+    assert calls[1][2]["confidence"] == 0.82
+
+
+def test_list_chatbot_memory_context_formats_active_memory(monkeypatch):
+    def fake_safe_query(auth_header, endpoint, method="GET", json_data=None, params=None):
+        return [
+            {"memory_type": "risk_preference", "content": "사용자는 코인 리스크를 회피합니다.", "confidence": 0.9},
+            {"memory_type": "favorite_symbol", "content": "삼성전자를 관심 있게 봅니다.", "confidence": 0.8},
+        ]
+
+    monkeypatch.setattr("backend.services.knowledge_repository.safe_query_supabase", fake_safe_query)
+    repository = KnowledgeRepository()
+
+    context = repository.list_chatbot_memory_context("Bearer token", "user-1")
+
+    assert "자동메모리:" in context
+    assert "risk_preference: 사용자는 코인 리스크를 회피합니다." in context
+    assert "favorite_symbol: 삼성전자를 관심 있게 봅니다." in context
+
+
 def test_replace_knowledge_chunks_deletes_old_chunks_then_inserts_new_chunks(monkeypatch):
     calls = []
 

@@ -1,8 +1,9 @@
 import os
-import time
-from collections import defaultdict, deque
+from datetime import date
 
 import requests
+
+from backend.services.supabase_client import query_supabase
 
 
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
@@ -25,8 +26,6 @@ class ChatbotLLMClient:
         self.minute_request_limit = self._read_int_env("CHATBOT_MINUTE_REQUEST_LIMIT", 10)
         self.daily_token_limit = self._read_int_env("CHATBOT_DAILY_TOKEN_LIMIT", 50000)
         self.timeout_seconds = self._read_int_env("CHATBOT_OPENAI_TIMEOUT_SECONDS", 30)
-        self._request_windows = defaultdict(deque)
-        self._daily_usage = {}
 
     @staticmethod
     def _read_int_env(name: str, default: int) -> int:
@@ -40,35 +39,30 @@ class ChatbotLLMClient:
     def _estimate_tokens(text: str) -> int:
         return max(1, len(text or "") // 4)
 
-    def _today_key(self) -> str:
-        return time.strftime("%Y-%m-%d", time.localtime())
+    def _consume_shared_usage(self, auth_header: str | None, user_id: str | None, estimated_tokens: int) -> None:
+        if not auth_header or not user_id:
+            raise ChatbotLimitError("로그인 사용자만 챗봇 사용량을 확인할 수 있습니다.")
 
-    def _rate_limit_key(self, user_id: str | None) -> str:
-        return user_id or "anonymous"
+        try:
+            result = query_supabase(
+                auth_header,
+                "rpc/consume_chatbot_usage",
+                "POST",
+                json_data={
+                    "p_user_id": user_id,
+                    "p_usage_date": date.today().isoformat(),
+                    "p_request_increment": 1,
+                    "p_token_increment": estimated_tokens,
+                    "p_request_limit": self.minute_request_limit,
+                    "p_token_limit": self.daily_token_limit,
+                },
+            )
+        except Exception as error:
+            raise ChatbotLimitError("챗봇 사용량 제한 저장소를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.") from error
 
-    def _check_request_limit(self, user_id: str | None) -> None:
-        key = self._rate_limit_key(user_id)
-        now = time.time()
-        window = self._request_windows[key]
-
-        while window and now - window[0] > 60:
-            window.popleft()
-
-        if len(window) >= self.minute_request_limit:
-            raise ChatbotLimitError("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.")
-
-        window.append(now)
-
-    def _check_token_limit(self, user_id: str | None, estimated_tokens: int) -> None:
-        key = (self._rate_limit_key(user_id), self._today_key())
-        used_tokens = self._daily_usage.get(key, 0)
-
-        if used_tokens + estimated_tokens > self.daily_token_limit:
-            raise ChatbotLimitError("오늘 사용할 수 있는 챗봇 토큰 한도를 초과했습니다.")
-
-    def _record_token_usage(self, user_id: str | None, used_tokens: int) -> None:
-        key = (self._rate_limit_key(user_id), self._today_key())
-        self._daily_usage[key] = self._daily_usage.get(key, 0) + max(0, used_tokens)
+        row = result[0] if isinstance(result, list) and result else result
+        if not isinstance(row, dict) or not row.get("allowed"):
+            raise ChatbotLimitError("챗봇 사용량 제한에 도달했습니다. 잠시 후 다시 시도해 주세요.")
 
     def _to_openai_tools(self, function_schemas: list[dict] | None) -> list[dict]:
         tools = []
@@ -85,6 +79,7 @@ class ChatbotLLMClient:
         system_prompt: str,
         user_message: str,
         user_id: str | None = None,
+        auth_header: str | None = None,
         function_schemas: list[dict] | None = None,
         history: list[dict] | None = None,
     ) -> dict:
@@ -95,13 +90,12 @@ class ChatbotLLMClient:
         if len(text) > self.max_input_chars:
             raise ChatbotLimitError(f"입력은 최대 {self.max_input_chars}자까지 가능합니다.")
 
-        self._check_request_limit(user_id)
         estimated_tokens = (
             self._estimate_tokens(system_prompt)
             + self._estimate_tokens(text)
             + self.max_output_tokens
         )
-        self._check_token_limit(user_id, estimated_tokens)
+        self._consume_shared_usage(auth_header, user_id, estimated_tokens)
 
         history_messages = []
         for item in history or []:
@@ -146,9 +140,6 @@ class ChatbotLLMClient:
 
         data = response.json()
         usage = data.get("usage") or {}
-        used_tokens = int(usage.get("total_tokens") or estimated_tokens)
-        self._record_token_usage(user_id, used_tokens)
-
         message = (data.get("choices") or [{}])[0].get("message") or {}
         content = (message.get("content") or "").strip()
         tool_calls = message.get("tool_calls") or []

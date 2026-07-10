@@ -1,7 +1,7 @@
 # Toss 메인 AI 트레이딩 프로젝트
 
 이 저장소는 `React + Vite` 프론트엔드, `Flask` 백엔드, `Supabase` DB/Auth, `LightGBM` 기반 ML 파이프라인으로 구성된 트레이딩 보조 시스템입니다.
-현재 코드는 Toss 주식, KIS 레거시 주식, Coinone 코인, Binance 현물/Usd-M 선물 데이터 조회/주문 보조/조건감시 자동매도/ML 운영까지 포함하고 있으며, 챗봇 오케스트레이터 자체는 아직 구현되어 있지 않습니다.
+현재 코드는 Toss 주식, KIS 레거시 주식, Coinone 코인, Binance 현물/Usd-M 선물 데이터 조회/주문 보조/조건감시 자동매도/ML 운영과 인증 기반 트레이딩 챗봇 오케스트레이터를 포함합니다. 챗봇은 로그인 사용자만 사용할 수 있으며, 사용자별 대화 이력은 Supabase에 격리 저장됩니다.
 
 ## 현재 구현 범위
 
@@ -13,6 +13,9 @@
   - ML 운영 콘솔과 활성 신호 확인 UI
 - 백엔드
   - `home`, `keys`, `ml`, `news`, `trade`, `transfer` Blueprint API
+  - `chatbot` Blueprint API: Supabase Auth 검증, 로그인 사용자별 대화 이력 복원·저장, 도구 호출 및 LLM 응답
+  - 챗봇 매매 제안은 `trade_proposals.status=PENDING`으로만 생성되며, 승인 카드에서만 주문 승인/거절 가능
+  - 챗봇 사용량은 Supabase `chatbot_usage_counters` RPC로 워커 간 공유 집계
   - Toss/KIS/Coinone/Binance 클라이언트
   - 코인원 계좌 잔고 조회, 현재가 조회, 지정가 주문, 미체결 주문 취소
   - 바이낸스 현물/Usd-M 선물 주문 사전검증, 테스트 주문 검증, 미체결 주문 관리
