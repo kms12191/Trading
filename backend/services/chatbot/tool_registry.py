@@ -1,6 +1,9 @@
+import json
 import os
 import re
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 from urllib.parse import urlencode
 
 import requests
@@ -12,6 +15,90 @@ from backend.services.chatbot.web_fallback_search_service import ChatbotWebFallb
 
 
 API_BASE_URL = os.getenv("CHATBOT_INTERNAL_API_BASE_URL", "http://localhost:5050")
+OPEN_ORDER_STATUSES = ("PENDING", "APPROVED", "ORDERED", "OPEN", "PARTIALLY_FILLED", "MODIFIED")
+
+SYMBOL_QUERY_ALIASES = {
+    "삼전": "삼성전자",
+    "하닉": "SK하이닉스",
+    "하이닉스": "SK하이닉스",
+    "애플": "AAPL",
+    "마이크로소프트": "MSFT",
+    "마소": "MSFT",
+    "엔비디아": "NVDA",
+    "아마존": "AMZN",
+    "구글": "GOOGL",
+    "알파벳": "GOOGL",
+    "메타": "META",
+    "테슬라": "TSLA",
+    "브로드컴": "AVGO",
+    "넷플릭스": "NFLX",
+    "코스트코": "COST",
+    "오라클": "ORCL",
+    "어도비": "ADBE",
+    "퀄컴": "QCOM",
+    "인텔": "INTC",
+    "팔란티어": "PLTR",
+    "우버": "UBER",
+    "비트": "BTC",
+    "비트코인": "BTC",
+    "이더": "ETH",
+    "이더리움": "ETH",
+    "리플": "XRP",
+    "엑스알피": "XRP",
+    "도지": "DOGE",
+    "도지코인": "DOGE",
+    "테더": "USDT",
+    "솔라나": "SOL",
+    "에이다": "ADA",
+    "트론": "TRX",
+}
+
+SYMBOL_COMMAND_PATTERN = re.compile(
+    r"(관심\s*종목|관심종목|설정해줘|추가해줘|등록해줘|보여줘|조회해줘|알려줘|"
+    r"거래내역|거래\s*내역|주문내역|주문\s*내역|뉴스|공시|시세|환율|"
+    r"설정|추가|등록|해제|삭제|조회|검색)"
+)
+
+KOREAN_MONEY_NUMBER_PATTERN = re.compile(
+    r"[일한이삼사오육칠팔구십백천만]+\s*(?:만원|천원|원|만)"
+)
+
+
+@lru_cache(maxsize=1)
+def _load_training_universe_symbols() -> set[str]:
+    universe_path = Path(__file__).resolve().parents[3] / "ml" / "data" / "reference" / "training_universes.json"
+    try:
+        payload = json.loads(universe_path.read_text(encoding="utf-8"))
+    except Exception:
+        return set()
+
+    symbols: set[str] = set()
+    for values in payload.values() if isinstance(payload, dict) else []:
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            symbol = str(value or "").strip().upper()
+            if symbol:
+                symbols.add(symbol)
+    return symbols
+
+
+def _normalize_symbol_candidate(candidate: str) -> str:
+    symbol = str(candidate or "").strip()
+    if not symbol:
+        return ""
+
+    alias = SYMBOL_QUERY_ALIASES.get(symbol) or SYMBOL_QUERY_ALIASES.get(symbol.upper())
+    if alias:
+        return alias
+
+    upper_symbol = symbol.upper()
+    training_symbols = _load_training_universe_symbols()
+    if upper_symbol in training_symbols and upper_symbol.endswith("USDT") and len(upper_symbol) > 4:
+        return upper_symbol[:-4]
+    if upper_symbol in training_symbols:
+        return upper_symbol
+    return symbol
 
 
 def list_available_tools() -> list[str]:
@@ -21,8 +108,10 @@ def list_available_tools() -> list[str]:
         "add_watchlist_item",
         "get_holdings",
         "search_trade_history",
+        "list_open_orders",
         "get_exchange_rate",
         "search_web",
+        "get_asset_outlook",
     ]
 
 
@@ -75,16 +164,35 @@ def _format_money(value, currency: str = "KRW") -> str:
     return f"{amount:,.0f}원"
 
 
+def _format_quantity(value) -> str:
+    qty = _to_float(value)
+    if qty == int(qty):
+        return f"{int(qty):,}"
+    return f"{qty:,.8f}".rstrip("0").rstrip(".")
+
+
 def _extract_symbol_query(text: str) -> str:
-    cleaned = re.sub(r"(관심\s*종목|관심종목|설정해줘|추가해줘|등록해줘|보여줘|조회해줘|거래내역|거래\s*내역|주문내역|주문\s*내역|뉴스|공시)", " ", text)
+    ticker_match = re.search(r"(?<![A-Za-z0-9._-])([A-Za-z][A-Za-z0-9._-]{1,11})(?:의|은|는|이|가|을|를|에|에서)?", text)
+    if ticker_match:
+        return ticker_match.group(1).upper()
+
+    cleaned = SYMBOL_COMMAND_PATTERN.sub(" ", text)
     cleaned = re.sub(r"\d+(?:\.\d+)?\s*(만원|천원|원|만)", " ", cleaned)
-    cleaned = re.sub(r"[일한이삼사오육칠팔구십백천만]+\s*(원|이상|이하|초과|미만|넘는|넘어|부터)?", " ", cleaned)
-    cleaned = re.sub(r"(이상|이하|초과|미만|넘는|넘어|부터|전체|최근|상태|매수|매도|취소|체결|완료|실패)", " ", cleaned)
+    cleaned = KOREAN_MONEY_NUMBER_PATTERN.sub(" ", cleaned)
+    cleaned = re.sub(r"(?<![가-힣])만원\s*(이상|이하|초과|미만|넘는|넘어|부터)?", " ", cleaned)
+    cleaned = re.sub(r"(이상|이하|초과|미만|넘는|넘어|부터|전체|최근|상태|매수|매도|취소|체결|완료|실패|조회|검색|확인|내|나의|내가|내역|목록|전망|분석|어때|오를까|괜찮아|살까)", " ", cleaned)
+    cleaned = re.sub(r"(?<=\S)(의|은|는|이|가|을|를)$", " ", cleaned)
     cleaned = re.sub(r"[^0-9A-Za-z가-힣._-]+", " ", cleaned)
     candidates = [part.strip() for part in cleaned.split() if part.strip()]
     if not candidates:
         return ""
-    return candidates[0]
+    candidate = candidates[0]
+    return _normalize_symbol_candidate(candidate)
+
+
+def _is_likely_symbol_token(value: str) -> bool:
+    token = str(value or "").strip().upper()
+    return bool(re.fullmatch(r"[A-Z0-9._-]{2,12}", token))
 
 
 def _resolve_symbol(auth_header: str, query: str) -> dict:
@@ -354,6 +462,51 @@ def get_investment_profile_reanalysis_guide() -> dict:
     }
 
 
+def _get_watchlist_price_snapshot(auth_header: str, exchange: str, symbol: str) -> dict:
+    snapshot = {}
+    try:
+        payload = _get_internal(
+            "/api/chart/quote",
+            auth_header,
+            params={
+                "exchange": exchange,
+                "symbol": symbol,
+                "broker_env": "REAL",
+            },
+        )
+    except Exception:
+        payload = {}
+
+    data = payload.get("data") or {}
+    current_price = _to_float(data.get("current_price"))
+    change_rate = _to_float(data.get("change_rate"))
+    if current_price <= 0:
+        try:
+            candle_payload = _get_internal(
+                "/api/chart/candles",
+                auth_header,
+                params={
+                    "exchange": exchange,
+                    "symbol": symbol,
+                    "interval": "1d",
+                    "count": 2,
+                    "broker_env": "REAL",
+                },
+            )
+            candles = candle_payload.get("data") or []
+            if candles:
+                current_price = _to_float(candles[-1].get("close"))
+        except Exception:
+            current_price = 0.0
+
+    if current_price > 0:
+        snapshot["latest_price"] = current_price
+        snapshot["average_price"] = current_price
+    if data.get("change_rate") is not None:
+        snapshot["change_rate"] = change_rate
+    return snapshot
+
+
 
 
 def add_watchlist_item(auth_header: str, message: str) -> dict:
@@ -386,6 +539,7 @@ def add_watchlist_item(auth_header: str, message: str) -> dict:
         "currency": "KRW" if asset_type == "CRYPTO" or market != "US" else "USD",
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }
+    payload.update(_get_watchlist_price_snapshot(auth_header, exchange, symbol))
 
     if existing:
         record_id = existing[0]["id"]
@@ -399,6 +553,41 @@ def add_watchlist_item(auth_header: str, message: str) -> dict:
     return {
         "reply": f"{payload['name']}({symbol}) {action}",
         "data": payload,
+    }
+
+
+def remove_watchlist_item(auth_header: str, message: str) -> dict:
+    user_id, _ = get_user_id_from_header(auth_header)
+    symbol_query = _extract_symbol_query(message)
+    symbol_data = _resolve_symbol(auth_header, symbol_query)
+    symbol = str(symbol_data.get("symbol") or "").upper()
+    asset_type = str(symbol_data.get("asset_type") or "STOCK").upper()
+    market = str(symbol_data.get("market") or "").upper()
+    exchange = "COINONE" if asset_type == "CRYPTO" else ("TOSS" if market == "US" else "KIS")
+
+    existing = query_supabase(
+        auth_header,
+        "user_watchlist",
+        "GET",
+        params={
+            "user_id": f"eq.{user_id}",
+            "symbol": f"eq.{symbol}",
+            "asset_type": f"eq.{asset_type}",
+            "exchange": f"eq.{exchange}",
+        },
+    ) or []
+    display_name = symbol_data.get("display_name") or symbol
+    if not existing:
+        return {
+            "reply": f"{display_name}({symbol})은 관심종목에 등록되어 있지 않습니다.",
+            "data": {"symbol": symbol, "asset_type": asset_type, "exchange": exchange, "removed": False},
+        }
+
+    record_id = existing[0]["id"]
+    query_supabase(auth_header, f"user_watchlist?id=eq.{record_id}", "DELETE")
+    return {
+        "reply": f"{display_name}({symbol}) 관심종목을 해제했습니다.",
+        "data": {"symbol": symbol, "asset_type": asset_type, "exchange": exchange, "removed": True},
     }
 
 
@@ -520,7 +709,7 @@ def search_trade_history(auth_header: str, message: str) -> dict:
         try:
             symbol = _resolve_symbol(auth_header, symbol_query).get("symbol") or ""
         except Exception:
-            symbol = symbol_query.upper()
+            symbol = symbol_query.upper() if _is_likely_symbol_token(symbol_query) else ""
 
     proposal_params = {
         "user_id": f"eq.{user_id}",
@@ -586,6 +775,89 @@ def search_trade_history(auth_header: str, message: str) -> dict:
     }
 
 
+def list_open_orders(auth_header: str, message: str) -> dict:
+    user_id, _ = get_user_id_from_header(auth_header)
+    exchange = _detect_exchange(message)
+    env = _detect_env(message)
+    symbol_query = _extract_symbol_query(message)
+    symbol = ""
+    if symbol_query:
+        try:
+            symbol = _resolve_symbol(auth_header, symbol_query).get("symbol") or ""
+        except Exception:
+            symbol = symbol_query.upper() if _is_likely_symbol_token(symbol_query) else ""
+
+    params = {
+        "user_id": f"eq.{user_id}",
+        "status": f"in.({','.join(OPEN_ORDER_STATUSES)})",
+        "order": "created_at.desc",
+        "limit": str(_detect_limit(message, default=20, maximum=50)),
+    }
+    if exchange:
+        params["exchange"] = f"eq.{exchange}"
+    if env:
+        params["broker_env"] = f"eq.{env}"
+    if symbol:
+        params["symbol"] = f"eq.{symbol}"
+
+    rows = safe_query_supabase(auth_header, "trade_proposals", "GET", params=params) or []
+    if not rows:
+        return {
+            "reply": "현재 조회된 미체결 주문이 없습니다.",
+            "data": {
+                "source": "OPEN_ORDERS",
+                "items": [],
+                "filters": {"exchange": exchange, "broker_env": env, "symbol": symbol},
+            },
+        }
+
+    items = []
+    for row in rows:
+        price = _to_float(row.get("price"))
+        qty = _to_float(row.get("volume") or row.get("quantity"))
+        amount = _to_float(row.get("order_amount")) or price * qty
+        symbol_value = str(row.get("symbol") or row.get("ticker") or "").upper()
+        asset_name = _format_trade_asset_name({**row, "symbol": symbol_value})
+        item = {
+            "id": row.get("id"),
+            "date": str(row.get("created_at") or "")[:10],
+            "exchange": row.get("exchange"),
+            "broker_env": row.get("broker_env"),
+            "symbol": symbol_value,
+            "asset_name": asset_name,
+            "side": row.get("side"),
+            "status": row.get("status"),
+            "price": price,
+            "quantity": qty,
+            "amount": amount,
+            "ord_type": row.get("ord_type"),
+            "external_order_id": row.get("external_order_id"),
+        }
+        items.append(item)
+
+    lines = []
+    for item in items:
+        env_text = f" {item['broker_env']}" if item.get("broker_env") else ""
+        side_text = "매도" if str(item.get("side") or "").upper() == "SELL" else "매수"
+        qty_text = _format_quantity(item.get("quantity"))
+        price_text = _format_money(item.get("price"))
+        amount_text = _format_money(item.get("amount"))
+        lines.append(
+            f"- {item['date']} / {item.get('exchange') or '-'}{env_text} / "
+            f"{item.get('asset_name') or item.get('symbol') or '-'} / {side_text} / "
+            f"{qty_text}개 / 지정가 {price_text} / 주문금액 {amount_text} / 상태 {item.get('status') or '-'}"
+        )
+
+    return {
+        "reply": f"미체결 주문 {len(items)}건입니다.\n" + "\n".join(lines),
+        "data": {
+            "source": "OPEN_ORDERS",
+            "items": items,
+            "filters": {"exchange": exchange, "broker_env": env, "symbol": symbol},
+        },
+    }
+
+
 def search_web(auth_header: str, message: str) -> dict:
     user_id, _ = get_user_id_from_header(auth_header)
     return ChatbotWebFallbackSearchService().search(
@@ -594,6 +866,56 @@ def search_web(auth_header: str, message: str) -> dict:
         query=message,
         limit=_detect_limit(message, default=5, maximum=5),
     )
+
+
+def get_asset_outlook(auth_header: str, message: str) -> dict:
+    user_id, _ = get_user_id_from_header(auth_header)
+    symbol_query = _extract_symbol_query(message)
+    if not symbol_query:
+        return {
+            "reply": "전망을 확인할 종목명이나 종목코드를 알려주세요.",
+            "data": {"source": "ASSET_OUTLOOK", "reason": "missing_symbol"},
+        }
+
+    symbol_data = {}
+    try:
+        symbol_data = _resolve_symbol(auth_header, symbol_query)
+    except Exception:
+        if not _is_likely_symbol_token(symbol_query):
+            return {
+                "reply": f"{symbol_query} 종목을 찾지 못했습니다.\n종목명이나 종목코드를 다시 확인해 주세요.",
+                "data": {"source": "ASSET_OUTLOOK", "query": symbol_query, "reason": "symbol_not_found"},
+            }
+
+    symbol = str(symbol_data.get("symbol") or symbol_query).upper()
+    display_name = str(symbol_data.get("display_name") or symbol).strip()
+    asset_type = str(symbol_data.get("asset_type") or "").upper()
+    market = str(symbol_data.get("market") or "").strip()
+    lookup_label = f"{display_name}({symbol})" if display_name and display_name.upper() != symbol else symbol
+    context_parts = [lookup_label, "최근 뉴스 공시 시세 전망 리스크"]
+    if asset_type:
+        context_parts.append(asset_type)
+    if market:
+        context_parts.append(market)
+
+    result = ChatbotWebFallbackSearchService().search(
+        auth_header=auth_header,
+        user_id=user_id,
+        query=" ".join(context_parts),
+        limit=5,
+    )
+    result_data = result.get("data") or {}
+    result["data"] = {
+        **result_data,
+        "source": result_data.get("source") or "ASSET_OUTLOOK",
+        "symbol": symbol,
+        "display_name": display_name,
+        "asset_type": asset_type,
+        "market": market,
+    }
+    if result.get("reply"):
+        result["reply"] = f"{lookup_label} 기준으로 확인한 전망 참고자료입니다.\n" + result["reply"]
+    return result
 
 
 def _is_web_search_request(text: str) -> bool:
@@ -614,6 +936,11 @@ def _is_web_search_request(text: str) -> bool:
     return any(keyword.upper() in normalized for keyword in web_keywords)
 
 
+def _is_asset_outlook_request(text: str) -> bool:
+    outlook_keywords = ["전망", "분석", "오를까", "어때", "괜찮아", "살까", "투자해도"]
+    return any(keyword in str(text or "") for keyword in outlook_keywords)
+
+
 def run_chatbot_tool(auth_header: str | None, message: str) -> dict | None:
     if not auth_header:
         return None
@@ -627,10 +954,16 @@ def run_chatbot_tool(auth_header: str | None, message: str) -> dict | None:
         return get_exchange_rate(auth_header, text)
     if any(keyword in text for keyword in ["순위", "랭킹", "상위", "필터"]):
         return get_home_market_rankings(auth_header, text)
-    if any(keyword in text for keyword in ["관심종목", "관심 종목"]) and any(keyword in text for keyword in ["설정", "추가", "등록"]):
+    if any(keyword in text for keyword in ["관심종목", "관심 종목"]) and any(keyword in text for keyword in ["해제", "삭제", "제거", "빼줘", "빼", "없애"]):
+        return remove_watchlist_item(auth_header, text)
+    if any(keyword in text for keyword in ["관심종목", "관심 종목"]) and any(keyword in text for keyword in ["설정", "추가", "등록", "넣어", "넣어줘"]):
         return add_watchlist_item(auth_header, text)
+    if any(keyword in text for keyword in ["미체결", "열린 주문", "오픈 주문", "대기 주문"]) and any(keyword in text for keyword in ["주문", "보여줘", "조회", "알려줘", "목록"]):
+        return list_open_orders(auth_header, text)
     if any(keyword in text for keyword in ["거래내역", "거래 내역", "주문내역", "주문 내역"]):
         return search_trade_history(auth_header, text)
+    if _is_asset_outlook_request(text):
+        return get_asset_outlook(auth_header, text)
     if not is_strategy_request and any(keyword in text for keyword in ["보유", "내 주식", "뭐뭐 있어", "들고"]):
         return get_holdings(auth_header, text)
     if (not is_strategy_request or is_direct_read_request) and any(keyword in text for keyword in ["평가 자산", "평가자산", "내 돈", "얼마 있어", "자산 얼마"]):

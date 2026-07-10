@@ -4,6 +4,8 @@ import Header from '../components/Header.jsx'
 import InvestmentSurveyModal from '../components/InvestmentSurveyModal'
 import { getApiErrorMessage } from '../lib/apiError.js'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
+
 export default function Settings({ isLoggedIn, userEmail, handleLogout, userProfile, setUserProfile, hideHeader }) {
   // 브로커 연동 현황 상태
   const [status, setStatus] = useState({
@@ -141,7 +143,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
     if (!authHeader) return
 
     try {
-      const response = await fetch('http://localhost:5050/api/keys/status', {
+      const response = await fetch(`${API_BASE_URL}/api/keys/status`, {
         method: 'GET',
         headers: {
           'Authorization': authHeader
@@ -239,7 +241,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
     }
 
     try {
-      const response = await fetch('http://localhost:5050/api/keys/test', {
+      const response = await fetch(`${API_BASE_URL}/api/keys/test`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -266,7 +268,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
   const saveKeysDirect = async (authHeader, payload) => {
     setMessage({ text: 'API Key 정보를 암호화 저장하는 중...', isError: false })
     try {
-      const response = await fetch('http://localhost:5050/api/keys/save', {
+      const response = await fetch(`${API_BASE_URL}/api/keys/save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -386,7 +388,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
 
     try {
       // 1. 연결 테스트 강제 수행
-      const testResponse = await fetch('http://localhost:5050/api/keys/test', {
+      const testResponse = await fetch(`${API_BASE_URL}/api/keys/test`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -446,7 +448,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
     }
 
     try {
-      const response = await fetch('http://localhost:5050/api/keys/toss/accounts', {
+      const response = await fetch(`${API_BASE_URL}/api/keys/toss/accounts`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

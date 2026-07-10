@@ -1,15 +1,15 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
-import Login from '../pages/Login'
-import Signup from '../pages/Signup'
-import Inquiry from '../pages/Inquiry'
-import Settings from '../pages/Settings'
 import MobileHome from '../pages/mobile/MobileHome.jsx'
 import MobileDashboard from '../pages/mobile/MobileDashboard.jsx'
 import MobileNews from '../pages/mobile/MobileNews.jsx'
-import MarketRankings from '../pages/MarketRankings'
-import AdminMlData from '../pages/AdminMlData'
-import AssetDetail from '../pages/AssetDetail'
-import SearchNotFound from '../pages/SearchNotFound'
+import MobileSettings from '../pages/mobile/MobileSettings.jsx'
+import MobileLogin from '../pages/mobile/MobileLogin.jsx'
+import MobileSignup from '../pages/mobile/MobileSignup.jsx'
+import MobileInquiry from '../pages/mobile/MobileInquiry.jsx'
+import MobileMarketRankings from '../pages/mobile/MobileMarketRankings.jsx'
+import MobileAdminMlData from '../pages/mobile/MobileAdminMlData.jsx'
+import MobileAssetDetail from '../pages/mobile/MobileAssetDetail.jsx'
+import MobileSearchNotFound from '../pages/mobile/MobileSearchNotFound.jsx'
 import { INQUIRY_ROUTES } from '../dashboardConstants.js'
 import MobileBottomNavigation from '../components/mobile/MobileBottomNavigation.jsx'
 import MobileHeader from '../components/mobile/MobileHeader.jsx'
@@ -24,7 +24,7 @@ export default function MobileRoutes({
   const protectedInquiryElement = isLoggedIn ? (
     <div className="min-h-screen bg-obsidian-bg px-3 py-4 font-inter text-[#e2e2ec]">
       <MobileHeader isLoggedIn={isLoggedIn} handleLogout={handleLogout} />
-      <Inquiry
+      <MobileInquiry
         isLoggedIn={isLoggedIn}
         userEmail={userEmail}
         handleLogout={handleLogout}
@@ -72,7 +72,7 @@ export default function MobileRoutes({
           <Route
             path="/market-rankings"
             element={(
-              <MarketRankings
+              <MobileMarketRankings
                 isLoggedIn={isLoggedIn}
                 userEmail={userEmail}
                 handleLogout={handleLogout}
@@ -97,7 +97,7 @@ export default function MobileRoutes({
             element={(
               <div className="min-h-screen bg-obsidian-bg px-3 py-4 font-inter text-[#e2e2ec]">
                 <MobileHeader isLoggedIn={isLoggedIn} handleLogout={handleLogout} />
-                <Settings
+                <MobileSettings
                   isLoggedIn={isLoggedIn}
                   userEmail={userEmail}
                   handleLogout={handleLogout}
@@ -112,19 +112,19 @@ export default function MobileRoutes({
           <Route
             path="/admin/ml-data"
             element={(
-              <AdminMlData
+              <MobileAdminMlData
                 isLoggedIn={isLoggedIn}
                 userEmail={userEmail}
                 handleLogout={handleLogout}
               />
             )}
           />
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
+          <Route path="/login" element={<MobileLogin />} />
+          <Route path="/signup" element={<MobileSignup />} />
           <Route
             path="/asset/:assetType"
             element={(
-              <SearchNotFound
+              <MobileSearchNotFound
                 isLoggedIn={isLoggedIn}
                 userEmail={userEmail}
                 handleLogout={handleLogout}
@@ -134,18 +134,23 @@ export default function MobileRoutes({
           <Route
             path="/asset/:assetType/:symbol"
             element={(
-              <AssetDetail
-                isLoggedIn={isLoggedIn}
-                userEmail={userEmail}
-                handleLogout={handleLogout}
-                userProfile={userProfile}
-              />
+              <div className="min-h-screen bg-obsidian-bg px-3 py-4 font-inter text-[#e2e2ec]">
+                <MobileHeader isLoggedIn={isLoggedIn} handleLogout={handleLogout} />
+                <MobileAssetDetail
+                  isLoggedIn={isLoggedIn}
+                  userEmail={userEmail}
+                  handleLogout={handleLogout}
+                  userProfile={userProfile}
+                  hideHeader
+                  mobileLayout
+                />
+              </div>
             )}
           />
           <Route
             path="/search/not-found"
             element={(
-              <SearchNotFound
+              <MobileSearchNotFound
                 isLoggedIn={isLoggedIn}
                 userEmail={userEmail}
                 handleLogout={handleLogout}

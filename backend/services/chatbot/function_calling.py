@@ -60,6 +60,19 @@ FUNCTION_SCHEMAS = [
         },
     },
     {
+        "name": "list_open_orders",
+        "description": "로그인한 사용자의 미체결 주문 목록을 조회합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "종목명 또는 종목코드"},
+                "exchange": {"type": "string", "description": "TOSS, KIS, COINONE, BINANCE 등"},
+                "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
+                "limit": {"type": "number", "description": "조회할 주문 개수"},
+            },
+        },
+    },
+    {
         "name": "get_exchange_rate",
         "description": "달러, 엔화, 유로, 위안, 테더(USDT) 등 주요 통화의 환율을 조회합니다.",
         "parameters": {

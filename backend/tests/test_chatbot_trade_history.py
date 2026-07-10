@@ -41,11 +41,31 @@ def test_match_min_amount_parses_korean_number_amounts():
 
 
 def test_extract_symbol_query_keeps_stock_names_and_ignores_amount_only_queries():
-    assert tool_registry._extract_symbol_query("테슬라 거래내역 보여줘") == "테슬라"
+    assert tool_registry._extract_symbol_query("테슬라 거래내역 보여줘") == "TSLA"
     assert tool_registry._extract_symbol_query("삼성전자 거래내역 보여줘") == "삼성전자"
     assert tool_registry._extract_symbol_query("오천원이상 거래내역 보여줘") == ""
     assert tool_registry._extract_symbol_query("만원이상 거래내역 보여줘") == ""
     assert tool_registry._extract_symbol_query("30만원 이상 거래내역 보여줘") == ""
+
+def test_extract_symbol_query_keeps_stock_and_crypto_alias_names():
+    assert tool_registry._extract_symbol_query("삼성전기 관심종목 추가") == "삼성전기"
+    assert tool_registry._extract_symbol_query("리플 관심종목 추가") == "XRP"
+    assert tool_registry._extract_symbol_query("도지코인 뉴스 보여줘") == "DOGE"
+    assert tool_registry._extract_symbol_query("테더 환율 알려줘") == "USDT"
+
+
+def test_extract_symbol_query_uses_ml_training_universe_symbols():
+    assert tool_registry._extract_symbol_query("XRPUSDT 관심종목 추가") == "XRP"
+    assert tool_registry._extract_symbol_query("SUIUSDT 뉴스 보여줘") == "SUI"
+    assert tool_registry._extract_symbol_query("AAPL 뉴스 보여줘") == "AAPL"
+    assert tool_registry._extract_symbol_query("009150 관심종목 추가") == "009150"
+
+
+def test_extract_symbol_query_normalizes_common_us_stock_korean_aliases():
+    assert tool_registry._extract_symbol_query("아마존 관심종목 추가") == "AMZN"
+    assert tool_registry._extract_symbol_query("애플 관심종목 추가") == "AAPL"
+    assert tool_registry._extract_symbol_query("엔비디아 뉴스 보여줘") == "NVDA"
+    assert tool_registry._extract_symbol_query("테슬라 거래내역 보여줘") == "TSLA"
 
 
 def test_search_trade_history_filters_by_symbol_name(monkeypatch):
@@ -63,6 +83,134 @@ def test_search_trade_history_filters_by_symbol_name(monkeypatch):
     tool_registry.search_trade_history("Bearer test", "테슬라 거래내역 보여줘")
 
     assert captured_params["symbol"] == "eq.TSLA"
+
+
+def test_add_watchlist_item_saves_price_snapshot(monkeypatch):
+    writes = []
+    monkeypatch.setattr(tool_registry, "get_user_id_from_header", lambda auth_header: ("user-1", "token"))
+    monkeypatch.setattr(
+        tool_registry,
+        "_resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "AAPL",
+            "display_name": "애플",
+            "asset_type": "STOCK",
+            "market": "US",
+        },
+    )
+
+    def fake_get_internal(path, auth_header, params=None):
+        assert path == "/api/chart/quote"
+        assert params == {"exchange": "TOSS", "symbol": "AAPL", "broker_env": "REAL"}
+        return {
+            "data": {
+                "current_price": 210.5,
+                "change_rate": 1.25,
+            }
+        }
+
+    def fake_query_supabase(auth_header, endpoint, method="GET", json_data=None, params=None):
+        if method == "GET":
+            return []
+        writes.append({"endpoint": endpoint, "method": method, "json_data": json_data})
+        return [json_data]
+
+    monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
+    monkeypatch.setattr(tool_registry, "query_supabase", fake_query_supabase)
+
+    result = tool_registry.add_watchlist_item("Bearer test", "애플 관심종목 추가")
+
+    assert result["data"]["latest_price"] == 210.5
+    assert result["data"]["average_price"] == 210.5
+    assert result["data"]["change_rate"] == 1.25
+    assert writes[0]["json_data"]["latest_price"] == 210.5
+    assert writes[0]["json_data"]["average_price"] == 210.5
+    assert writes[0]["json_data"]["change_rate"] == 1.25
+
+
+def test_add_watchlist_item_uses_candle_close_when_quote_has_no_current_price(monkeypatch):
+    writes = []
+    monkeypatch.setattr(tool_registry, "get_user_id_from_header", lambda auth_header: ("user-1", "token"))
+    monkeypatch.setattr(
+        tool_registry,
+        "_resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "009150",
+            "display_name": "삼성전기",
+            "asset_type": "STOCK",
+            "market": "KR",
+        },
+    )
+
+    def fake_get_internal(path, auth_header, params=None):
+        if path == "/api/chart/quote":
+            return {"data": {"change_rate": -0.75}}
+        assert path == "/api/chart/candles"
+        assert params == {"exchange": "KIS", "symbol": "009150", "interval": "1d", "count": 2, "broker_env": "REAL"}
+        return {"data": [{"close": 123000}, {"close": 124500}]}
+
+    def fake_query_supabase(auth_header, endpoint, method="GET", json_data=None, params=None):
+        if method == "GET":
+            return []
+        writes.append(json_data)
+        return [json_data]
+
+    monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
+    monkeypatch.setattr(tool_registry, "query_supabase", fake_query_supabase)
+
+    result = tool_registry.add_watchlist_item("Bearer test", "삼성전기 관심종목 추가")
+
+    assert result["data"]["latest_price"] == 124500
+    assert result["data"]["average_price"] == 124500
+    assert result["data"]["change_rate"] == -0.75
+    assert writes[0]["latest_price"] == 124500
+
+
+def test_remove_watchlist_item_deletes_existing_record(monkeypatch):
+    calls = []
+    monkeypatch.setattr(tool_registry, "get_user_id_from_header", lambda auth_header: ("user-1", "token"))
+    monkeypatch.setattr(
+        tool_registry,
+        "_resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "AMZN",
+            "display_name": "아마존",
+            "asset_type": "STOCK",
+            "market": "US",
+        },
+    )
+
+    def fake_query_supabase(auth_header, endpoint, method="GET", json_data=None, params=None):
+        calls.append({"endpoint": endpoint, "method": method, "params": params})
+        if method == "GET":
+            return [{"id": "watch-1", "name": "아마존"}]
+        return []
+
+    monkeypatch.setattr(tool_registry, "query_supabase", fake_query_supabase)
+
+    result = tool_registry.remove_watchlist_item("Bearer test", "아마존 관심종목 해제")
+
+    assert "해제했습니다" in result["reply"]
+    assert result["data"]["symbol"] == "AMZN"
+    assert calls[0]["endpoint"] == "user_watchlist"
+    assert calls[1] == {
+        "endpoint": "user_watchlist?id=eq.watch-1",
+        "method": "DELETE",
+        "params": None,
+    }
+
+
+def test_run_chatbot_tool_routes_watchlist_remove(monkeypatch):
+    monkeypatch.setattr(
+        tool_registry,
+        "remove_watchlist_item",
+        lambda auth_header, text: {"reply": "removed", "data": {"message": text}},
+    )
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "아마존 관심종목 해제")
+
+    assert result["reply"] == "removed"
+    assert result["data"]["message"] == "아마존 관심종목 해제"
 
 
 def test_strategy_request_with_holdings_keyword_does_not_route_to_holdings_tool():

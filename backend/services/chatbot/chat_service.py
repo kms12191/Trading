@@ -14,6 +14,7 @@ from backend.services.chatbot.tool_registry import (
     get_home_market_rankings,
     get_portfolio_summary,
     list_available_tools,
+    list_open_orders,
     run_chatbot_tool,
     search_trade_history,
     search_web,
@@ -225,6 +226,17 @@ class ChatbotService:
             if arguments.get("limit"):
                 parts.append(f"상위 {arguments['limit']}개")
             return " ".join(parts)
+        if tool_name == "list_open_orders":
+            parts = ["미체결 주문"]
+            if arguments.get("symbol"):
+                parts.append(str(arguments["symbol"]))
+            if arguments.get("exchange"):
+                parts.append(str(arguments["exchange"]))
+            if arguments.get("broker_env"):
+                parts.append(str(arguments["broker_env"]))
+            if arguments.get("limit"):
+                parts.append(f"{arguments['limit']}개")
+            return " ".join(parts)
         if tool_name == "get_exchange_rate":
             base = str(arguments.get("base_currency") or "").strip()
             quote = str(arguments.get("quote_currency") or "KRW").strip()
@@ -255,6 +267,7 @@ class ChatbotService:
             "add_watchlist_item": add_watchlist_item,
             "get_holdings": get_holdings,
             "search_trade_history": search_trade_history,
+            "list_open_orders": list_open_orders,
             "get_exchange_rate": get_exchange_rate,
             "search_web": search_web,
         }

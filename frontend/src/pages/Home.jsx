@@ -5,6 +5,8 @@ import Header from "../components/Header.jsx";
 import AssetLogo from "../components/AssetLogo.jsx";
 import { deleteUserWatchlistItem, fetchUserWatchlist, normalizeWatchlistItem, upsertUserWatchlistItem } from "../supabaseClient";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5050";
+
 const filters = {
   region: ["국내", "해외"],
   ranking: ["거래대금", "거래량", "상승률", "하락률"],
@@ -386,7 +388,7 @@ export default function Home({ isLoggedIn, userEmail, handleLogout }) {
         setStatus("loading");
         const currentMarketState = getKoreanMarketState();
         setMarketState(currentMarketState);
-        const response = await fetch("http://localhost:5050/api/home/market", {
+        const response = await fetch(`${API_BASE_URL}/api/home/market`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ filters: requestFilters, coinFilters: requestCoinFilters }),

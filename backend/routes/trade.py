@@ -3894,6 +3894,30 @@ def lookup_symbol():
                 }
             })
 
+    # 3.5. 거래대금 최신 테이블 이름/심볼 기반 보조 검색
+    from backend.services.supabase_client import safe_query_supabase_as_service_role
+    turnover_results = safe_query_supabase_as_service_role(
+        "kis_stock_turnover_latest",
+        "GET",
+        params={
+            "or": f"(name.ilike.*{query}*,symbol.ilike.*{query}*)",
+            "limit": 10,
+        },
+    )
+    for row in turnover_results or []:
+        symbol = str(row.get("symbol") or "").strip().upper()
+        name = str(row.get("name") or "").strip()
+        if symbol == query or name.upper() == query:
+            return jsonify({
+                "success": True,
+                "data": {
+                    "symbol": symbol,
+                    "display_name": name or symbol,
+                    "asset_type": "STOCK",
+                    "market": row.get("market_country") or "US"
+                }
+            })
+
     # 4. 누락 해외 주식 온디맨드 자동 등록 (Auto-backfill) 시도
     if re.match(r"^[A-Z0-9]{1,10}$", query):
         backfilled = _auto_backfill_stock_from_turnover(query)

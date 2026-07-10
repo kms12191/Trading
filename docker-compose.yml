@@ -1,0 +1,22 @@
+services:
+  backend-api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: gunicorn -b 0.0.0.0:5050 -w 2 --timeout 120 app:app
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+    ports:
+      - "80:5050"
+
+  backend-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: python worker.py
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+    depends_on:
+      - backend-api

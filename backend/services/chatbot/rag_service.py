@@ -16,7 +16,6 @@ class ChatbotRAGService:
         self.embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small").strip()
         self.top_k = self._read_int_env("CHATBOT_RAG_TOP_K", 5)
         self.max_context_chars = self._read_int_env("CHATBOT_RAG_MAX_CONTEXT_CHARS", 6000)
-        self.match_threshold = self._read_float_env("CHATBOT_RAG_MATCH_THRESHOLD", 0.2)
         self.timeout_seconds = self._read_int_env("CHATBOT_OPENAI_TIMEOUT_SECONDS", 30)
 
     @staticmethod
@@ -24,13 +23,6 @@ class ChatbotRAGService:
         try:
             value = int(os.getenv(name, default))
             return value if value > 0 else default
-        except (TypeError, ValueError):
-            return default
-
-    @staticmethod
-    def _read_float_env(name: str, default: float) -> float:
-        try:
-            return float(os.getenv(name, default))
         except (TypeError, ValueError):
             return default
 
@@ -66,7 +58,6 @@ class ChatbotRAGService:
                 "query_embedding": query_embedding,
                 "match_user_id": user_id,
                 "match_count": self.top_k,
-                "match_threshold": self.match_threshold,
             },
         )
         return rows if isinstance(rows, list) else []

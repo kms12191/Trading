@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { sendChatbotMessage } from './chatbotApi'
+import { buildDisclosurePresentation } from './chatbotDisclosurePresentation'
 import { getDefaultChatbotSize, resizeChatbotPanel } from './chatbotResize'
 
 const INITIAL_MESSAGES = [
@@ -41,18 +42,22 @@ function ChatMessage({ message, onAction }) {
   const isUser = message.role === 'user'
   const messageTime = formatMessageTime(message.createdAt)
   const actions = Array.isArray(message.actions) ? message.actions : []
+  const disclosurePresentation = buildDisclosurePresentation(message.toolResult)
+  const hasDisclosureCards = !isUser && disclosurePresentation.items.length > 0
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`flex max-w-[84%] flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex flex-col gap-1 ${hasDisclosureCards ? 'w-full max-w-[96%]' : 'max-w-[84%]'} ${isUser ? 'items-end' : 'items-start'}`}>
         <div
-          className={`whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-xs leading-5 ${
+          className={`${hasDisclosureCards ? 'w-full' : 'whitespace-pre-wrap break-words'} rounded-lg px-3 py-2 text-xs leading-5 ${
             isUser
               ? 'bg-blue-600 text-[#ffffff]'
               : 'border border-slate-700/80 bg-[#111827] text-slate-100'
           }`}
         >
-          {message.text}
+          {hasDisclosureCards ? (
+            <DisclosureResults presentation={disclosurePresentation} />
+          ) : message.text}
         </div>
         {messageTime && (
           <time className="px-1 text-[10px] font-medium text-slate-500" dateTime={message.createdAt}>
@@ -74,6 +79,92 @@ function ChatMessage({ message, onAction }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function DisclosureResults({ presentation }) {
+  const disclosureToneClass = (sentiment) => {
+    if (sentiment === 'positive') return 'border-emerald-500/40 bg-emerald-950/30 text-emerald-200'
+    if (sentiment === 'negative') return 'border-rose-500/40 bg-rose-950/30 text-rose-200'
+    if (sentiment === 'caution') return 'border-amber-500/40 bg-amber-950/30 text-amber-200'
+    return 'border-cyan-500/30 bg-cyan-950/30 text-cyan-200'
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-700/70 pb-2">
+        <p className="font-bold text-cyan-200">DART 공시 요약</p>
+        <span className="shrink-0 rounded border border-cyan-500/30 bg-cyan-950/30 px-2 py-0.5 text-[10px] font-bold text-cyan-100">
+          {presentation.items.length}건
+        </span>
+      </div>
+
+      {presentation.items.map((item, index) => (
+        <article key={`${item.url || item.title}-${index}`} className="space-y-2 rounded border border-[#334155] bg-[#0f172a]/80 p-3">
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded border border-cyan-500/25 bg-cyan-950/25 px-1.5 py-0.5 text-[10px] font-bold text-cyan-200">
+                {item.corpName}
+              </span>
+              <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${disclosureToneClass(item.sentiment)}`}>
+                {item.sentimentLabel}
+              </span>
+              <span className="rounded border border-slate-600/60 bg-slate-900/50 px-1.5 py-0.5 text-[10px] font-medium text-slate-200">
+                신뢰도 {item.confidence}
+              </span>
+              <span className="text-[10px] text-slate-500">{item.source}</span>
+            </div>
+            <h4 className="break-words font-bold leading-5 text-slate-100">
+              {index + 1}. {item.title}
+            </h4>
+          </div>
+
+          {item.headline ? <p className="break-words font-bold text-cyan-100">{item.headline}</p> : null}
+          {item.summary ? (
+            <p className="break-words rounded border border-slate-700/70 bg-slate-950/40 px-2 py-1.5 leading-5 text-slate-200">
+              {item.summary}
+            </p>
+          ) : null}
+
+          {item.metrics.length > 0 ? (
+            <dl className="space-y-1">
+              {item.metrics.map((metric, metricIndex) => (
+                <div key={`${metric.label}-${metricIndex}`} className="grid min-w-0 grid-cols-[minmax(76px,0.8fr)_minmax(0,1.5fr)] gap-2 rounded border border-slate-700/60 bg-slate-950/30 px-2 py-1.5">
+                  <dt className="break-words font-bold text-cyan-200">{metric.label}</dt>
+                  <dd className="min-w-0 break-words text-slate-100">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+
+          {item.checks.length > 0 ? (
+            <dl className="space-y-1">
+              {item.checks.map((check, checkIndex) => (
+                <div key={`${check.question}-${checkIndex}`} className="grid min-w-0 grid-cols-[minmax(76px,0.8fr)_minmax(0,1.5fr)] gap-2 rounded border border-cyan-950/80 bg-[#07111f]/70 px-2 py-1.5">
+                  <dt className="break-words font-bold text-cyan-200">{check.question}</dt>
+                  <dd className="min-w-0 break-words text-slate-100">{check.answer}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+
+          {item.risk ? <p className="break-words text-amber-200/90">확인 포인트: {item.risk}</p> : null}
+          {item.url ? (
+            <a href={item.url} target="_blank" rel="noopener noreferrer" className="inline-flex rounded border border-blue-500/50 bg-blue-600 px-2.5 py-1.5 font-bold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-cyan-300">
+              원문 열기
+            </a>
+          ) : null}
+        </article>
+      ))}
+
+      {presentation.sourceUrl ? (
+        <div className="border-t border-slate-700/70 pt-2">
+          <a href={presentation.sourceUrl} target="_blank" rel="noopener noreferrer" className="break-words font-bold text-cyan-300 underline decoration-cyan-700 underline-offset-2 hover:text-cyan-100 focus:outline-none focus:ring-2 focus:ring-cyan-300">
+            DART 전자공시시스템에서 전체 보기
+          </a>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -156,7 +247,7 @@ export default function ChatbotWidget({ enabled = true }) {
     }
   }
 
-  const addMessage = (role, text, actions = []) => {
+  const addMessage = (role, text, actions = [], toolResult = null) => {
     setMessages((prev) => [
       ...prev,
       {
@@ -164,6 +255,7 @@ export default function ChatbotWidget({ enabled = true }) {
         role,
         text,
         actions,
+        toolResult,
         createdAt: new Date().toISOString(),
       },
     ])
@@ -183,6 +275,7 @@ export default function ChatbotWidget({ enabled = true }) {
         'assistant',
         result?.reply || '응답을 만들지 못했습니다. 잠시 후 다시 시도해주세요.',
         result?.actions || [],
+        result?.meta?.tool_result || null,
       )
     } catch (error) {
       addMessage('assistant', error.message || '챗봇 연결 중 문제가 발생했습니다.')

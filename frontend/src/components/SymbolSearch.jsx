@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AssetLogo from './AssetLogo.jsx'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
+
 // 종목 퀵 검색 공통 컴포넌트
 // - 심볼/종목명 입력 + 자동완성 드롭다운 + 상세 페이지 이동 기능
 // - 검색 대상은 백엔드의 종목 검색 결과에 맡기고, 사용자가 주식/코인을 직접 고르지 않게 한다.
@@ -27,7 +29,7 @@ export default function SymbolSearch({ className = '' }) {
 
     try {
       const res = await fetch(
-        `http://localhost:5050/api/symbol/lookup?query=${encodeURIComponent(trimmed)}`
+        `${API_BASE_URL}/api/symbol/lookup?query=${encodeURIComponent(trimmed)}`
       )
       const resData = await res.json()
       if (resData.success && resData.data) {
@@ -52,7 +54,7 @@ export default function SymbolSearch({ className = '' }) {
     if (val.trim().length > 0) {
       try {
         const res = await fetch(
-          `http://localhost:5050/api/symbol/search?query=${encodeURIComponent(val)}`
+          `${API_BASE_URL}/api/symbol/search?query=${encodeURIComponent(val)}`
         )
         const resData = await res.json()
         if (resData.success && resData.data) {

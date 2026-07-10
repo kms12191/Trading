@@ -135,6 +135,10 @@ app.register_blueprint(admin_inquiries_bp)
 app.register_blueprint(chatbot_bp)
 app.register_blueprint(knowledge_bp)
 
+@app.get("/api/health")
+def health_check():
+    return {"success": True, "status": "ok"}
+
 # Flask 디버그 모드 리로더에 의한 스케줄러 이중 기동 방지 및 flask run 환경 지원
 is_scheduler_host = (not app.debug) or (os.environ.get("WERKZEUG_RUN_MAIN") == "true")
 SCHEDULER_RUN_IN_GATEWAY = os.getenv("SCHEDULER_RUN_IN_GATEWAY", "false").lower() == "true"

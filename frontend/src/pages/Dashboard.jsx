@@ -16,7 +16,7 @@ import {
 } from '../lib/transferBalanceAdjustments.js'
 import { DASHBOARD_TAB_KEYS, DEFAULT_DASHBOARD_TAB } from '../dashboardConstants.js'
 
-const DASHBOARD_API_BASE_URL = 'http://localhost:5050'
+const DASHBOARD_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 const BALANCE_EXCHANGE_ORDER = ['TOSS', 'KIS', 'COINONE', 'BINANCE', 'BINANCE_UM_FUTURES']
 const TRADE_PROPOSAL_HOLDING_FIELDS = 'id,exchange,asset_type,ticker,symbol,side,price,volume,order_amount,market_country,currency,status,broker_env,created_at'
 const TRANSFER_PROPOSAL_FIELDS = 'id,from_exchange,to_exchange,currency,amount,status,received_amount,expected_receive_amount,withdraw_fee,fee_currency,precheck_payload,binance_deposit_payload,created_at,submitted_at,completed_at,updated_at'
@@ -904,7 +904,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
     setMessage({ text: '', isError: false })
 
     try {
-      const response = await fetch('http://localhost:5050/api/keys/test', {
+      const response = await fetch(`${DASHBOARD_API_BASE_URL}/api/keys/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(inputs)
