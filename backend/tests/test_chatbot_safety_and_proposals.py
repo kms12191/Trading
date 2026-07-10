@@ -60,6 +60,48 @@ def test_holdings_summary_routes_to_amount_summary_before_detail(monkeypatch):
     assert result["data"]["source"] == "PORTFOLIO_SUMMARY"
 
 
+def test_portfolio_summary_limits_errors_without_raw_exception(monkeypatch):
+    monkeypatch.setattr(
+        tool_registry,
+        "_post_internal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("secret raw credential detail")
+        ),
+    )
+
+    result = tool_registry.get_portfolio_summary("Bearer test", "내 자산 요약")
+
+    assert len(result["data"]["errors"]) == 5
+    assert result["reply"].count("계좌 조회 실패") == 3
+    assert "secret raw credential detail" not in result["reply"]
+
+
+def test_get_holdings_keeps_detailed_quantity_role(monkeypatch):
+    monkeypatch.setattr(
+        tool_registry,
+        "get_portfolio_summary",
+        lambda *args: {
+            "data": {
+                "summaries": [
+                    {
+                        "exchange": "KIS",
+                        "env": "REAL",
+                        "holdings": [
+                            {"name": "삼성전자", "symbol": "005930", "qty": 3},
+                        ],
+                    },
+                ],
+            },
+        },
+    )
+
+    result = tool_registry.get_holdings("Bearer test", "내 주식 보여줘")
+
+    assert "보유 현황입니다" in result["reply"]
+    assert "삼성전자" in result["reply"]
+    assert ": 3" in result["reply"]
+
+
 def test_llm_schema_does_not_expose_trade_proposal_creation():
     assert "create_trade_proposal" not in {schema["name"] for schema in FUNCTION_SCHEMAS}
 

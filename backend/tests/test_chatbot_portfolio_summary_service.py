@@ -1,3 +1,5 @@
+import pytest
+
 from backend.services.chatbot.portfolio_summary_service import (
     build_portfolio_totals,
     format_portfolio_reply,
@@ -83,3 +85,67 @@ def test_toss_summary_converts_evaluation_and_cash_with_separate_currencies():
     assert account["total_evaluation_krw"] == 150000
     assert account["available_cash_krw"] == 200000
     assert account["available_cash_currency"] == "KRW"
+
+
+def test_explicit_zero_values_do_not_fall_through_to_legacy_fields():
+    account = normalize_account_summary(
+        "KIS",
+        "REAL",
+        {
+            "total_evaluation": 0,
+            "total_asset": 1000000,
+            "available_cash": 0,
+            "cash": 200000,
+            "currency": "KRW",
+        },
+    )
+
+    assert account["total_evaluation_krw"] == 0
+    assert account["available_cash_krw"] == 0
+
+
+def test_evaluation_currency_falls_back_to_available_cash_currency():
+    account = normalize_account_summary(
+        "BINANCE",
+        "REAL",
+        {
+            "total_evaluation": 100,
+            "available_cash": 20,
+            "available_cash_currency": "USDT",
+            "exchange_rate": 1500,
+        },
+    )
+
+    assert account["currency"] == "USDT"
+    assert account["total_evaluation_krw"] == 150000
+
+
+@pytest.mark.parametrize("invalid_rate", [-1, float("nan"), float("inf"), "invalid"])
+def test_invalid_exchange_rate_uses_safe_fallback(invalid_rate):
+    account = normalize_account_summary(
+        "BINANCE",
+        "REAL",
+        {
+            "total_evaluation": 100,
+            "currency": "USDT",
+            "exchange_rate": invalid_rate,
+        },
+    )
+
+    assert account["exchange_rate"] == 1500
+    assert account["total_evaluation_krw"] == 150000
+
+
+def test_unknown_currency_is_not_multiplied_as_usd():
+    account = normalize_account_summary(
+        "UNKNOWN",
+        "REAL",
+        {
+            "total_evaluation": 100,
+            "currency": "JPY",
+            "exchange_rate": 1500,
+        },
+    )
+
+    assert account["total_evaluation_krw"] == 0
+    assert "지원하지 않는 통화" in account["warning"]

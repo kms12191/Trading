@@ -1,21 +1,41 @@
+import math
+
+
 DEFAULT_KRW_EXCHANGE_RATE = 1500.0
+SUPPORTED_CURRENCIES = {"KRW", "USD", "USDT"}
 
 
 def _to_float(value) -> float:
     try:
-        return float(value or 0)
+        parsed = float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+    return parsed if math.isfinite(parsed) else 0.0
+
+
+def _first_present(source: dict, *keys: str):
+    for key in keys:
+        if key in source and source[key] is not None:
+            return source[key]
+    return None
 
 
 def _currency_factor(currency: str, exchange_rate: float) -> float:
-    return 1.0 if currency == "KRW" else exchange_rate
+    if currency == "KRW":
+        return 1.0
+    if currency in {"USD", "USDT"}:
+        return exchange_rate
+    return 0.0
 
 
 def normalize_account_summary(exchange: str, env: str, balance: dict) -> dict:
     """거래소별 잔고를 평가액·현금의 원화 환산 구조로 정규화합니다."""
     source = balance if isinstance(balance, dict) else {}
-    currency = str(source.get("currency") or "KRW").upper()
+    currency = str(
+        source.get("currency")
+        or source.get("available_cash_currency")
+        or "KRW"
+    ).upper()
     available_cash_currency = str(
         source.get("available_cash_currency") or currency
     ).upper()
@@ -23,19 +43,33 @@ def normalize_account_summary(exchange: str, env: str, balance: dict) -> dict:
     exchange_rate = (
         _to_float(source.get("exchange_rate"))
         or _to_float(cash_details.get("exchange_rate"))
-        or DEFAULT_KRW_EXCHANGE_RATE
     )
+    if exchange_rate <= 0:
+        exchange_rate = DEFAULT_KRW_EXCHANGE_RATE
     total_evaluation = _to_float(
-        source.get("total_evaluation")
-        or source.get("total_asset")
-        or source.get("total_balance")
+        _first_present(
+            source,
+            "total_evaluation",
+            "total_asset",
+            "total_balance",
+        )
     )
     available_cash = _to_float(
-        source.get("available_cash")
-        or source.get("cash")
-        or source.get("krw_balance")
+        _first_present(source, "available_cash", "cash", "krw_balance")
     )
     holdings = source.get("holdings")
+    warning_parts = []
+    if source.get("warning"):
+        warning_parts.append(str(source["warning"]))
+    unsupported_currencies = {
+        value
+        for value in (currency, available_cash_currency)
+        if value not in SUPPORTED_CURRENCIES
+    }
+    if unsupported_currencies:
+        warning_parts.append(
+            "지원하지 않는 통화: " + ", ".join(sorted(unsupported_currencies))
+        )
 
     return {
         "exchange": str(exchange or "").upper(),
@@ -50,7 +84,7 @@ def normalize_account_summary(exchange: str, env: str, balance: dict) -> dict:
         "available_cash_krw": available_cash
         * _currency_factor(available_cash_currency, exchange_rate),
         "holdings": holdings if isinstance(holdings, list) else [],
-        "warning": source.get("warning"),
+        "warning": " ".join(warning_parts) or None,
     }
 
 
