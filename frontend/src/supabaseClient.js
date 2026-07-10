@@ -1,7 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const viteEnv = import.meta.env || {}
+const nodeEnv = typeof process !== 'undefined' ? process.env || {} : {}
+const supabaseUrl = viteEnv.VITE_SUPABASE_URL || nodeEnv.VITE_SUPABASE_URL
+const supabaseAnonKey = viteEnv.VITE_SUPABASE_ANON_KEY || nodeEnv.VITE_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Supabase 환경변수가 설정되지 않았습니다. frontend/.env 파일을 확인해 주세요.')
@@ -16,6 +18,10 @@ function parseWatchNumber(value) {
   return Number.isFinite(numeric) ? numeric : null
 }
 
+function isKoreanStockCode(symbol) {
+  return /^\d{6}$/.test(String(symbol || '').trim())
+}
+
 export function normalizeWatchlistItem(row = {}) {
   const symbol = String(row.symbol || row.code || row.id || '').trim().toUpperCase()
   const assetType = String(row.asset_type || row.assetType || 'STOCK').toUpperCase() === 'CRYPTO' ? 'CRYPTO' : 'STOCK'
@@ -24,7 +30,7 @@ export function normalizeWatchlistItem(row = {}) {
   if (assetType === 'CRYPTO') {
     exchange = exchange || 'COINONE'
   } else {
-    if (/^[0-9a-zA-Z]{6,7}$/.test(symbol)) {
+    if (isKoreanStockCode(symbol)) {
       exchange = 'KIS'
     } else {
       exchange = exchange || 'TOSS'
@@ -36,7 +42,7 @@ export function normalizeWatchlistItem(row = {}) {
   if (assetType === 'CRYPTO') {
     marketCountry = 'KR'
   } else {
-    if (/^[0-9a-zA-Z]{6,7}$/.test(symbol)) {
+    if (isKoreanStockCode(symbol)) {
       marketCountry = 'KR'
     } else {
       marketCountry = marketCountry || 'US'

@@ -78,7 +78,7 @@ const getAutoTriggerLabel = (triggerSide) => {
 }
 
 const normalizeStockSymbol = (value) => String(value || '').trim().toUpperCase()
-const isDomesticStockSymbol = (value) => /^[0-9A-Z]{6,7}$/.test(normalizeStockSymbol(value))
+const isDomesticStockSymbol = (value) => /^\d{6}$/.test(normalizeStockSymbol(value))
 const isUsStockSymbol = (value, market = '') => {
   const normalizedMarket = String(market || '').trim().toUpperCase()
   if (['KR', 'KOSPI', 'KOSDAQ', 'KONEX', '국내'].includes(normalizedMarket)) return false
@@ -992,24 +992,117 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   }
 
   // 관심종목(즐겨찾기) 토글 처리
+  const getFavoritePriceSnapshot = async () => {
+    const parsePositivePrice = (value) => {
+      const numeric = Number(value)
+      return Number.isFinite(numeric) && numeric > 0 ? numeric : null
+    }
+    const parseChangeRate = (value) => {
+      const numeric = Number(value)
+      return Number.isFinite(numeric) ? numeric : null
+    }
+
+    const loadedPrice = parsePositivePrice(currentPrice)
+    const loadedChangeRate = parseChangeRate(priceChangeRate)
+    if (loadedPrice) {
+      return {
+        latest_price: loadedPrice,
+        average_price: loadedPrice,
+        change_rate: loadedChangeRate,
+      }
+    }
+
+    const authHeader = await getAuthHeader()
+    const headers = authHeader ? { Authorization: authHeader } : {}
+    const chartSymbol = getExchangeSymbol(exchange)
+    const quoteParams = new URLSearchParams({
+      exchange,
+      symbol: chartSymbol,
+      broker_env: brokerEnv,
+    })
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/chart/quote?${quoteParams.toString()}`, { headers })
+      const payload = await response.json().catch(() => ({}))
+      const data = payload?.data || {}
+      const quotePrice = parsePositivePrice(data.current_price ?? data.price ?? data.latest_price ?? data.close)
+      const quoteChangeRate = parseChangeRate(data.change_rate)
+      if (quotePrice) {
+        setCurrentPrice(quotePrice)
+        if (quoteChangeRate !== null) setPriceChangeRate(quoteChangeRate)
+        return {
+          latest_price: quotePrice,
+          average_price: quotePrice,
+          change_rate: quoteChangeRate,
+        }
+      }
+    } catch {
+      // 관심종목 저장은 가격 보정 실패와 무관하게 계속 진행합니다.
+    }
+
+    const candleParams = new URLSearchParams({
+      exchange,
+      symbol: chartSymbol,
+      interval: chartInterval,
+      broker_env: brokerEnv,
+      count: '2',
+    })
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/chart/candles?${candleParams.toString()}`, { headers })
+      const payload = await response.json().catch(() => ({}))
+      const candles = Array.isArray(payload?.data) ? payload.data : []
+      const lastCandle = candles[candles.length - 1] || {}
+      const candlePrice = parsePositivePrice(lastCandle.close)
+      if (candlePrice) {
+        setCurrentPrice(candlePrice)
+        return {
+          latest_price: candlePrice,
+          average_price: candlePrice,
+          change_rate: loadedChangeRate,
+        }
+      }
+    } catch {
+      // 최종 fallback은 가격 없이 저장하는 기존 동작입니다.
+    }
+
+    return {
+      latest_price: null,
+      average_price: null,
+      change_rate: loadedChangeRate,
+    }
+  }
+
   const handleToggleFavorite = async () => {
     if (!isLoggedIn) {
       alert("로그인이 필요한 서비스입니다.")
       return
     }
 
-    const itemPayload = normalizeWatchlistItem({
+    const basePayload = {
       symbol: getExchangeSymbol(exchange),
       name: displayName,
       exchange: exchange,
       asset_type: resolvedAssetType,
-      latest_price: currentPrice || null,
-      change_rate: priceChangeRate || null,
-      average_price: currentPrice || null,
+      market_country: resolvedAssetType === 'CRYPTO'
+        ? 'KR'
+        : (resolvedMarket || (isResolvedUsStock ? 'US' : 'KR')),
+      currency: resolvedAssetType === 'CRYPTO'
+        ? (exchange === 'BINANCE' || exchange === 'BINANCE_UM_FUTURES' ? 'USDT' : 'KRW')
+        : ((resolvedMarket === 'US' || isResolvedUsStock) ? 'USD' : 'KRW'),
       quantity: 0
-    })
+    }
 
     try {
+      const itemPayload = normalizeWatchlistItem(
+        isFavorite
+          ? basePayload
+          : {
+            ...basePayload,
+            ...(await getFavoritePriceSnapshot()),
+          }
+      )
+
       if (isFavorite) {
         await deleteUserWatchlistItem(itemPayload)
         setIsFavorite(false)
