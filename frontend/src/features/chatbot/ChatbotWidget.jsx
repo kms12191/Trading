@@ -1,11 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../supabaseClient'
+import { buildApiErrorText } from '../../lib/apiError.js'
 import { streamChatbotMessage } from './chatbotApi'
 import { buildChatbotCitations } from './chatbotCitations'
 import { buildDisclosurePresentation } from './chatbotDisclosurePresentation'
-import { buildProposalPrecheckSummary } from './chatbotProposalPrecheck'
+import { shouldSubmitChatbotInput } from './chatbotInput'
+import {
+  buildProposalPrecheckSummary,
+  isProposalApprovalBlocked,
+} from './chatbotProposalPrecheck'
 import { getDefaultChatbotSize, resizeChatbotPanel } from './chatbotResize'
+import {
+  buildChatbotTimeline,
+  formatChatbotProposalNumber,
+} from './chatbotTimeline'
 import { buildChatbotTraceBadges } from './chatbotTrace'
 
 const INITIAL_MESSAGES = [
@@ -42,12 +51,6 @@ function formatMessageTime(createdAt) {
   }
 }
 
-function formatProposalNumber(value) {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return '-'
-  return numeric.toLocaleString('ko-KR', { maximumFractionDigits: 8 })
-}
-
 function mergePendingProposal(items, proposal) {
   if (!proposal?.id || proposal.status !== 'PENDING') {
     return items.filter((item) => item.id !== proposal?.id)
@@ -79,6 +82,51 @@ function ProposalPrecheckSummary({ proposal }) {
         </ul>
       )}
     </div>
+  )
+}
+
+function TradeProposalCard({ proposal, proposalActionId, onApprove, onReject }) {
+  const approvalBlocked = isProposalApprovalBlocked(proposal)
+  const orderType = String(proposal.ord_type || proposal.order_type || '').toUpperCase()
+  const priceText = orderType === 'MARKET' && proposal.price == null
+    ? '시장가'
+    : formatChatbotProposalNumber(proposal.price)
+
+  return (
+    <article className="space-y-2 rounded border border-slate-700 border-l-2 border-l-ai-cyan bg-[#0b1120] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold text-ai-cyan">승인 대기 매매 제안</p>
+          <strong className="break-words text-slate-100">{proposal.symbol || proposal.ticker}</strong>
+        </div>
+        <span className={proposal.side === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>
+          {proposal.side === 'BUY' ? '매수' : '매도'}
+        </span>
+      </div>
+      <p className="break-words text-[11px] text-slate-400">
+        {proposal.exchange} · {proposal.broker_env || 'REAL'} · 수량 {formatChatbotProposalNumber(proposal.volume)} · 가격 {priceText}
+      </p>
+      <ProposalPrecheckSummary proposal={proposal} />
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={Boolean(proposalActionId) || approvalBlocked}
+          onClick={() => onApprove(proposal)}
+          title={approvalBlocked ? '사전검증을 통과한 제안만 승인할 수 있습니다.' : undefined}
+          className="min-h-10 min-w-32 flex-1 rounded bg-ai-cyan px-3 py-2 text-[11px] font-bold text-[#07111f] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          승인 후 실행
+        </button>
+        <button
+          type="button"
+          disabled={Boolean(proposalActionId)}
+          onClick={() => onReject(proposal.id)}
+          className="min-h-10 min-w-16 rounded border border-rose-500/50 px-3 py-2 text-[11px] font-bold text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          거절
+        </button>
+      </div>
+    </article>
   )
 }
 
@@ -263,6 +311,9 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
   const [isSending, setIsSending] = useState(false)
   const [pendingProposals, setPendingProposals] = useState([])
   const [proposalActionId, setProposalActionId] = useState('')
+  const widgetInstanceId = useId()
+  const messageIdSequenceRef = useRef(0)
+  const proposalActionIdRef = useRef('')
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
   const resizeStateRef = useRef(null)
@@ -273,7 +324,7 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
     window.requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     })
-  }, [enabled, isOpen, messages, isSending])
+  }, [enabled, isOpen, messages, pendingProposals, isSending])
 
   useEffect(() => {
     let active = true
@@ -346,7 +397,7 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
     setPanelSize(getDefaultChatbotSize())
   }
 
-  const startResize = (direction) => (event) => {
+  const startResize = (event, direction) => {
     if (window.matchMedia('(max-width: 767px)').matches) return
 
     event.preventDefault()
@@ -391,7 +442,14 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
     }
   }
 
+  const nextMessageId = (role) => {
+    messageIdSequenceRef.current += 1
+    return `${widgetInstanceId}-${role}-${messageIdSequenceRef.current}`
+  }
+
   const handleRejectProposal = async (proposalId) => {
+    if (proposalActionIdRef.current) return
+    proposalActionIdRef.current = proposalId
     setProposalActionId(proposalId)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -405,16 +463,21 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
         body: JSON.stringify({ proposal_id: proposalId }),
       })
       const payload = await response.json().catch(() => ({}))
-      if (!response.ok || payload.success === false) throw new Error(payload.message || '매매 제안 거절에 실패했습니다.')
+      if (!response.ok || payload.success === false) {
+        throw new Error(buildApiErrorText(payload, '매매 제안 거절에 실패했습니다.'))
+      }
       setPendingProposals((items) => items.filter((item) => item.id !== proposalId))
     } catch (error) {
-      addMessage('assistant', error.message || '매매 제안 거절에 실패했습니다.')
+      addMessage('assistant', buildApiErrorText(error, '매매 제안 거절에 실패했습니다.'))
     } finally {
+      proposalActionIdRef.current = ''
       setProposalActionId('')
     }
   }
 
   const handleApproveProposal = async (proposal) => {
+    if (proposalActionIdRef.current || isProposalApprovalBlocked(proposal)) return
+    proposalActionIdRef.current = proposal.id
     setProposalActionId(proposal.id)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -428,33 +491,38 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
         body: JSON.stringify({ proposal_id: proposal.id }),
       })
       const payload = await response.json().catch(() => ({}))
-      if (!response.ok || payload.success === false) throw new Error(payload.message || '매매 제안 승인에 실패했습니다.')
+      if (!response.ok || payload.success === false) {
+        throw new Error(buildApiErrorText(payload, '매매 제안 승인에 실패했습니다.'))
+      }
       setPendingProposals((items) => items.filter((item) => item.id !== proposal.id))
     } catch (error) {
-      addMessage('assistant', error.message || '매매 제안 승인에 실패했습니다.')
+      addMessage('assistant', buildApiErrorText(error, '매매 제안 승인에 실패했습니다.'))
     } finally {
+      proposalActionIdRef.current = ''
       setProposalActionId('')
     }
   }
 
   const addMessage = (role, text, actions = [], toolResult = null, traceSteps = []) => {
+    const id = nextMessageId(role)
+    const createdAt = new Date().toISOString()
     setMessages((prev) => [
       ...prev,
       {
-        id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        id,
         role,
         text,
         actions,
         toolResult,
         traceSteps,
         isStreaming: false,
-        createdAt: new Date().toISOString(),
+        createdAt,
       },
     ])
   }
 
   const addStreamingAssistantMessage = () => {
-    const id = `assistant-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const id = nextMessageId('assistant')
     setMessages((prev) => [
       ...prev,
       {
@@ -563,17 +631,17 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
         >
           <div
             className="absolute left-0 top-0 z-10 hidden h-5 w-5 cursor-nwse-resize md:block"
-            onMouseDown={startResize('corner')}
+            onMouseDown={(event) => startResize(event, 'corner')}
             aria-hidden="true"
           />
           <div
             className="absolute left-0 top-5 z-10 hidden h-[calc(100%-20px)] w-2 cursor-ew-resize md:block"
-            onMouseDown={startResize('x')}
+            onMouseDown={(event) => startResize(event, 'x')}
             aria-hidden="true"
           />
           <div
             className="absolute left-5 top-0 z-10 hidden h-2 w-[calc(100%-20px)] cursor-ns-resize md:block"
-            onMouseDown={startResize('y')}
+            onMouseDown={(event) => startResize(event, 'y')}
             aria-hidden="true"
           />
           <header className="flex items-center justify-between border-b border-slate-800 bg-[#0f172a] px-4 py-3">
@@ -598,48 +666,18 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
           </header>
 
           <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
-            {pendingProposals.length > 0 && (
-              <section className="space-y-2 rounded border-2 border-l-ai-cyan border-r-ai-cyan/20 border-y-ai-cyan/20 bg-ai-cyan/5 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-bold text-ai-cyan">승인 대기 매매 제안</p>
-                  <span className="text-[10px] text-slate-400">실행 전 확인 필요</span>
-                </div>
-                {pendingProposals.map((proposal) => (
-                  <article key={proposal.id} className="space-y-2 rounded border border-slate-700 bg-[#0b1120] p-3">
-                    <div className="flex items-center justify-between gap-2 text-xs">
-                      <strong className="text-slate-100">{proposal.symbol || proposal.ticker}</strong>
-                      <span className={proposal.side === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}>
-                        {proposal.side === 'BUY' ? '매수' : '매도'}
-                      </span>
-                    </div>
-                    <p className="break-words text-[11px] text-slate-400">
-                      {proposal.exchange} · {proposal.broker_env || 'REAL'} · 수량 {formatProposalNumber(proposal.volume)} · 가격 {formatProposalNumber(proposal.price)}
-                    </p>
-                    <ProposalPrecheckSummary proposal={proposal} />
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={proposalActionId === proposal.id}
-                        onClick={() => handleApproveProposal(proposal)}
-                        className="min-h-9 flex-1 rounded bg-ai-cyan px-3 py-2 text-[11px] font-bold text-[#07111f] disabled:opacity-50"
-                      >
-                        승인 후 실행
-                      </button>
-                      <button
-                        type="button"
-                        disabled={proposalActionId === proposal.id}
-                        onClick={() => handleRejectProposal(proposal.id)}
-                        className="min-h-9 rounded border border-rose-500/50 px-3 py-2 text-[11px] font-bold text-rose-300 disabled:opacity-50"
-                      >
-                        거절
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </section>
-            )}
-            {messages.map((message) => (
-              <ChatMessage key={message.id} message={message} onAction={handleAction} />
+            {buildChatbotTimeline(messages, pendingProposals).map((item) => (
+              item.type === 'message'
+                ? <ChatMessage key={item.id} message={item.data} onAction={handleAction} />
+                : (
+                  <TradeProposalCard
+                    key={item.id}
+                    proposal={item.data}
+                    proposalActionId={proposalActionId}
+                    onApprove={handleApproveProposal}
+                    onReject={handleRejectProposal}
+                  />
+                )
             ))}
             {isSending && (
               <div className="w-fit rounded-lg border border-slate-700/80 bg-[#111827] px-3 py-2 text-xs text-slate-400">
@@ -674,7 +712,7 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
                   if (!isLoggedIn) navigate('/login')
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
+                  if (shouldSubmitChatbotInput(event)) {
                     event.preventDefault()
                     submitMessage()
                   }

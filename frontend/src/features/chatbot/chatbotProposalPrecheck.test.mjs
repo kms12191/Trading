@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildProposalPrecheckSummary } from './chatbotProposalPrecheck.js'
+import {
+  buildProposalPrecheckSummary,
+  isProposalApprovalBlocked,
+} from './chatbotProposalPrecheck.js'
 
 test('builds compact precheck summary from raw_order_payload', () => {
   const summary = buildProposalPrecheckSummary({
@@ -47,4 +50,31 @@ test('includes risk warnings for blocked precheck conditions', () => {
     '현재는 장외 시간입니다.',
     '예수금 대비 주문 예정 금액이 큽니다.',
   ])
+})
+
+test('blocks approval when precheck status is missing or a blocker is true', () => {
+  assert.equal(isProposalApprovalBlocked({ raw_order_payload: {} }), true)
+  assert.equal(isProposalApprovalBlocked({
+    raw_order_payload: {
+      precheck_status: 'OK',
+      precheck: { insufficient_permission: true },
+    },
+  }), true)
+})
+
+test('advisory warnings alone do not block a validated proposal', () => {
+  assert.equal(isProposalApprovalBlocked({
+    raw_order_payload: {
+      precheck_status: 'OK',
+      precheck: {
+        warnings: ['가격 변동 가능성이 있습니다.'],
+        insufficient_cash: false,
+        insufficient_holding: false,
+        is_market_closed: false,
+        insufficient_permission: false,
+        futures_real_blocked: false,
+        exceeds_real_order_limit: false,
+      },
+    },
+  }), false)
 })

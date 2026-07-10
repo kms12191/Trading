@@ -1,4 +1,5 @@
 import { supabase } from '../../supabaseClient'
+import { buildApiErrorText } from '../../lib/apiError.js'
 import { parseChatbotSseBuffer, resetChatbotSseParser } from './chatbotStream'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
@@ -30,7 +31,7 @@ export async function sendChatbotMessage(message, options = {}) {
   const payload = await response.json().catch(() => ({}))
 
   if (!response.ok || payload.success === false) {
-    throw new Error(payload?.error?.title || payload?.message || '챗봇 응답을 불러오지 못했습니다.')
+    throw new Error(buildApiErrorText(payload, '챗봇 응답을 불러오지 못했습니다.'))
   }
 
   return payload.data
@@ -59,7 +60,7 @@ export async function streamChatbotMessage(message, handlers = {}, options = {})
 
   if (!response.ok || !response.body) {
     const payload = await response.json().catch(() => ({}))
-    throw new Error(payload?.error?.title || payload?.message || '챗봇 스트림을 불러오지 못했습니다.')
+    throw new Error(buildApiErrorText(payload, '챗봇 스트림을 불러오지 못했습니다.'))
   }
 
   resetChatbotSseParser()
@@ -67,30 +68,35 @@ export async function streamChatbotMessage(message, handlers = {}, options = {})
   const decoder = new TextDecoder()
   let donePayload = null
 
+  const handleEvent = (event) => {
+    if (event.event === 'trace') handlers.onTrace?.(event.data)
+    if (event.event === 'delta') handlers.onDelta?.(event.data?.text || '')
+    if (event.event === 'done') {
+      donePayload = event.data
+      handlers.onDone?.(event.data)
+    }
+    if (event.event === 'error') {
+      handlers.onError?.(event.data)
+      throw new Error(buildApiErrorText(event.data, '챗봇 스트림 처리 중 문제가 발생했습니다.'))
+    }
+  }
+
   while (true) {
     const { value, done } = await reader.read()
     if (done) break
     const chunk = decoder.decode(value, { stream: true })
     for (const event of parseChatbotSseBuffer(chunk)) {
-      if (event.event === 'trace') handlers.onTrace?.(event.data)
-      if (event.event === 'delta') handlers.onDelta?.(event.data?.text || '')
-      if (event.event === 'done') {
-        donePayload = event.data
-        handlers.onDone?.(event.data)
-      }
-      if (event.event === 'error') {
-        handlers.onError?.(event.data)
-        throw new Error(event.data?.error?.title || event.data?.message || '챗봇 스트림 처리 중 문제가 발생했습니다.')
-      }
+      handleEvent(event)
     }
   }
 
   const tail = decoder.decode()
   for (const event of parseChatbotSseBuffer(`${tail}\n\n`)) {
-    if (event.event === 'done') {
-      donePayload = event.data
-      handlers.onDone?.(event.data)
-    }
+    handleEvent(event)
+  }
+
+  if (!donePayload) {
+    throw new Error('챗봇 스트림이 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.')
   }
 
   return donePayload

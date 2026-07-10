@@ -14,6 +14,24 @@ function uniqueTexts(values) {
   })
 }
 
+const APPROVAL_BLOCKER_FIELDS = [
+  'insufficient_cash',
+  'insufficient_holding',
+  'is_market_closed',
+  'insufficient_permission',
+  'futures_real_blocked',
+  'exceeds_real_order_limit',
+]
+
+export function isProposalApprovalBlocked(proposal) {
+  const payload = proposal?.raw_order_payload || {}
+  const precheck = payload.precheck
+  if (payload.precheck_status !== 'OK' || !precheck || typeof precheck !== 'object') {
+    return true
+  }
+  return APPROVAL_BLOCKER_FIELDS.some((field) => Boolean(precheck[field]))
+}
+
 export function buildProposalPrecheckSummary(proposal) {
   const payload = proposal?.raw_order_payload || {}
   const precheck = payload.precheck || null

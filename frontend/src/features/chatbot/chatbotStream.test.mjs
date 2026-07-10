@@ -32,3 +32,19 @@ test('keeps incomplete SSE frame in remainder', () => {
   assert.deepEqual(events, [])
   assert.equal(parseChatbotSseBuffer.remainder, 'event: delta\ndata: {"text":"추천"}\n')
 })
+
+test('preserves structured error fields and request id', () => {
+  resetChatbotSseParser()
+  const [event] = parseChatbotSseBuffer([
+    'event: error',
+    'data: {"message":"스트림 실패","error":{"title":"API 키 확인 필요","message":"키가 없습니다.","action":"설정에서 등록하세요."},"meta":{"request_id":"req-1"}}',
+    '',
+    '',
+  ].join('\n'))
+
+  assert.equal(event.event, 'error')
+  assert.equal(event.data.error.title, 'API 키 확인 필요')
+  assert.equal(event.data.error.message, '키가 없습니다.')
+  assert.equal(event.data.error.action, '설정에서 등록하세요.')
+  assert.equal(event.data.meta.request_id, 'req-1')
+})
