@@ -134,7 +134,7 @@ def test_create_trade_proposal_only_inserts_pending_record(monkeypatch):
     result = create_trade_proposal(
         "Bearer test",
         {
-            "exchange": "COINONE",
+            "exchange": "BINANCE",
             "asset_type": "CRYPTO",
             "symbol": "XRP",
             "side": "BUY",
@@ -154,6 +154,33 @@ def test_create_trade_proposal_only_inserts_pending_record(monkeypatch):
     assert calls[0]["endpoint"] == "trade_proposals"
     assert calls[0]["method"] == "POST"
     assert calls[0]["json_data"]["status"] == "PENDING"
+
+
+def test_create_trade_proposal_rejects_coinone_mock_before_insert(monkeypatch):
+    monkeypatch.setattr(tool_registry, "get_user_id_from_header", lambda auth_header: ("user-1", "test"))
+    monkeypatch.setattr(tool_registry, "query_supabase", lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("지원하지 않는 모의 환경은 insert 금지")
+    ))
+
+    with pytest.raises(ValueError, match="모의 계좌 환경"):
+        create_trade_proposal(
+            "Bearer test",
+            {
+                "exchange": "COINONE",
+                "asset_type": "CRYPTO",
+                "symbol": "XRP",
+                "side": "BUY",
+                "order_type": "LIMIT",
+                "quantity": 10,
+                "price": 800,
+                "broker_env": "MOCK",
+                "raw_order_payload": {
+                    "precheck_status": "OK",
+                    "precheck": _valid_precheck(),
+                    "source": "CHATBOT_ORDER_PARSER",
+                },
+            },
+        )
 
 
 def test_create_trade_proposal_rejects_missing_precheck(monkeypatch):

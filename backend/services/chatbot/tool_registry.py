@@ -414,6 +414,8 @@ def _is_plain_order_requiring_confirmation(message: str, parsed: ParsedOrderInte
     """
     종목/방향/수량만 있는 첫 주문은 바로 사전검증하지 않고 사용자 확인을 먼저 받습니다.
     """
+    if not _detect_exchange(message):
+        return False
     if parsed.quantity is None or parsed.quantity <= 0:
         return False
     if parsed.price is not None or parsed.amount_krw is not None or parsed.sell_ratio is not None:
@@ -1025,6 +1027,38 @@ def _build_missing_order_env_and_price_result(
     }
 
 
+def _build_missing_exchange_result(symbol: str, side: str | None) -> dict:
+    return {
+        "reply": (
+            f"{symbol} {side or ''} 매매 제안을 만들 거래소를 먼저 알려주세요.\n"
+            "예: '토스', 'KIS', '코인원', '바이낸스'"
+        ),
+        "data": {
+            "source": "CHATBOT_ORDER_PARSER",
+            "reason": "missing_exchange",
+            "symbol": symbol,
+            "side": side,
+        },
+    }
+
+
+def _build_unsupported_broker_env_result(exchange: str, broker_env: str, symbol: str) -> dict:
+    env_label = "모의" if broker_env == "MOCK" else broker_env
+    return {
+        "reply": (
+            f"{exchange}는 {env_label} 계좌 환경을 지원하지 않습니다.\n"
+            "실거래 기준으로 진행하려면 '실거래'와 지정가를 함께 다시 입력해 주세요."
+        ),
+        "data": {
+            "source": "CHATBOT_ORDER_PARSER",
+            "reason": "unsupported_broker_env",
+            "exchange": exchange,
+            "broker_env": broker_env,
+            "symbol": symbol,
+        },
+    }
+
+
 def create_trade_proposal(auth_header: str, arguments: dict) -> dict:
     """사용자 승인 전 상태인 PENDING 매매 제안만 생성합니다."""
     enforce_tool_safety("create_trade_proposal", arguments)
@@ -1051,6 +1085,8 @@ def create_trade_proposal(auth_header: str, arguments: dict) -> dict:
         raise ValueError("코인원 매매 제안은 지정가 주문만 지원합니다.")
     if broker_env not in {"MOCK", "REAL"}:
         raise ValueError("broker_env는 MOCK 또는 REAL이어야 합니다.")
+    if broker_env == "MOCK" and not _exchange_has_mock_env(exchange):
+        raise ValueError(f"{exchange}는 모의 계좌 환경을 지원하지 않습니다.")
 
     try:
         quantity = float(values.get("quantity") or values.get("volume"))
@@ -1143,7 +1179,7 @@ def create_trade_proposal_from_message(auth_header: str, message: str, intent: P
     market = str(symbol_data.get("market") or "").upper()
     exchange = _detect_exchange(message)
     if not exchange:
-        exchange = _default_exchange_for_asset(asset_type, market)
+        return _build_missing_exchange_result(symbol, parsed.side)
     price = parsed.price
     if parsed.broker_env:
         broker_env = parsed.broker_env
@@ -1162,6 +1198,9 @@ def create_trade_proposal_from_message(auth_header: str, message: str, intent: P
         }
     else:
         broker_env = "REAL"
+
+    if broker_env == "MOCK" and not _exchange_has_mock_env(exchange):
+        return _build_unsupported_broker_env_result(exchange, broker_env, symbol)
 
     if price is None and exchange in {"TOSS", "COINONE"}:
         return _build_missing_order_price_result(symbol, parsed.side, exchange, broker_env)

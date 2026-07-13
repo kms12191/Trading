@@ -364,6 +364,8 @@ class ChatbotService:
             reply = "계좌 환경과 지정가 금액을 함께 알려주세요. 예: 실거래 지정가 3,500원"
         elif action == "trade_proposal_missing_env":
             reply = "계좌 환경을 알려주세요. 예: 실거래 또는 모의"
+        elif action == "trade_proposal_missing_exchange":
+            reply = "매매 제안을 만들 거래소를 알려주세요. 예: 토스, KIS, 코인원, 바이낸스"
         else:
             reply = "매매 제안에 사용할 지정가 금액을 알려주세요. 예: 지정가 3,500원"
         return {
@@ -382,6 +384,13 @@ class ChatbotService:
         upper_text = str(text or "").upper()
         return any(keyword in str(text or "") for keyword in ["실거래", "실전", "모의"]) or any(
             keyword in upper_text for keyword in ["REAL", "MOCK"]
+        )
+
+    @staticmethod
+    def _has_exchange_text(text: str) -> bool:
+        upper_text = str(text or "").upper()
+        return any(keyword in str(text or "") for keyword in ["토스", "한국투자", "한투", "코인원", "바이낸스"]) or any(
+            keyword in upper_text for keyword in ["TOSS", "KIS", "COINONE", "BINANCE"]
         )
 
     @staticmethod
@@ -440,6 +449,7 @@ class ChatbotService:
             "missing_order_price": "trade_proposal_missing_price",
             "missing_order_env": "trade_proposal_missing_env",
             "missing_order_env_and_price": "trade_proposal_missing_env_and_price",
+            "missing_exchange": "trade_proposal_missing_exchange",
         }
         action = reason_to_action.get(str(data.get("reason") or ""))
         if not action:
@@ -466,7 +476,7 @@ class ChatbotService:
             if not original_message:
                 return None
             return run_chatbot_tool(auth_header, f"{original_message} {text}".strip())
-        if action in {"trade_proposal_missing_price", "trade_proposal_missing_env", "trade_proposal_missing_env_and_price"}:
+        if action in {"trade_proposal_missing_price", "trade_proposal_missing_env", "trade_proposal_missing_env_and_price", "trade_proposal_missing_exchange"}:
             pending_payload = payload if isinstance(payload, dict) else {}
             original_message = str(pending_payload.get("message") or "").strip()
             if not original_message:
@@ -600,11 +610,14 @@ class ChatbotService:
             "trade_proposal_missing_price",
             "trade_proposal_missing_env",
             "trade_proposal_missing_env_and_price",
+            "trade_proposal_missing_exchange",
         }
         if pending_peek in trade_detail_pending_actions:
             if self._is_confirmation(text):
                 if pending_peek == "trade_proposal_missing_quantity":
                     return self._build_missing_quantity_reply(auth_header, user_id)
+                return self._build_missing_order_detail_reply(user_id, pending_peek)
+            if pending_peek == "trade_proposal_missing_exchange" and not self._has_exchange_text(text):
                 return self._build_missing_order_detail_reply(user_id, pending_peek)
             if pending_peek == "trade_proposal_missing_env_and_price" and not self._has_trade_env(text):
                 return self._build_missing_order_detail_reply(user_id, pending_peek)
@@ -622,6 +635,7 @@ class ChatbotService:
                     tool_data = tool_result.get("data")
                     trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
                     self._record_exchange(auth_header, user_id, text, tool_result["reply"])
+                    self._maybe_set_pending_from_tool_result(auth_header, user_id, f"{str(pending_payload.get('message') or '').strip()} {text}".strip(), tool_data)
                     return {
                         "reply": tool_result["reply"],
                         "actions": tool_result.get("actions") or [],
@@ -648,6 +662,7 @@ class ChatbotService:
                     tool_data = tool_result.get("data")
                     trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
                     self._record_exchange(auth_header, user_id, text, tool_result["reply"])
+                    self._maybe_set_pending_from_tool_result(auth_header, user_id, text, tool_data)
                     return {
                         "reply": tool_result["reply"],
                         "actions": tool_result.get("actions") or [],
