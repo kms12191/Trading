@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -225,6 +226,7 @@ class ChatbotService:
         auth_header: str | None,
         user_id: str | None,
         action: str,
+        payload: dict | None = None,
     ) -> None:
         if not auth_header or not user_id:
             return
@@ -233,6 +235,7 @@ class ChatbotService:
                 auth_header,
                 user_id,
                 action,
+                payload=payload,
                 ttl_seconds=PENDING_ACTION_TTL_SECONDS,
             )
         except Exception:
@@ -321,6 +324,77 @@ class ChatbotService:
             return False
         return normalized in {phrase.replace(" ", "") for phrase in CONFIRMATION_PHRASES}
 
+    def _build_missing_quantity_reply(
+        self,
+        auth_header: str | None,
+        user_id: str | None,
+    ) -> dict:
+        return {
+            "reply": "매매 제안을 만들 수량을 숫자로 알려주세요. 예: 1주, 1개",
+            "actions": [],
+            "meta": {
+                "user_id": user_id,
+                "available_tools": list_available_tools(),
+                "pending_action": "trade_proposal_missing_quantity",
+                "source": "PROJECT_TOOL_PENDING",
+            },
+        }
+
+    def _build_missing_order_detail_reply(
+        self,
+        user_id: str | None,
+        action: str,
+    ) -> dict:
+        if action == "trade_proposal_missing_env_and_price":
+            reply = "계좌 환경과 지정가 금액을 함께 알려주세요. 예: 실거래 지정가 3,500원"
+        elif action == "trade_proposal_missing_env":
+            reply = "계좌 환경을 알려주세요. 예: 실거래 또는 모의"
+        else:
+            reply = "매매 제안에 사용할 지정가 금액을 알려주세요. 예: 지정가 3,500원"
+        return {
+            "reply": reply,
+            "actions": [],
+            "meta": {
+                "user_id": user_id,
+                "available_tools": list_available_tools(),
+                "pending_action": action,
+                "source": "PROJECT_TOOL_PENDING",
+            },
+        }
+
+    @staticmethod
+    def _has_trade_env(text: str) -> bool:
+        upper_text = str(text or "").upper()
+        return any(keyword in str(text or "") for keyword in ["실거래", "실전", "모의"]) or any(
+            keyword in upper_text for keyword in ["REAL", "MOCK"]
+        )
+
+    @staticmethod
+    def _has_price_text(text: str) -> bool:
+        return bool(re.search(r"(\d+(?:\.\d+)?|[일한이삼사오육칠팔구십백천만]+)\s*(만원|천원|원|만)", str(text or "")))
+
+    def _normalize_price_completion(self, text: str) -> str:
+        value = str(text or "").strip()
+        if not value:
+            return ""
+        if "지정가" in value or "가격" in value or value.endswith("에"):
+            return value
+        if self._has_price_text(value):
+            return f"지정가 {value}에"
+        return value
+
+    def _normalize_env_price_completion(self, text: str) -> str:
+        value = str(text or "").strip()
+        env = ""
+        if any(keyword in value for keyword in ["실거래", "실전"]) or "REAL" in value.upper():
+            env = "실거래"
+        elif "모의" in value or "MOCK" in value.upper():
+            env = "모의"
+        price_text = re.sub(r"\b(?:REAL|MOCK)\b", " ", value, flags=re.IGNORECASE)
+        price_text = re.sub(r"(실거래|실전|모의)", " ", price_text).strip()
+        price_part = self._normalize_price_completion(price_text)
+        return " ".join(part for part in [env, price_part] if part).strip()
+
     def _maybe_set_pending_from_reply(
         self,
         auth_header: str | None,
@@ -336,9 +410,59 @@ class ChatbotService:
         if is_trade_proposal_context and asks_portfolio_lookup and asks_permission:
             self._set_pending_action(auth_header, user_id, "portfolio_summary")
 
-    def _run_pending_action(self, action: str, auth_header: str | None, text: str) -> dict | None:
+    def _maybe_set_pending_from_tool_result(
+        self,
+        auth_header: str | None,
+        user_id: str | None,
+        user_text: str,
+        tool_data: dict | None,
+    ) -> None:
+        data = tool_data if isinstance(tool_data, dict) else {}
+        if data.get("source") != "CHATBOT_ORDER_PARSER":
+            return
+        reason_to_action = {
+            "missing_quantity": "trade_proposal_missing_quantity",
+            "missing_order_price": "trade_proposal_missing_price",
+            "missing_order_env": "trade_proposal_missing_env",
+            "missing_order_env_and_price": "trade_proposal_missing_env_and_price",
+        }
+        action = reason_to_action.get(str(data.get("reason") or ""))
+        if not action:
+            return
+        self._set_pending_action(
+            auth_header,
+            user_id,
+            action,
+            {"message": user_text},
+        )
+
+    def _run_pending_action(
+        self,
+        action: str,
+        auth_header: str | None,
+        text: str,
+        payload: dict | None = None,
+    ) -> dict | None:
         if action == "portfolio_summary":
             return get_portfolio_summary(auth_header, text or "평가 자산 요약해줘")
+        if action == "trade_proposal_missing_quantity":
+            pending_payload = payload if isinstance(payload, dict) else {}
+            original_message = str(pending_payload.get("message") or "").strip()
+            if not original_message:
+                return None
+            return run_chatbot_tool(auth_header, f"{original_message} {text}".strip())
+        if action in {"trade_proposal_missing_price", "trade_proposal_missing_env", "trade_proposal_missing_env_and_price"}:
+            pending_payload = payload if isinstance(payload, dict) else {}
+            original_message = str(pending_payload.get("message") or "").strip()
+            if not original_message:
+                return None
+            if action == "trade_proposal_missing_price":
+                completion = self._normalize_price_completion(text)
+            elif action == "trade_proposal_missing_env_and_price":
+                completion = self._normalize_env_price_completion(text)
+            else:
+                completion = str(text or "").strip()
+            return run_chatbot_tool(auth_header, f"{original_message} {completion}".strip())
         return None
 
     def _tool_message_from_arguments(self, tool_name: str, arguments: dict, fallback_text: str) -> str:
@@ -428,6 +552,47 @@ class ChatbotService:
                 "actions": [],
             }
 
+        pending_peek = self._peek_pending_action(auth_header, user_id)
+        trade_detail_pending_actions = {
+            "trade_proposal_missing_quantity",
+            "trade_proposal_missing_price",
+            "trade_proposal_missing_env",
+            "trade_proposal_missing_env_and_price",
+        }
+        if pending_peek in trade_detail_pending_actions:
+            if self._is_confirmation(text):
+                if pending_peek == "trade_proposal_missing_quantity":
+                    return self._build_missing_quantity_reply(auth_header, user_id)
+                return self._build_missing_order_detail_reply(user_id, pending_peek)
+            if pending_peek == "trade_proposal_missing_env_and_price" and not self._has_trade_env(text):
+                return self._build_missing_order_detail_reply(user_id, pending_peek)
+            if pending_peek == "trade_proposal_missing_price" and not self._has_price_text(text):
+                return self._build_missing_order_detail_reply(user_id, pending_peek)
+            self._emit_trace(trace_callback, "pending_action", "대기 작업 확인")
+            pending_action, pending_payload = self._consume_pending_action(
+                auth_header,
+                user_id,
+            )
+            if pending_action:
+                self._emit_trace(trace_callback, "tool", "대기 작업 실행")
+                tool_result = self._run_pending_action(pending_action, auth_header, text, pending_payload)
+                if tool_result:
+                    tool_data = tool_result.get("data")
+                    trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
+                    self._record_exchange(auth_header, user_id, text, tool_result["reply"])
+                    return {
+                        "reply": tool_result["reply"],
+                        "actions": tool_result.get("actions") or [],
+                        "meta": {
+                            "user_id": user_id,
+                            "available_tools": list_available_tools(),
+                            "tool_result": tool_data,
+                            "trace_steps": trace_steps,
+                            "pending_action": pending_action,
+                            "source": "PROJECT_TOOL_PENDING",
+                        },
+                    }
+
         if self._is_confirmation(text):
             self._emit_trace(trace_callback, "pending_action", "대기 작업 확인")
             pending_action, _pending_payload = self._consume_pending_action(
@@ -435,8 +600,8 @@ class ChatbotService:
                 user_id,
             )
             if pending_action:
-                self._emit_trace(trace_callback, "tool", "보유자산 조회")
-                tool_result = self._run_pending_action(pending_action, auth_header, text)
+                self._emit_trace(trace_callback, "tool", "대기 작업 실행")
+                tool_result = self._run_pending_action(pending_action, auth_header, text, _pending_payload)
                 if tool_result:
                     tool_data = tool_result.get("data")
                     trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
@@ -460,6 +625,7 @@ class ChatbotService:
             tool_data = tool_result.get("data")
             trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
             self._record_exchange(auth_header, user_id, text, tool_result["reply"])
+            self._maybe_set_pending_from_tool_result(auth_header, user_id, text, tool_data)
             return {
                 "reply": tool_result["reply"],
                 "actions": tool_result.get("actions") or [],

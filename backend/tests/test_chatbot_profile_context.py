@@ -273,6 +273,206 @@ def test_reply_executes_pending_portfolio_summary_on_confirmation(monkeypatch):
     ) is None
 
 
+def test_reply_retries_trade_proposal_when_user_provides_missing_quantity(monkeypatch):
+    boundary = FakeConversationSupabaseBoundary()
+    tool_calls = []
+
+    def fake_run_chatbot_tool(auth_header, text):
+        tool_calls.append(text)
+        if text == "1번 1매 구매해줘":
+            return {
+                "reply": "RDDT BUY 매매 제안을 만들 수량을 알려주세요.",
+                "data": {
+                    "source": "CHATBOT_ORDER_PARSER",
+                    "reason": "missing_quantity",
+                    "symbol": "RDDT",
+                },
+            }
+        if text == "1번 1매 구매해줘 1개":
+            return {
+                "reply": "RDDT BUY 매매 제안을 생성했습니다.",
+                "data": {
+                    "source": "TRADE_PROPOSAL_CREATED",
+                    "symbol": "RDDT",
+                    "status": "PENDING",
+                },
+            }
+        return None
+
+    monkeypatch.setattr(
+        "backend.services.chatbot.conversation_repository.query_supabase",
+        boundary.query,
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.run_chatbot_tool",
+        fake_run_chatbot_tool,
+    )
+
+    service = ChatbotService()
+    service.llm_client = FakeLLMClient()
+    service.rag_service = FakeRAGService()
+
+    first = service.reply("1번 1매 구매해줘", user_id="user-1", auth_header="Bearer test")
+    assert first["reply"] == "RDDT BUY 매매 제안을 만들 수량을 알려주세요."
+    assert service.conversation_repository.peek_pending_action(
+        "Bearer test",
+        "user-1",
+    ) == "trade_proposal_missing_quantity"
+
+    second = service.reply("1개", user_id="user-1", auth_header="Bearer test")
+
+    assert second["reply"] == "RDDT BUY 매매 제안을 생성했습니다."
+    assert second["meta"]["source"] == "PROJECT_TOOL_PENDING"
+    assert tool_calls == ["1번 1매 구매해줘", "1번 1매 구매해줘 1개"]
+    assert service.conversation_repository.peek_pending_action(
+        "Bearer test",
+        "user-1",
+    ) is None
+
+
+def test_reply_keeps_missing_quantity_pending_when_user_confirms_without_quantity(monkeypatch):
+    boundary = FakeConversationSupabaseBoundary()
+    monkeypatch.setattr(
+        "backend.services.chatbot.conversation_repository.query_supabase",
+        boundary.query,
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.run_chatbot_tool",
+        lambda auth_header, text: {
+            "reply": "RDDT BUY 매매 제안을 만들 수량을 알려주세요.",
+            "data": {
+                "source": "CHATBOT_ORDER_PARSER",
+                "reason": "missing_quantity",
+                "symbol": "RDDT",
+            },
+        },
+    )
+
+    service = ChatbotService()
+    service.llm_client = FakeLLMClient()
+    service.rag_service = FakeRAGService()
+
+    service.reply("1번 1매 구매해줘", user_id="user-1", auth_header="Bearer test")
+    result = service.reply("응", user_id="user-1", auth_header="Bearer test")
+
+    assert "수량" in result["reply"]
+    assert result["meta"]["source"] == "PROJECT_TOOL_PENDING"
+    assert service.conversation_repository.peek_pending_action(
+        "Bearer test",
+        "user-1",
+    ) == "trade_proposal_missing_quantity"
+
+
+def test_reply_retries_trade_proposal_when_user_provides_missing_price(monkeypatch):
+    boundary = FakeConversationSupabaseBoundary()
+    tool_calls = []
+
+    def fake_run_chatbot_tool(auth_header, text):
+        tool_calls.append(text)
+        if text == "금호건설 1주사줘":
+            return {
+                "reply": "002990 BUY 매매 제안은 지정가 금액이 필요합니다.",
+                "data": {
+                    "source": "CHATBOT_ORDER_PARSER",
+                    "reason": "missing_order_price",
+                    "symbol": "002990",
+                    "exchange": "TOSS",
+                    "broker_env": "REAL",
+                },
+            }
+        if text == "금호건설 1주사줘 지정가 3500원에":
+            return {
+                "reply": "002990 BUY 매매 제안을 생성했습니다.",
+                "data": {
+                    "source": "TRADE_PROPOSAL_CREATED",
+                    "symbol": "002990",
+                    "status": "PENDING",
+                },
+            }
+        return None
+
+    monkeypatch.setattr(
+        "backend.services.chatbot.conversation_repository.query_supabase",
+        boundary.query,
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.run_chatbot_tool",
+        fake_run_chatbot_tool,
+    )
+
+    service = ChatbotService()
+    service.llm_client = FakeLLMClient()
+    service.rag_service = FakeRAGService()
+
+    first = service.reply("금호건설 1주사줘", user_id="user-1", auth_header="Bearer test")
+    assert "지정가" in first["reply"]
+    assert service.conversation_repository.peek_pending_action(
+        "Bearer test",
+        "user-1",
+    ) == "trade_proposal_missing_price"
+
+    second = service.reply("3500원", user_id="user-1", auth_header="Bearer test")
+
+    assert second["reply"] == "002990 BUY 매매 제안을 생성했습니다."
+    assert second["meta"]["source"] == "PROJECT_TOOL_PENDING"
+    assert tool_calls == ["금호건설 1주사줘", "금호건설 1주사줘 지정가 3500원에"]
+
+
+def test_reply_retries_trade_proposal_when_user_provides_env_and_price(monkeypatch):
+    boundary = FakeConversationSupabaseBoundary()
+    tool_calls = []
+
+    def fake_run_chatbot_tool(auth_header, text):
+        tool_calls.append(text)
+        if text == "KIS 삼성전자 1주사줘":
+            return {
+                "reply": "005930 BUY 매매 제안을 만들 계좌 환경과 지정가 금액을 알려주세요.",
+                "data": {
+                    "source": "CHATBOT_ORDER_PARSER",
+                    "reason": "missing_order_env_and_price",
+                    "symbol": "005930",
+                    "exchange": "KIS",
+                },
+            }
+        if text == "KIS 삼성전자 1주사줘 실거래 지정가 70000원에":
+            return {
+                "reply": "005930 BUY 매매 제안을 생성했습니다.",
+                "data": {
+                    "source": "TRADE_PROPOSAL_CREATED",
+                    "symbol": "005930",
+                    "status": "PENDING",
+                },
+            }
+        return None
+
+    monkeypatch.setattr(
+        "backend.services.chatbot.conversation_repository.query_supabase",
+        boundary.query,
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.run_chatbot_tool",
+        fake_run_chatbot_tool,
+    )
+
+    service = ChatbotService()
+    service.llm_client = FakeLLMClient()
+    service.rag_service = FakeRAGService()
+
+    service.reply("KIS 삼성전자 1주사줘", user_id="user-1", auth_header="Bearer test")
+    assert service.conversation_repository.peek_pending_action(
+        "Bearer test",
+        "user-1",
+    ) == "trade_proposal_missing_env_and_price"
+
+    result = service.reply("실거래 70000원", user_id="user-1", auth_header="Bearer test")
+
+    assert result["reply"] == "005930 BUY 매매 제안을 생성했습니다."
+    assert tool_calls == [
+        "KIS 삼성전자 1주사줘",
+        "KIS 삼성전자 1주사줘 실거래 지정가 70000원에",
+    ]
+
+
 def test_reply_includes_trace_steps_for_recommendation_rag_tool(monkeypatch):
     monkeypatch.setattr(
         "backend.services.chatbot.chat_service.run_chatbot_tool",

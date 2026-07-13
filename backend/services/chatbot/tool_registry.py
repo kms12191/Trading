@@ -735,6 +735,53 @@ def _collect_precheck_blockers(precheck: dict, broker_env: str) -> list[str]:
     return blockers
 
 
+def _exchange_has_mock_env(exchange: str) -> bool:
+    return str(exchange or "").upper() not in {"TOSS", "COINONE"}
+
+
+def _build_missing_order_price_result(
+    symbol: str,
+    side: str | None,
+    exchange: str,
+    broker_env: str,
+) -> dict:
+    return {
+        "reply": (
+            f"{symbol} {side or ''} 매매 제안은 지정가 금액이 필요합니다.\n"
+            f"{exchange}는 모의 계좌 없이 {broker_env} 계좌 기준으로 진행하므로, "
+            "1주/1개당 지정가를 알려주세요. 예: '지정가 3,500원'"
+        ),
+        "data": {
+            "source": "CHATBOT_ORDER_PARSER",
+            "reason": "missing_order_price",
+            "exchange": exchange,
+            "symbol": symbol,
+            "side": side,
+            "broker_env": broker_env,
+        },
+    }
+
+
+def _build_missing_order_env_and_price_result(
+    symbol: str,
+    side: str | None,
+    exchange: str,
+) -> dict:
+    return {
+        "reply": (
+            f"{symbol} {side or ''} 매매 제안을 만들 계좌 환경과 지정가 금액을 알려주세요.\n"
+            "예: '실거래 지정가 3,500원' 또는 '모의 지정가 3,500원'"
+        ),
+        "data": {
+            "source": "CHATBOT_ORDER_PARSER",
+            "reason": "missing_order_env_and_price",
+            "exchange": exchange,
+            "symbol": symbol,
+            "side": side,
+        },
+    }
+
+
 def create_trade_proposal(auth_header: str, arguments: dict) -> dict:
     """사용자 승인 전 상태인 PENDING 매매 제안만 생성합니다."""
     enforce_tool_safety("create_trade_proposal", arguments)
@@ -849,7 +896,27 @@ def create_trade_proposal_from_message(auth_header: str, message: str, intent: P
     exchange = _detect_exchange(message)
     if not exchange:
         exchange = _default_exchange_for_asset(asset_type, market)
-    broker_env = parsed.broker_env or "MOCK"
+    price = parsed.price
+    if parsed.broker_env:
+        broker_env = parsed.broker_env
+    elif _exchange_has_mock_env(exchange):
+        if price is None:
+            return _build_missing_order_env_and_price_result(symbol, parsed.side, exchange)
+        return {
+            "reply": f"{symbol} 매매 제안을 만들 계좌 환경을 알려주세요. 예: '실거래' 또는 '모의'",
+            "data": {
+                "source": "CHATBOT_ORDER_PARSER",
+                "reason": "missing_order_env",
+                "exchange": exchange,
+                "symbol": symbol,
+                "side": parsed.side,
+            },
+        }
+    else:
+        broker_env = "REAL"
+
+    if price is None and exchange in {"TOSS", "COINONE"}:
+        return _build_missing_order_price_result(symbol, parsed.side, exchange, broker_env)
 
     if exchange == "COINONE" and parsed.order_type == "MARKET":
         return {
@@ -865,7 +932,6 @@ def create_trade_proposal_from_message(auth_header: str, message: str, intent: P
             },
         }
 
-    price = parsed.price
     if price is None and (parsed.amount_krw or parsed.sell_ratio):
         price = _lookup_current_price(auth_header, exchange, symbol, broker_env)
 
