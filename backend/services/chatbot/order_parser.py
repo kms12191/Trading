@@ -156,7 +156,9 @@ def _detect_side(text: str) -> str | None:
     if any(keyword in text for keyword in BUY_KEYWORDS):
         return "BUY"
     if any(keyword in text for keyword in BUY_DEFAULT_PATTERNS) and (
-        _extract_quantity(text) is not None or _extract_price(text) is not None
+        _extract_quantity(text) is not None
+        or _extract_price(text) is not None
+        or _extract_amount_krw(text) is not None
     ):
         return "BUY"
     return None
@@ -226,7 +228,7 @@ def _extract_amount_krw(text: str) -> float | None:
 
 
 def _extract_price(text: str) -> float | None:
-    explicit_match = re.search(r"(?:지정가|가격)\s*(\d+(?:\.\d+)?)\s*(만원|천원|원|만)(?!\s*어치)", text)
+    explicit_match = re.search(r"(?:지정가|가격)\s*(\d[\d,]*(?:\.\d+)?)\s*(만원|천원|원|만)(?!\s*어치)", text)
     if explicit_match:
         return _parse_krw_value(explicit_match.group(1), explicit_match.group(2))
 
@@ -237,9 +239,16 @@ def _extract_price(text: str) -> float | None:
     if explicit_korean_match:
         return _parse_krw_value(explicit_korean_match.group(1), explicit_korean_match.group(2))
 
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(만원|천원|원|만)\s*에", text)
+    match = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*(만원|천원|원|만)\s*에", text)
     if match:
         return _parse_krw_value(match.group(1), match.group(2))
+
+    reverse_limit_match = re.search(
+        r"(\d[\d,]*(?:\.\d+)?)\s*(만원|천원|원|만)\s*(?:지정가|가격)",
+        text,
+    )
+    if reverse_limit_match:
+        return _parse_krw_value(reverse_limit_match.group(1), reverse_limit_match.group(2))
 
     korean_match = re.search(
         r"([일한이삼사오육칠팔구십백천만]+)\s*(만원|천원|원|만)\s*에",
@@ -251,9 +260,14 @@ def _extract_price(text: str) -> float | None:
 
 
 def _remove_explicit_price_phrase(text: str) -> str:
-    text = re.sub(r"(?:지정가|가격)\s*\d+(?:\.\d+)?\s*(?:만원|천원|원|만)(?!\s*어치)", " ", text)
-    return re.sub(
+    text = re.sub(r"(?:지정가|가격)\s*\d[\d,]*(?:\.\d+)?\s*(?:만원|천원|원|만)(?!\s*어치)", " ", text)
+    text = re.sub(
         r"(?:지정가|가격)\s*[일한이삼사오육칠팔구십백천만]+\s*(?:만원|천원|원|만)(?!\s*어치)",
+        " ",
+        text,
+    )
+    return re.sub(
+        r"\d[\d,]*(?:\.\d+)?\s*(?:만원|천원|원|만)\s*(?:지정가|가격)",
         " ",
         text,
     )
@@ -306,7 +320,7 @@ def _parse_korean_amount(value: str) -> float:
 
 
 def _parse_krw_value(value: str, unit: str) -> float | None:
-    if re.fullmatch(r"\d+(?:\.\d+)?", str(value)):
+    if re.fullmatch(r"\d[\d,]*(?:\.\d+)?", str(value)):
         parsed = _to_float(value)
     else:
         parsed = _parse_korean_amount(value)

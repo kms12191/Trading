@@ -176,6 +176,38 @@ def test_run_chatbot_tool_combines_price_and_outlook(monkeypatch):
     assert "전망 응답" in result["reply"]
 
 
+def test_run_chatbot_tool_routes_buy_decision_question_to_outlook(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        tool_registry,
+        "get_asset_outlook",
+        lambda auth, msg: calls.append(msg) or {"reply": "전망 응답", "data": {"source": "ASSET_OUTLOOK"}},
+    )
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "삼성전자 살까")
+
+    assert calls == ["삼성전자 살까"]
+    assert result["data"]["source"] == "ASSET_OUTLOOK"
+    assert "전망 응답" in result["reply"]
+
+
+def test_run_chatbot_tool_routes_buy_timing_question_to_outlook(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        tool_registry,
+        "get_asset_outlook",
+        lambda auth, msg: calls.append(msg) or {"reply": "타이밍 응답", "data": {"source": "ASSET_OUTLOOK"}},
+    )
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "삼성전자 매수 타이밍 알려줘")
+
+    assert calls == ["삼성전자 매수 타이밍 알려줘"]
+    assert result["data"]["source"] == "ASSET_OUTLOOK"
+    assert "타이밍 응답" in result["reply"]
+
+
 def test_run_chatbot_tool_combines_multiple_asset_prices(monkeypatch):
     calls = []
 
@@ -217,6 +249,63 @@ def test_run_chatbot_tool_combines_comma_separated_asset_prices(monkeypatch):
     assert "BTC 가격 응답" in result["reply"]
 
 
+def test_run_chatbot_tool_combines_space_separated_asset_prices(monkeypatch):
+    calls = []
+
+    def fake_get_asset_price(auth_header, message):
+        calls.append(message)
+        symbol = message.split()[0]
+        return {"reply": f"{symbol} 가격 응답", "data": {"source": "ASSET_PRICE", "symbol": symbol}}
+
+    monkeypatch.setattr(tool_registry, "get_asset_price", fake_get_asset_price)
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "도지코인 비트코인 얼마야")
+
+    assert calls == ["DOGE 현재가 알려줘", "BTC 현재가 알려줘"]
+    assert result["data"]["source"] == "MULTI_ASSET_PRICE"
+    assert result["data"]["symbols"] == ["DOGE", "BTC"]
+    assert "DOGE 가격 응답" in result["reply"]
+    assert "BTC 가격 응답" in result["reply"]
+
+
+def test_run_chatbot_tool_combines_multiple_asset_news(monkeypatch):
+    calls = []
+
+    def fake_search_web(auth_header, message):
+        calls.append(message)
+        symbol = message.split()[0]
+        return {"reply": f"{symbol} 뉴스 응답", "data": {"source": "NEWS_DB", "symbol": symbol}}
+
+    monkeypatch.setattr(tool_registry, "search_web", fake_search_web)
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "삼성전자 하이닉스 뉴스 알려줘")
+
+    assert calls == ["삼성전자 뉴스 알려줘", "SK하이닉스 뉴스 알려줘"]
+    assert result["data"]["source"] == "MULTI_ASSET_NEWS"
+    assert result["data"]["symbols"] == ["삼성전자", "SK하이닉스"]
+    assert "삼성전자 뉴스 응답" in result["reply"]
+    assert "SK하이닉스 뉴스 응답" in result["reply"]
+
+
+def test_run_chatbot_tool_combines_multiple_asset_outlooks(monkeypatch):
+    calls = []
+
+    def fake_get_asset_outlook(auth_header, message):
+        calls.append(message)
+        symbol = message.split()[0]
+        return {"reply": f"{symbol} 전망 응답", "data": {"source": "ASSET_OUTLOOK", "symbol": symbol}}
+
+    monkeypatch.setattr(tool_registry, "get_asset_outlook", fake_get_asset_outlook)
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "삼성전자 비트코인 전망 알려줘")
+
+    assert calls == ["삼성전자 전망 알려줘", "BTC 전망 알려줘"]
+    assert result["data"]["source"] == "MULTI_ASSET_OUTLOOK"
+    assert result["data"]["symbols"] == ["삼성전자", "BTC"]
+    assert "삼성전자 전망 응답" in result["reply"]
+    assert "BTC 전망 응답" in result["reply"]
+
+
 def test_compound_info_does_not_intercept_order_with_news(monkeypatch):
     calls = []
 
@@ -242,6 +331,29 @@ def test_compound_info_does_not_intercept_order_with_news(monkeypatch):
 
     assert result["data"]["source"] == "ORDER_FLOW"
     assert len(calls) == 1
+
+
+def test_recommendation_candidates_adds_next_action_when_predictions_are_missing(monkeypatch):
+    class FakeRecommendationService:
+        def recommend(self, auth_header, message):
+            return {
+                "reply": "활성 예측 결과를 찾지 못했습니다. ML 예측 파일과 서빙 모델 상태를 먼저 확인해 주세요.",
+                "data": {
+                    "source": "ML_ACTIVE_SIGNAL",
+                    "items": [],
+                    "reason": "missing_active_predictions",
+                },
+            }
+
+    monkeypatch.setattr(tool_registry, "ChatbotRecommendationService", FakeRecommendationService)
+    monkeypatch.setattr(tool_registry, "_store_last_recommendations", lambda auth_header, result: None)
+
+    result = tool_registry.get_recommendation_candidates("Bearer test", "코인 뭐 사")
+
+    assert result["data"]["reason"] == "missing_active_predictions"
+    assert "대신" in result["reply"]
+    assert "상승률" in result["reply"]
+    assert "관심종목" in result["reply"]
 
 
 def test_extract_symbol_query_uses_ml_training_universe_symbols():

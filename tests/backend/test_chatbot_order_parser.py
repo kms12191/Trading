@@ -34,6 +34,39 @@ def test_parse_limit_quantity_mock_order():
     assert intent.broker_env == "MOCK"
 
 
+def test_parse_comma_separated_limit_price():
+    intent = parse_order_intent("삼성전자 1주 70,000원에 사줘")
+
+    assert intent.is_order_request is True
+    assert intent.side == "BUY"
+    assert intent.symbol_query == "삼성전자"
+    assert intent.quantity == 1
+    assert intent.price == 70000
+    assert intent.amount_krw is None
+    assert intent.order_type == "LIMIT"
+
+
+def test_parse_price_before_limit_keyword_as_limit_price():
+    intent = parse_order_intent("도지코인 5개 100원 지정가 코인원 매매요청")
+
+    assert intent.is_order_request is True
+    assert intent.side == "BUY"
+    assert intent.symbol_query == "도지코인"
+    assert intent.quantity == 5
+    assert intent.price == 100
+    assert intent.amount_krw is None
+    assert intent.order_type == "LIMIT"
+
+
+def test_parse_amount_trade_request_defaults_to_buy():
+    intent = parse_order_intent("비트코인 10만원어치 코인원 매매요청")
+
+    assert intent.is_order_request is True
+    assert intent.side == "BUY"
+    assert intent.symbol_query == "비트코인"
+    assert intent.amount_krw == 100000
+
+
 def test_incomplete_trade_proposal_phrase_routes_to_safe_clarification():
     intent = parse_order_intent("매매 제안 만들어줘")
 

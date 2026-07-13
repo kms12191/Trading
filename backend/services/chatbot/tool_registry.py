@@ -1936,6 +1936,18 @@ def get_asset_outlook(auth_header: str, message: str) -> dict:
 
 def get_recommendation_candidates(auth_header: str, message: str) -> dict:
     result = ChatbotRecommendationService().recommend(auth_header, message)
+    data = result.get("data") if isinstance(result, dict) else {}
+    if (
+        isinstance(data, dict)
+        and data.get("source") == "ML_ACTIVE_SIGNAL"
+        and not (data.get("items") or [])
+    ):
+        reply = str(result.get("reply") or "").strip()
+        fallback = (
+            "대신 상승률/거래대금 순위나 관심종목 기준 뉴스·전망을 확인할 수 있습니다.\n"
+            "예: '코인 상승률 순위 보여줘', '관심종목 전망 알려줘', '비트코인 최신 뉴스 보여줘'"
+        )
+        result["reply"] = f"{reply}\n\n{fallback}" if reply else fallback
     _store_last_recommendations(auth_header, result)
     return result
 
@@ -1959,7 +1971,7 @@ def _is_web_search_request(text: str) -> bool:
 
 
 def _is_asset_outlook_request(text: str) -> bool:
-    outlook_keywords = ["전망", "분석", "오를까", "어때", "괜찮아", "살까", "투자해도"]
+    outlook_keywords = ["전망", "분석", "오를까", "어때", "괜찮아", "살까", "투자해도", "타이밍", "진입"]
     return any(keyword in str(text or "") for keyword in outlook_keywords)
 
 
@@ -1973,11 +1985,8 @@ def _is_asset_price_request(text: str) -> bool:
     return bool(_extract_symbol_query(value))
 
 
-def _extract_multi_price_symbol_queries(text: str) -> list[str]:
+def _extract_multi_asset_symbol_queries(text: str) -> list[str]:
     value = str(text or "")
-    if not _is_asset_price_request(value):
-        return []
-    has_multi_separator = bool(re.search(r"(,|，|랑|와|과|하고|및|/)", value))
     matches = []
     for alias, symbol in SYMBOL_QUERY_ALIASES.items():
         alias_text = str(alias or "").strip()
@@ -2011,9 +2020,15 @@ def _extract_multi_price_symbol_queries(text: str) -> list[str]:
         seen.add(symbol)
         selected.append(symbol)
 
-    if len(selected) < 2 or not has_multi_separator:
+    if len(selected) < 2:
         return []
     return selected
+
+
+def _extract_multi_price_symbol_queries(text: str) -> list[str]:
+    if not _is_asset_price_request(text):
+        return []
+    return _extract_multi_asset_symbol_queries(text)
 
 
 def _has_concrete_symbol_query(text: str) -> bool:
@@ -2115,6 +2130,47 @@ def _run_multi_asset_price_tool(auth_header: str, message: str) -> dict | None:
     }
 
 
+def _run_multi_asset_secondary_tool(auth_header: str, message: str) -> dict | None:
+    text = str(message or "")
+    symbols = _extract_multi_asset_symbol_queries(text)
+    if len(symbols) < 2:
+        return None
+
+    if _is_asset_outlook_request(text):
+        source = "MULTI_ASSET_OUTLOOK"
+        suffix = "전망 알려줘"
+        tool_name = "get_asset_outlook"
+        tool_func = get_asset_outlook
+    elif _is_web_search_request(text):
+        source = "MULTI_ASSET_NEWS"
+        suffix = "뉴스 알려줘"
+        tool_name = "search_web"
+        tool_func = search_web
+    else:
+        return None
+
+    results = []
+    replies = []
+    for symbol in symbols:
+        tool_message = f"{symbol} {suffix}"
+        enforce_tool_safety(tool_name, {"message": tool_message})
+        result = tool_func(auth_header, tool_message)
+        data = result.get("data") if isinstance(result, dict) else {}
+        results.append(data if isinstance(data, dict) else {})
+        reply = str((result or {}).get("reply") or "").strip()
+        if reply:
+            replies.append(reply)
+
+    return {
+        "reply": "\n\n".join(replies),
+        "data": {
+            "source": source,
+            "symbols": symbols,
+            "results": results,
+        },
+    }
+
+
 def _run_compound_info_tool(auth_header: str, message: str) -> dict | None:
     text = str(message or "")
     if not _is_asset_price_request(text):
@@ -2191,6 +2247,10 @@ def run_chatbot_tool(auth_header: str | None, message: str) -> dict | None:
     if multi_price_result:
         return multi_price_result
 
+    multi_secondary_result = _run_multi_asset_secondary_tool(auth_header, text)
+    if multi_secondary_result:
+        return multi_secondary_result
+
     compound_result = _run_compound_info_tool(auth_header, text)
     if compound_result:
         return compound_result
@@ -2219,6 +2279,8 @@ def run_chatbot_tool(auth_header: str | None, message: str) -> dict | None:
         return guarded("search_trade_history", search_trade_history)
     if any(keyword in text for keyword in ["추천", "뭐 사", "뭐살", "후보", "살만한", "매수 후보"]):
         return guarded("get_asset_outlook", get_recommendation_candidates)
+    if is_strategy_request and any(keyword in text for keyword in ["관심 종목", "관심종목", "보유 종목", "보유종목"]):
+        return None
     if _is_asset_outlook_request(text):
         return guarded("get_asset_outlook", get_asset_outlook)
     is_portfolio_summary_request = (

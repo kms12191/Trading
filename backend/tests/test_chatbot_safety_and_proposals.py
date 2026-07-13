@@ -414,6 +414,68 @@ def test_run_chatbot_tool_treats_coinone_limit_trade_request_without_side_as_buy
     assert calls[0]["json_data"]["broker_env"] == "REAL"
 
 
+def test_run_chatbot_tool_accepts_price_before_limit_keyword(monkeypatch):
+    calls = []
+
+    def fake_query(auth_header, endpoint, method="GET", json_data=None, params=None):
+        calls.append({
+            "endpoint": endpoint,
+            "json_data": json_data,
+        })
+        if endpoint == "trade_proposals":
+            return [{"id": "proposal-doge-reverse", "status": "PENDING"}]
+        raise AssertionError(f"unexpected endpoint: {endpoint}")
+
+    monkeypatch.setattr(
+        "backend.services.chatbot.tool_registry.query_supabase",
+        fake_query,
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.tool_registry.get_user_id_from_header",
+        lambda auth_header: ("user-1", "test"),
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.tool_registry._resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "DOGE",
+            "display_name": "도지코인",
+            "asset_type": "CRYPTO",
+            "market": "KR",
+        },
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.tool_registry._run_chatbot_precheck",
+        lambda **kwargs: _valid_precheck(),
+        raising=False,
+    )
+
+    result = run_chatbot_tool("Bearer test", "도지코인 5개 100원 지정가 코인원 매매요청")
+
+    assert result["data"]["status"] == "PENDING"
+    assert calls[0]["json_data"]["symbol"] == "DOGE"
+    assert calls[0]["json_data"]["side"] == "BUY"
+    assert calls[0]["json_data"]["price"] == 100
+    assert calls[0]["json_data"]["exchange"] == "COINONE"
+
+
+def test_coinone_amount_trade_request_returns_limit_order_guide(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.chatbot.tool_registry._resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "BTC",
+            "display_name": "비트코인",
+            "asset_type": "CRYPTO",
+            "market": "KR",
+        },
+    )
+
+    result = run_chatbot_tool("Bearer test", "비트코인 10만원어치 코인원 매매요청")
+
+    assert result["data"]["reason"] == "unsupported_order_type"
+    assert result["data"]["exchange"] == "COINONE"
+    assert "지정가" in result["reply"]
+
+
 def test_run_chatbot_tool_calculates_quantity_for_amount_order(monkeypatch):
     calls = []
 
