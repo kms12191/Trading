@@ -121,7 +121,7 @@ def test_recommendation_reference_defaults_to_real_when_env_is_not_explicit(monk
     assert rewritten == "RDDT 실거래 1번 1주 매수 제안 만들어줘"
 
 
-def test_real_market_precheck_error_explains_limit_price_requirement(monkeypatch):
+def test_real_market_order_without_price_asks_limit_price_before_precheck(monkeypatch):
     def fake_resolve_symbol(auth_header, query):
         assert query == "RDDT"
         return {
@@ -131,18 +131,76 @@ def test_real_market_precheck_error_explains_limit_price_requirement(monkeypatch
             "market": "US",
         }
 
-    def fake_run_precheck(**kwargs):
-        raise RuntimeError("실거래 시장가 주문은 100,000원 하드캡을 보장할 수 없어 지원하지 않습니다. 지정가를 입력해 주세요.")
-
     monkeypatch.setattr(tool_registry, "_resolve_symbol", fake_resolve_symbol)
-    monkeypatch.setattr(tool_registry, "_run_chatbot_precheck", fake_run_precheck)
+    monkeypatch.setattr(
+        tool_registry,
+        "_run_chatbot_precheck",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("지정가 확인 전 사전검증 금지")),
+    )
 
     result = tool_registry.create_trade_proposal_from_message(
         "Bearer test",
         "RDDT 실거래 1주 매수 제안 만들어줘",
     )
 
-    assert result["data"]["reason"] == "precheck_failed"
-    assert "실거래 시장가 제안은 만들 수 없습니다" in result["reply"]
+    assert result["data"]["reason"] == "missing_order_price"
+    assert result["data"]["broker_env"] == "REAL"
     assert "지정가" in result["reply"]
-    assert "10만원" in result["reply"]
+    assert "금액" in result["reply"]
+
+
+def test_toss_order_without_env_or_price_asks_for_limit_price(monkeypatch):
+    def fake_resolve_symbol(auth_header, query):
+        assert query == "금호건설"
+        return {
+            "symbol": "002990",
+            "display_name": "금호건설",
+            "asset_type": "STOCK",
+            "market": "KR",
+        }
+
+    monkeypatch.setattr(tool_registry, "_resolve_symbol", fake_resolve_symbol)
+    monkeypatch.setattr(
+        tool_registry,
+        "_run_chatbot_precheck",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("가격 확인 전 사전검증 금지")),
+    )
+
+    result = tool_registry.create_trade_proposal_from_message(
+        "Bearer test",
+        "금호건설 1주사줘",
+    )
+
+    assert result["data"]["reason"] == "missing_order_price"
+    assert result["data"]["broker_env"] == "REAL"
+    assert result["data"]["exchange"] == "TOSS"
+    assert "지정가" in result["reply"]
+    assert "금액" in result["reply"]
+
+
+def test_non_toss_order_without_env_asks_env_and_price(monkeypatch):
+    def fake_resolve_symbol(auth_header, query):
+        assert query == "삼성전자"
+        return {
+            "symbol": "005930",
+            "display_name": "삼성전자",
+            "asset_type": "STOCK",
+            "market": "KR",
+        }
+
+    monkeypatch.setattr(tool_registry, "_resolve_symbol", fake_resolve_symbol)
+    monkeypatch.setattr(
+        tool_registry,
+        "_run_chatbot_precheck",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("환경 확인 전 사전검증 금지")),
+    )
+
+    result = tool_registry.create_trade_proposal_from_message(
+        "Bearer test",
+        "KIS 삼성전자 1주사줘",
+    )
+
+    assert result["data"]["reason"] == "missing_order_env_and_price"
+    assert "실거래" in result["reply"]
+    assert "모의" in result["reply"]
+    assert "지정가" in result["reply"]
