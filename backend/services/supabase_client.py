@@ -277,6 +277,9 @@ def upsert_user_api_key(auth_header: str, data: dict):
         data["user_id"] = user_id
         query_supabase(auth_header, "user_api_keys", "POST", json_data=data)
 
+SERVICE_ROLE_TIMEOUT_SECONDS = 15
+
+
 def query_supabase_as_service_role(endpoint: str, method: str = "GET", json_data: dict = None, params: dict = None) -> any:
     """
     사용자 JWT 인증 없이 SUPABASE_SERVICE_ROLE_KEY 권한으로 Supabase REST API를 직접 쿼리합니다.
@@ -294,15 +297,15 @@ def query_supabase_as_service_role(endpoint: str, method: str = "GET", json_data
     }
     
     if method == "GET":
-        res = requests.get(url, headers=headers, params=params)
+        res = requests.get(url, headers=headers, params=params, timeout=SERVICE_ROLE_TIMEOUT_SECONDS)
     elif method == "POST":
-        res = requests.post(url, headers=headers, json=json_data, params=params)
+        res = requests.post(url, headers=headers, json=json_data, params=params, timeout=SERVICE_ROLE_TIMEOUT_SECONDS)
     elif method == "PATCH":
-        res = requests.patch(url, headers=headers, json=json_data, params=params)
+        res = requests.patch(url, headers=headers, json=json_data, params=params, timeout=SERVICE_ROLE_TIMEOUT_SECONDS)
     elif method == "PUT":
-        res = requests.put(url, headers=headers, json=json_data, params=params)
+        res = requests.put(url, headers=headers, json=json_data, params=params, timeout=SERVICE_ROLE_TIMEOUT_SECONDS)
     elif method == "DELETE":
-        res = requests.delete(url, headers=headers, params=params)
+        res = requests.delete(url, headers=headers, params=params, timeout=SERVICE_ROLE_TIMEOUT_SECONDS)
     else:
         raise ValueError("지원하지 않는 HTTP 메소드입니다.")
         

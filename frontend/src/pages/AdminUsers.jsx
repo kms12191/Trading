@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient.js'
 import { getApiErrorMessage } from '../lib/apiError.js'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
+const USER_PAGE_SIZE = 100
 
 const numberFormatter = new Intl.NumberFormat('ko-KR')
 
@@ -38,12 +39,14 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('tokens_30d')
   const [order, setOrder] = useState('desc')
+  const [page, setPage] = useState(0)
   const [selectedUserId, setSelectedUserId] = useState('')
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
+  const listRequestSequence = useRef(0)
   const detailRequestSequence = useRef(0)
 
   const selectedUser = useMemo(
@@ -57,34 +60,61 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
     return { Authorization: `Bearer ${session.access_token}` }
   }
 
-  const loadUsers = async () => {
+  const totalUsers = Number(summary.totalUsers || 0)
+  const totalPages = Math.max(1, Math.ceil(totalUsers / USER_PAGE_SIZE))
+  const pageStart = users.length ? page * USER_PAGE_SIZE + 1 : 0
+  const pageEnd = users.length ? page * USER_PAGE_SIZE + users.length : 0
+
+  const loadUsers = async ({ pageOverride = page, signal } = {}) => {
+    const requestSequence = listRequestSequence.current + 1
+    listRequestSequence.current = requestSequence
     setLoading(true)
     setError('')
     try {
       const headers = await authHeaders()
-      const params = new URLSearchParams({ sort, order, limit: '100' })
+      if (signal?.aborted) return
+      const params = new URLSearchParams({
+        sort,
+        order,
+        limit: String(USER_PAGE_SIZE),
+        offset: String(pageOverride * USER_PAGE_SIZE),
+      })
       if (query.trim()) params.set('q', query.trim())
-      const response = await fetch(`${API_BASE_URL}/api/admin/users?${params.toString()}`, { headers })
+      const response = await fetch(`${API_BASE_URL}/api/admin/users?${params.toString()}`, { headers, signal })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload.success === false) {
         throw new Error(getApiErrorMessage(payload, '유저 목록을 불러오지 못했습니다.'))
       }
+      if (listRequestSequence.current !== requestSequence) return
       const rows = payload.data || []
       setUsers(rows)
       setSummary(payload.summary || {})
-      setSelectedUserId((current) => current || rows[0]?.id || '')
+      setSelectedUserId((current) => (rows.some((item) => item.id === current) ? current : rows[0]?.id || ''))
     } catch (requestError) {
+      if (requestError.name === 'AbortError' || listRequestSequence.current !== requestSequence) return
       setUsers([])
       setSummary({ totalUsers: 0, todayTokens: 0, tokens30d: 0, activeUsers24h: 0 })
       setError(requestError.message || '유저 목록을 불러오지 못했습니다.')
     } finally {
-      setLoading(false)
+      if (listRequestSequence.current === requestSequence) {
+        setLoading(false)
+      }
     }
   }
 
   useEffect(() => {
-    loadUsers()
-  }, [sort, order])
+    const controller = new AbortController()
+    loadUsers({ signal: controller.signal })
+    return () => controller.abort()
+  }, [sort, order, page])
+
+  const handleSearch = () => {
+    if (page === 0) {
+      loadUsers({ pageOverride: 0 })
+    } else {
+      setPage(0)
+    }
+  }
 
   useEffect(() => {
     const userId = selectedUser?.id
@@ -151,23 +181,29 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') loadUsers()
+                  if (event.key === 'Enter') handleSearch()
                 }}
                 className="rounded border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-white outline-none transition focus:border-ai-cyan"
                 placeholder="이메일 또는 닉네임 검색"
               />
-              <select value={sort} onChange={(event) => setSort(event.target.value)} className="rounded border border-slate-700 bg-[#0f172a] px-3 py-2 text-xs font-bold text-slate-300 outline-none focus:border-ai-cyan">
+              <select value={sort} onChange={(event) => {
+                setPage(0)
+                setSort(event.target.value)
+              }} className="rounded border border-slate-700 bg-[#0f172a] px-3 py-2 text-xs font-bold text-slate-300 outline-none focus:border-ai-cyan">
                 <option value="tokens_30d">30일 토큰</option>
                 <option value="today_tokens">오늘 토큰</option>
                 <option value="tokens_7d">7일 토큰</option>
                 <option value="total_tokens">전체 토큰</option>
                 <option value="recent_used_at">최근 사용</option>
               </select>
-              <select value={order} onChange={(event) => setOrder(event.target.value)} className="rounded border border-slate-700 bg-[#0f172a] px-3 py-2 text-xs font-bold text-slate-300 outline-none focus:border-ai-cyan">
+              <select value={order} onChange={(event) => {
+                setPage(0)
+                setOrder(event.target.value)
+              }} className="rounded border border-slate-700 bg-[#0f172a] px-3 py-2 text-xs font-bold text-slate-300 outline-none focus:border-ai-cyan">
                 <option value="desc">내림차순</option>
                 <option value="asc">오름차순</option>
               </select>
-              <button type="button" onClick={loadUsers} className="rounded bg-ai-cyan px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-300">
+              <button type="button" onClick={handleSearch} className="rounded bg-ai-cyan px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-300">
                 조회
               </button>
             </div>
@@ -233,6 +269,30 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                {pageStart ? `${formatNumber(totalUsers)}명 중 ${formatNumber(pageStart)}-${formatNumber(pageEnd)}명` : '표시할 유저가 없습니다.'}
+              </span>
+              <div className="grid grid-cols-2 gap-2 sm:flex">
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.max(0, current - 1))}
+                  disabled={loading || page <= 0}
+                  className="rounded border border-slate-700 px-3 py-2 font-bold text-slate-300 transition hover:border-ai-cyan hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  이전
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => current + 1)}
+                  disabled={loading || page + 1 >= totalPages}
+                  className="rounded border border-slate-700 px-3 py-2 font-bold text-slate-300 transition hover:border-ai-cyan hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  다음
+                </button>
               </div>
             </div>
           </div>

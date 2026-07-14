@@ -3,6 +3,7 @@ import logging
 
 import jwt
 
+from backend.services import supabase_client
 from backend.services.chatbot.llm_client import ChatbotLLMClient
 
 
@@ -251,3 +252,32 @@ def test_usage_logging_rejects_user_id_that_does_not_match_authenticated_subject
     )
 
     assert usage_calls == []
+
+
+def test_service_role_usage_write_has_timeout(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 201
+        text = ""
+
+    monkeypatch.setattr(supabase_client, "SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key")
+
+    def fake_post(url, headers=None, json=None, params=None, timeout=None):
+        captured["url"] = url
+        captured["timeout"] = timeout
+        captured["json"] = json
+        return FakeResponse()
+
+    monkeypatch.setattr("backend.services.supabase_client.requests.post", fake_post)
+
+    supabase_client.query_supabase_as_service_role(
+        "chatbot_token_usage_logs",
+        "POST",
+        json_data={"user_id": "user-1"},
+    )
+
+    assert captured["url"].endswith("/rest/v1/chatbot_token_usage_logs")
+    assert captured["timeout"] == supabase_client.SERVICE_ROLE_TIMEOUT_SECONDS
+    assert captured["json"] == {"user_id": "user-1"}
