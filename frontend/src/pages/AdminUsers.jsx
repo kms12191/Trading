@@ -219,9 +219,9 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
           <div className="overflow-hidden rounded-lg border border-slate-700/80 bg-slate-surface p-3 sm:p-4">
-            <div className="lg:overflow-x-auto">
-              <div className="lg:min-w-[760px]">
-                <div className="hidden grid-cols-[minmax(170px,1.2fr)_90px_repeat(4,minmax(95px,1fr))_120px] rounded-t-lg bg-[#0f172a] text-xs font-bold text-slate-400 lg:grid">
+            <div className="md:overflow-x-auto">
+              <div className="md:min-w-[760px]">
+                <div className="hidden grid-cols-[minmax(170px,1.2fr)_90px_repeat(4,minmax(95px,1fr))_120px] rounded-t-lg bg-[#0f172a] text-xs font-bold text-slate-400 md:grid">
                   <div className="px-3 py-3">유저</div>
                   <div className="px-3 py-3">권한</div>
                   <div className="px-3 py-3 text-right">오늘</div>
@@ -230,7 +230,7 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
                   <div className="px-3 py-3 text-right">전체</div>
                   <div className="px-3 py-3">최근 사용</div>
                 </div>
-                <div className="overflow-hidden rounded-lg border border-slate-800 lg:rounded-t-none lg:border-t-0">
+                <div className="overflow-hidden rounded-lg border border-slate-800 md:rounded-t-none md:border-t-0">
                   {loading ? (
                     <div className="px-4 py-10 text-center text-sm font-bold text-slate-400">유저 목록을 불러오는 중입니다.</div>
                   ) : error ? (
@@ -242,30 +242,30 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
                       key={item.id}
                       type="button"
                       onClick={() => setSelectedUserId(item.id)}
-                      className={`grid w-full grid-cols-2 gap-2 border-t border-slate-800 px-4 py-4 text-left text-sm first:border-t-0 hover:bg-white/[0.03] lg:grid-cols-[minmax(170px,1.2fr)_90px_repeat(4,minmax(95px,1fr))_120px] lg:px-0 lg:py-0 ${selectedUser?.id === item.id ? 'bg-ai-cyan/5' : ''}`}
+                      className={`grid w-full grid-cols-2 gap-2 border-t border-slate-800 px-4 py-4 text-left text-sm first:border-t-0 hover:bg-white/[0.03] md:grid-cols-[minmax(170px,1.2fr)_90px_repeat(4,minmax(95px,1fr))_120px] md:gap-0 md:px-0 md:py-0 ${selectedUser?.id === item.id ? 'bg-ai-cyan/5' : ''}`}
                     >
-                      <span className="min-w-0 lg:px-3 lg:py-3">
+                      <span className="min-w-0 md:px-3 md:py-3">
                         <span className="block truncate font-bold text-white">{item.email || item.nickname || '-'}</span>
                         <span className="block truncate text-xs text-slate-500">{item.nickname || item.id}</span>
                       </span>
-                      <span className="text-xs font-bold text-ai-cyan lg:px-3 lg:py-3">{item.role}</span>
-                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-slate-300 lg:block lg:px-3 lg:py-3 lg:text-right">
-                        <span className="font-inter font-bold text-slate-500 lg:hidden">오늘</span>
+                      <span className="text-xs font-bold text-ai-cyan md:px-3 md:py-3">{item.role}</span>
+                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-slate-300 md:block md:px-3 md:py-3 md:text-right">
+                        <span className="font-inter font-bold text-slate-500 md:hidden">오늘</span>
                         <span>{formatNumber(item.usage?.todayTokens)}</span>
                       </span>
-                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-slate-300 lg:block lg:px-3 lg:py-3 lg:text-right">
-                        <span className="font-inter font-bold text-slate-500 lg:hidden">7일</span>
+                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-slate-300 md:block md:px-3 md:py-3 md:text-right">
+                        <span className="font-inter font-bold text-slate-500 md:hidden">7일</span>
                         <span>{formatNumber(item.usage?.tokens7d)}</span>
                       </span>
-                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-white lg:block lg:px-3 lg:py-3 lg:text-right">
-                        <span className="font-inter font-bold text-slate-500 lg:hidden">30일</span>
+                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-white md:block md:px-3 md:py-3 md:text-right">
+                        <span className="font-inter font-bold text-slate-500 md:hidden">30일</span>
                         <span>{formatNumber(item.usage?.tokens30d)}</span>
                       </span>
-                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-slate-300 lg:block lg:px-3 lg:py-3 lg:text-right">
-                        <span className="font-inter font-bold text-slate-500 lg:hidden">전체</span>
+                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-slate-300 md:block md:px-3 md:py-3 md:text-right">
+                        <span className="font-inter font-bold text-slate-500 md:hidden">전체</span>
                         <span>{formatNumber(item.usage?.totalTokens)}</span>
                       </span>
-                      <span className="col-span-2 text-xs text-slate-500 lg:col-span-1 lg:px-3 lg:py-3">{formatDateTime(item.usage?.recentUsedAt)}</span>
+                      <span className="col-span-2 text-xs text-slate-500 md:col-span-1 md:px-3 md:py-3">{formatDateTime(item.usage?.recentUsedAt)}</span>
                     </button>
                   ))}
                 </div>
