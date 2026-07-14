@@ -20,6 +20,17 @@ from backend.services.news_summary_service import NewsSummaryService
 from backend.services.tavily_client import TavilyClient, TavilySearchError
 
 
+COMPANY_QUERY_ALIASES = {
+    "삼전": "삼성전자",
+    "삼성": "삼성전자",
+    "심상전자": "삼성전자",
+    "심성전자": "삼성전자",
+    "삼상전자": "삼성전자",
+    "하닉": "SK하이닉스",
+    "하이닉스": "SK하이닉스",
+}
+
+
 class ChatbotWebFallbackSearchService:
     def __init__(self) -> None:
         self.rag_service = ChatbotRAGService()
@@ -51,6 +62,13 @@ class ChatbotWebFallbackSearchService:
         max_results = max(1, min(int(limit or self.max_results), 10))
         if not text:
             return {"reply": "검색어를 입력해 주세요.", "data": {"source": "EMPTY_QUERY"}}
+        if self._is_combined_news_disclosure_query(text):
+            requested_count = self._requested_news_count(text) or self._requested_disclosure_count(text)
+            if requested_count and requested_count > 3:
+                return self._news_limit_exceeded_reply(text, requested_count)
+            max_results = requested_count or 1
+            return self._search_combined_news_disclosure(auth_header, user_id, text, max_results)
+
         is_disclosure_query = self._is_disclosure_query(text)
         is_news_query = self._is_news_query(text) and not is_disclosure_query
         if is_disclosure_query:
@@ -242,24 +260,88 @@ class ChatbotWebFallbackSearchService:
                 return result
         return None
 
+    def _search_combined_news_disclosure(
+        self,
+        auth_header: str | None,
+        user_id: str | None,
+        query: str,
+        limit: int,
+    ) -> dict[str, Any]:
+        news_query = self._combined_query_for(query, "뉴스")
+        disclosure_query = self._combined_query_for(query, "공시")
+
+        news_result = self._search_existing_open_apis(news_query, limit)
+        if not news_result:
+            news_result = self._search_tavily(news_query, limit)
+        if not news_result:
+            news_result = self._search_internal_db(news_query, limit)
+        if not news_result:
+            news_result = self._search_rag(auth_header, user_id, news_query, limit)
+
+        disclosure_result = self._search_existing_open_apis(disclosure_query, limit)
+        if not disclosure_result:
+            disclosure_result = self._search_internal_db(disclosure_query, limit)
+        if not disclosure_result:
+            disclosure_result = self._search_rag(auth_header, user_id, disclosure_query, limit)
+
+        lines = ["뉴스와 공시를 나눠서 확인했습니다."]
+        if news_result:
+            lines.extend(["", "[뉴스]", str(news_result.get("reply") or "").strip()])
+        else:
+            lines.extend(["", "[뉴스]", "조건에 맞는 최신 뉴스를 찾지 못했습니다."])
+
+        if disclosure_result:
+            lines.extend(["", "[공시]", str(disclosure_result.get("reply") or "").strip()])
+        else:
+            lines.extend(["", "[공시]", "조건에 맞는 DART 공시 결과를 찾지 못했습니다."])
+
+        return {
+            "reply": "\n".join(line for line in lines if line is not None),
+            "data": {
+                "source": "NEWS_DISCLOSURE_COMBINED",
+                "query": query,
+                "news_query": news_query,
+                "disclosure_query": disclosure_query,
+                "news": news_result.get("data") if news_result else {"source": "NO_RESULT"},
+                "disclosure": disclosure_result.get("data") if disclosure_result else {"source": "NO_RESULT"},
+            },
+        }
+
+    @staticmethod
+    def _combined_query_for(query: str, target: str) -> str:
+        text = re.sub(r"\s+", " ", str(query or "")).strip()
+        if target == "뉴스":
+            text = re.sub(r"(?:공시와|공시랑|공시 및|공시와\s*뉴스|뉴스와\s*공시|공시)", " ", text)
+        else:
+            text = re.sub(r"(?:뉴스와|뉴스랑|뉴스 및|공시와\s*뉴스|뉴스와\s*공시|뉴스)", " ", text)
+        text = re.sub(r"(?:보고|정리해줘|정리|요약해줘|요약|알려줘|보여줘)", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        text = ChatbotWebFallbackSearchService._normalize_company_query(text)
+        if target not in text:
+            text = f"{text} {target}".strip()
+        return text
+
     def _search_news_db(self, query: str, limit: int) -> dict[str, Any] | None:
         search_query = self._normalize_news_query(query)
         try:
-            rows = self.news_repository.list_articles(query=search_query, limit=limit)
+            rows = self.news_repository.list_articles(query=search_query, limit=max(limit * 3, limit))
         except Exception:
             return None
         if not rows:
             return None
 
-        visible_rows = []
-        lines = [f"뉴스 {min(len(rows), limit)}건을 요약했습니다."]
-        for index, row in enumerate(rows[:limit], start=1):
+        visible_rows = self._filter_company_news_rows(search_query, rows)[:limit]
+        if not visible_rows:
+            return None
+
+        lines = [f"뉴스 {len(visible_rows)}건을 요약했습니다."]
+        for index, row in enumerate(visible_rows, start=1):
             if index > 1:
                 lines.append("")
             article = dict(row)
             if not article.get("ai_summary"):
                 article.update(self.news_summary_service.summarize(article))
-            visible_rows.append(article)
+            visible_rows[index - 1] = article
             title = article.get("title") or "제목 없음"
             summary = article.get("ai_summary") or article.get("summary") or ""
             url = article.get("url") or ""
@@ -277,7 +359,7 @@ class ChatbotWebFallbackSearchService:
         rows: list[dict[str, Any]] | None = None
         for attempt in range(2):
             try:
-                rows = self.dart_repository.list_disclosures(query=search_query, limit=limit)
+                rows = self.dart_repository.list_disclosures(query=search_query, limit=max(limit * 3, limit))
                 break
             except requests.HTTPError as error:
                 status_code = error.response.status_code if error.response is not None else 0
@@ -293,7 +375,10 @@ class ChatbotWebFallbackSearchService:
         if not rows:
             return None
 
-        visible_rows = rows[:limit]
+        visible_rows = self._filter_company_disclosure_rows(search_query, rows)[:limit]
+        if not visible_rows:
+            return None
+
         lines = [f"DART 공시 {len(visible_rows)}건을 요약했습니다."]
         result_items: list[dict[str, Any]] = []
         for index, row in enumerate(visible_rows, start=1):
@@ -381,7 +466,7 @@ class ChatbotWebFallbackSearchService:
             title = self._clean_html(item.get("title"))
             summary = self._clean_html(item.get("description"))
             url = item.get("originallink") or item.get("link") or ""
-            articles.append({
+            article = {
                 "market": "DOMESTIC",
                 "source": "NAVER",
                 "source_article_id": url or f"naver:{self._hash(title + query)}",
@@ -389,14 +474,17 @@ class ChatbotWebFallbackSearchService:
                 "summary": summary,
                 "url": url,
                 "published_at": self._parse_naver_date(item.get("pubDate")),
-                "company_name": search_query,
+                "company_name": "",
                 "symbol": "",
                 "language": "ko",
                 "raw_payload": {"provider": "NAVER", "query_text": search_query, **item},
                 "content_hash": self._hash(f"{title}|{summary}|{url}"),
                 "is_active": True,
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
-            })
+            }
+            if self._is_relevant_company_news(search_query, article):
+                article["company_name"] = search_query
+                articles.append(article)
 
         if not articles:
             return None
@@ -496,10 +584,22 @@ class ChatbotWebFallbackSearchService:
             if item.get("url"):
                 lines.append(f"   {item['url']}")
         lines.append("")
+        lines.append(f"조회 기준: Tavily 웹검색, 검색어 '{search_query}', 뉴스형 결과 우선, 위키/나무위키/지식인 제외")
         lines.append("출처: Tavily + AI 요약")
         return {
             "reply": "\n".join(lines),
-            "data": {"source": "TAVILY_FALLBACK", "query": search_query, "items": summarized},
+            "data": {
+                "source": "TAVILY_FALLBACK",
+                "query": search_query,
+                "items": summarized,
+                "criteria": {
+                    "provider": "TAVILY",
+                    "query": search_query,
+                    "sort": "relevance",
+                    "limit": len(summarized),
+                    "excluded_sources": ["wikipedia.org", "namu.wiki", "kin.naver.com", "지식인"],
+                },
+            },
         }
 
     def _format_external_news(self, source: str, query: str, articles: list[dict[str, Any]]) -> dict[str, Any]:
@@ -514,8 +614,23 @@ class ChatbotWebFallbackSearchService:
             if article.get("url"):
                 lines.append(f"   {article['url']}")
         lines.append("")
+        lines.append(f"조회 기준: {source} 뉴스 API, 검색어 '{query}', 최신순(date), 최대 {len(articles)}건")
         lines.append(f"출처: {source} API + AI 요약")
-        return {"reply": "\n".join(lines), "data": {"source": f"{source}_API", "query": query, "items": articles}}
+        return {
+            "reply": "\n".join(lines),
+            "data": {
+                "source": f"{source}_API",
+                "query": query,
+                "items": articles,
+                "criteria": {
+                    "provider": source,
+                    "query": query,
+                    "sort": "date",
+                    "limit": len(articles),
+                    "fallback_order": ["NAVER_API", "FINNHUB_API", "TAVILY", "NEWS_DB", "VECTOR_DB"],
+                },
+            },
+        }
 
     def _try_upsert_news(self, articles: list[dict[str, Any]]) -> None:
         try:
@@ -720,11 +835,68 @@ class ChatbotWebFallbackSearchService:
         return f"https://dart.fss.or.kr/dsab007/main.do?option=corp&textCrpNm={encoded_query}"
 
     @staticmethod
+    def _normalize_company_query(query: str) -> str:
+        text = re.sub(r"\s+", " ", str(query or "")).strip()
+        compact = re.sub(r"\s+", "", text)
+        for alias, company_name in COMPANY_QUERY_ALIASES.items():
+            if alias in text or alias in compact:
+                return company_name
+        return text
+
+    @classmethod
+    def _is_broad_news_query(cls, query: str) -> bool:
+        return cls._normalize_company_query(query) in {
+            "시장",
+            "주요",
+            "시장 주요",
+            "국내 시장",
+            "증시 주요",
+            "국내 증시 시장 주요 뉴스",
+        }
+
+    @classmethod
+    def _filter_company_news_rows(cls, query: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if cls._is_broad_news_query(query):
+            return rows
+        return [row for row in rows if cls._is_relevant_company_news(query, row)]
+
+    @classmethod
+    def _filter_company_disclosure_rows(cls, query: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        target = cls._normalize_company_query(query)
+        target_key = re.sub(r"\s+", "", target).upper()
+        if not target_key:
+            return rows
+        return [
+            row
+            for row in rows
+            if target_key in re.sub(r"\s+", "", str(row.get("corp_name") or "")).upper()
+            or target_key == re.sub(r"\s+", "", str(row.get("stock_code") or "")).upper()
+        ]
+
+    @classmethod
+    def _is_relevant_company_news(cls, query: str, article: dict[str, Any]) -> bool:
+        if cls._is_broad_news_query(query):
+            return True
+        target = cls._normalize_company_query(query)
+        target_key = re.sub(r"\s+", "", target).upper()
+        if not target_key:
+            return True
+        haystack = " ".join(
+            str(article.get(field) or "")
+            for field in ("title", "summary", "company_name", "symbol")
+        )
+        haystack_key = re.sub(r"\s+", "", haystack).upper()
+        return target_key in haystack_key
+
+    @staticmethod
     def _normalize_disclosure_query(query: str) -> str:
         text = re.sub(r"\s+", " ", str(query or "")).strip()
         keywords = [
             "\uacf5\uc2dc",
             "\ubcf4\uc5ec\uc918",
+            "조회",
+            "검색",
+            "확인",
             "\ucc3e\uc544\uc918",
             "\uc54c\ub824\uc918",
             "\uc694\uc57d",
@@ -738,7 +910,7 @@ class ChatbotWebFallbackSearchService:
             text = text.replace(keyword, " ")
         text = re.sub(r"\d+\s*(?:개|건)", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
-        return text or str(query or "").strip()
+        return ChatbotWebFallbackSearchService._normalize_company_query(text or str(query or "").strip())
 
     @staticmethod
     def _requested_disclosure_count(query: str) -> int | None:
@@ -753,6 +925,10 @@ class ChatbotWebFallbackSearchService:
         if not match:
             return None
         return max(1, min(int(match.group(1)), 10))
+
+    @classmethod
+    def _is_combined_news_disclosure_query(cls, query: str) -> bool:
+        return cls._is_news_query(query) and cls._is_disclosure_query(query)
 
     @classmethod
     def _is_missing_disclosure_target(cls, query: str) -> bool:
@@ -785,6 +961,9 @@ class ChatbotWebFallbackSearchService:
             "분기보고서",
             "전자공시",
             "보여줘",
+            "조회",
+            "검색",
+            "확인",
             "찾아줘",
             "알려줘",
             "요약",
@@ -800,7 +979,7 @@ class ChatbotWebFallbackSearchService:
         for keyword in keywords:
             text = text.replace(keyword, " ")
         text = re.sub(r"\d+\s*(?:개|건)", " ", text)
-        return re.sub(r"\s+", " ", text).strip()
+        return ChatbotWebFallbackSearchService._normalize_company_query(re.sub(r"\s+", " ", text).strip())
 
     @staticmethod
     def _unsupported_dart_company_name(query: str) -> str:
@@ -909,7 +1088,7 @@ class ChatbotWebFallbackSearchService:
         text = re.sub(r"\s+", " ", text).strip()
         if text in {"시장", "주요", "시장 주요", "국내 시장", "증시 주요"}:
             return "국내 증시 시장 주요 뉴스"
-        return text or str(query or "").strip()
+        return ChatbotWebFallbackSearchService._normalize_company_query(text or str(query or "").strip())
 
     @staticmethod
     def _is_news_query(query: str) -> bool:
@@ -978,9 +1157,12 @@ class ChatbotWebFallbackSearchService:
             "namu.wiki",
             "namu.moe",
             "wikidocs.net",
+            "kin.naver.com",
             "wiki/",
             "위키백과",
             "나무위키",
+            "지식in",
+            "지식인",
         )
         combined = f"{url} {title}"
         return any(marker in combined for marker in blocked_markers)

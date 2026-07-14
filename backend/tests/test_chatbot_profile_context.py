@@ -162,6 +162,59 @@ def test_reply_routes_disclosure_count_query_directly_to_search_web(monkeypatch)
     assert calls == ["\uc0bc\uc131\uc804\uc790 \ucd5c\uadfc \uacf5\uc2dc 3\uac1c \ubcf4\uc5ec\uc918"]
 
 
+def test_reply_answers_news_followup_from_previous_news_context(monkeypatch):
+    boundary = FakeConversationSupabaseBoundary()
+    calls: list[str] = []
+
+    def fake_run_chatbot_tool(auth_header, text):
+        calls.append(text)
+        if len(calls) > 1:
+            raise AssertionError("뉴스 후속 질문은 새 뉴스 조회로 보내면 안 됩니다.")
+        return {
+            "reply": "NAVER API로 새로 조회한 뉴스 1건을 요약했습니다.",
+            "data": {
+                "source": "NAVER_API",
+                "items": [
+                    {
+                        "title": "'롤러코스터' 코스피, 6800선 강보합 마감",
+                        "summary": "삼성전자와 SK하이닉스가 상승 전환하며 지수 상승에 기여했습니다.",
+                        "url": "https://example.com/news/samsung",
+                        "related_keywords": ["삼성전자"],
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(
+        "backend.services.chatbot.conversation_repository.query_supabase",
+        boundary.query,
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.run_chatbot_tool",
+        fake_run_chatbot_tool,
+    )
+
+    service = ChatbotService()
+    service.llm_client = FakeLLMClient()
+    service.rag_service = FakeRAGService()
+
+    first = service.reply("삼성전자 뉴스 보여줘", user_id="user-1", auth_header="Bearer test")
+    second = service.reply("이 뉴스면 지금 바로 사야 해?", user_id="user-1", auth_header="Bearer test")
+    third = service.reply("이 뉴스면 지금 바로 사야 해?", user_id="user-1", auth_header="Bearer test")
+
+    assert first["meta"]["tool_result"]["source"] == "NAVER_API"
+    assert calls == ["삼성전자 뉴스 보여줘"]
+    assert second["meta"]["source"] == "MARKET_CONTEXT_FOLLOWUP"
+    assert second["meta"]["tool_result"]["source"] == "MARKET_CONTEXT_FOLLOWUP"
+    assert second["meta"]["tool_result"]["context_source"] == "NAVER_API"
+    assert "잘 모르겠습니다" in second["reply"]
+    assert "지금 바로 매수" in second["reply"]
+    assert "단정" in second["reply"]
+    assert "확인" in second["reply"]
+    assert third["meta"]["source"] == "MARKET_CONTEXT_FOLLOWUP"
+    assert third["meta"]["tool_result"]["source"] == "MARKET_CONTEXT_FOLLOWUP"
+
+
 class FakeConversationSupabaseBoundary:
     def __init__(self):
         self.history = []
@@ -972,3 +1025,193 @@ def test_prompt_includes_auto_memory_context(monkeypatch):
 
     assert "자동메모리:" in prompt
     assert "코인 리스크를 회피" in prompt
+
+
+def test_reply_recalls_favorite_symbols_from_auto_memory_without_holdings(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.run_chatbot_tool",
+        lambda auth_header, text: (_ for _ in ()).throw(AssertionError("관심종목 회상은 보유종목 도구로 보내면 안 됩니다.")),
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.search_web",
+        lambda auth_header, text: (_ for _ in ()).throw(AssertionError("관심종목 회상은 웹 검색으로 보내면 안 됩니다.")),
+    )
+
+    class FakeKnowledgeRepository:
+        def list_memory_facts(self, auth_header, user_id, memory_type=None, limit=12):
+            assert memory_type == "favorite_symbol"
+            return [
+                {"memory_type": "favorite_symbol", "content": "사용자는 삼성전자(005930)를 관심 있게 봅니다.", "symbol": "005930"},
+                {"memory_type": "favorite_symbol", "content": "사용자는 비트코인(BTC)를 관심 있게 봅니다.", "symbol": "BTC"},
+            ]
+
+        def list_watchlist_items(self, auth_header, user_id, limit=20):
+            return []
+
+    service = ChatbotService()
+    service.llm_client = FakeLLMClient()
+    service.rag_service = FakeRAGService()
+    service.knowledge_repository = FakeKnowledgeRepository()
+
+    result = service.reply("내가 전에 말한 관심종목 뭐였지?", user_id="user-1", auth_header="Bearer test")
+
+    assert result["meta"]["source"] == "USER_MEMORY_FACTS"
+    assert result["meta"]["tool_result"]["source"] == "USER_MEMORY_FACTS"
+    assert "삼성전자" in result["reply"]
+    assert "비트코인" in result["reply"]
+
+
+def test_reply_uses_favorite_symbols_for_watchlist_focus_request(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.run_chatbot_tool",
+        lambda auth_header, text: (_ for _ in ()).throw(AssertionError("관심종목 기준 요청은 보유종목 추천으로 보내면 안 됩니다.")),
+    )
+
+    class FakeKnowledgeRepository:
+        def list_memory_facts(self, auth_header, user_id, memory_type=None, limit=12):
+            return [
+                {"memory_type": "favorite_symbol", "content": "사용자는 삼성전자(005930)를 관심 있게 봅니다.", "symbol": "005930"},
+            ]
+
+        def list_watchlist_items(self, auth_header, user_id, limit=20):
+            return []
+
+    service = ChatbotService()
+    service.llm_client = FakeLLMClient()
+    service.rag_service = FakeRAGService()
+    service.knowledge_repository = FakeKnowledgeRepository()
+
+    result = service.reply("내 관심종목 중심으로 오늘 볼 것 알려줘", user_id="user-1", auth_header="Bearer test")
+
+    assert result["meta"]["source"] == "USER_MEMORY_FACTS"
+    assert "관심종목 기준" in result["reply"]
+    assert "삼성전자" in result["reply"]
+    assert "보유 종목" not in result["reply"]
+
+
+def test_reply_uses_heart_watchlist_when_auto_memory_is_empty(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.run_chatbot_tool",
+        lambda auth_header, text: (_ for _ in ()).throw(AssertionError("하트 관심종목 조회는 일반 도구로 보내면 안 됩니다.")),
+    )
+
+    class FakeKnowledgeRepository:
+        def list_memory_facts(self, auth_header, user_id, memory_type=None, limit=12):
+            return []
+
+        def list_watchlist_items(self, auth_header, user_id, limit=20):
+            return [
+                {
+                    "name": "삼성전자",
+                    "symbol": "005930",
+                    "asset_type": "STOCK",
+                    "exchange": "KIS",
+                },
+                {
+                    "name": "SK하이닉스",
+                    "symbol": "000660",
+                    "asset_type": "STOCK",
+                    "exchange": "KIS",
+                },
+                {
+                    "name": "이노스페이스",
+                    "symbol": "462350",
+                    "asset_type": "STOCK",
+                    "exchange": "KIS",
+                },
+                {
+                    "name": "도지코인",
+                    "symbol": "DOGE",
+                    "asset_type": "CRYPTO",
+                    "exchange": "COINONE",
+                },
+            ]
+
+    service = ChatbotService()
+    service.llm_client = FakeLLMClient()
+    service.rag_service = FakeRAGService()
+    service.knowledge_repository = FakeKnowledgeRepository()
+
+    result = service.reply("내 관심종목 중심으로 오늘 볼 것 알려줘", user_id="user-1", auth_header="Bearer test")
+
+    assert result["meta"]["source"] == "USER_WATCHLIST"
+    assert result["meta"]["tool_result"]["source"] == "USER_WATCHLIST"
+    assert "삼성전자" in result["reply"]
+    assert "반도체" in result["reply"]
+    assert "우주항공" in result["reply"]
+    assert "가상자산" in result["reply"]
+    assert "같이 볼 후보" in result["reply"]
+    assert "한미반도체" in result["reply"]
+    assert "한화에어로스페이스" in result["reply"]
+    assert "BTC" in result["reply"]
+    assert "오늘 볼 것" in result["reply"]
+    assert "연관\n\n2." in result["reply"]
+    assert "아직 자동메모리" not in result["reply"]
+
+
+def test_reply_routes_watchlist_show_request_to_watchlist_table_data(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.run_chatbot_tool",
+        lambda auth_header, text: (_ for _ in ()).throw(AssertionError("관심종목 목록 요청은 보유현황 도구로 보내면 안 됩니다.")),
+    )
+
+    class FakeKnowledgeRepository:
+        def list_memory_facts(self, auth_header, user_id, memory_type=None, limit=12):
+            return []
+
+        def list_watchlist_items(self, auth_header, user_id, limit=20):
+            return [
+                {
+                    "name": "이스트",
+                    "symbol": "067390",
+                    "asset_type": "STOCK",
+                    "exchange": "TOSS",
+                },
+            ]
+
+    service = ChatbotService()
+    service.llm_client = FakeLLMClient()
+    service.rag_service = FakeRAGService()
+    service.knowledge_repository = FakeKnowledgeRepository()
+
+    result = service.reply("내 관심 종목 보여줘", user_id="user-1", auth_header="Bearer test")
+
+    assert result["meta"]["source"] == "USER_WATCHLIST"
+    assert result["meta"]["tool_result"]["view"] == "list"
+    assert result["reply"] == "관심종목을 표로 정리했습니다."
+    assert result["meta"]["tool_result"]["items"][0]["name"] == "이스트"
+
+
+def test_reply_searches_obsidian_notes_without_falling_back_to_news(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.search_web",
+        lambda auth_header, text: (_ for _ in ()).throw(AssertionError("Obsidian 메모 요청은 뉴스 검색으로 보내면 안 됩니다.")),
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.run_chatbot_tool",
+        lambda auth_header, text: (_ for _ in ()).throw(AssertionError("Obsidian 메모 요청은 일반 도구로 보내면 안 됩니다.")),
+    )
+
+    class FakeKnowledgeRepository:
+        def search_user_notes(self, auth_header, user_id, query, limit=3):
+            assert query == "삼성전자"
+            return [
+                {
+                    "title": "삼성전자 투자 메모",
+                    "file_path": "stocks/samsung.md",
+                    "content": "삼성전자는 메모리 업황과 파운드리 수율을 같이 확인한다.",
+                    "source": "obsidian",
+                }
+            ]
+
+    service = ChatbotService()
+    service.llm_client = FakeLLMClient()
+    service.rag_service = FakeRAGService()
+    service.knowledge_repository = FakeKnowledgeRepository()
+
+    result = service.reply("Obsidian에 적은 삼성전자 메모 찾아줘", user_id="user-1", auth_header="Bearer test")
+
+    assert result["meta"]["source"] == "USER_KNOWLEDGE_NOTES"
+    assert result["meta"]["tool_result"]["source"] == "USER_KNOWLEDGE_NOTES"
+    assert "삼성전자 투자 메모" in result["reply"]
+    assert "메모리 업황" in result["reply"]

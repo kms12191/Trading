@@ -271,10 +271,6 @@ function SidebarNav({ activeTab, isOpen, isLoggedIn, onClose, onOpen, onTabChang
           )
         })}
 
-        <div className="mt-auto hidden rounded-lg border border-ai-cyan/20 bg-white/[0.04] p-4 lg:block">
-          <p className="text-xs font-bold text-ai-cyan">AI Layer</p>
-          <p className="mt-2 text-sm leading-6 text-slate-300">매매 제안은 사용자 승인 전까지 실행되지 않습니다.</p>
-        </div>
       </div>
     </aside>
   )

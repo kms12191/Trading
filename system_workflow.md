@@ -242,10 +242,11 @@ sequenceDiagram
 현재 코드 기준 사실:
 
 - 자동화 preset 정의 파일은 `backend/services/ml_automation_service.py`입니다.
-- 현재 preset은 `stock-v7-full`, `crypto-v7-full`, `stock-v8-full`, `crypto-v8-full`입니다.
-- 주식 `v11` 모델은 존재하지만 자동화 preset의 기본 버전은 아닙니다.
+- 현재 운영 점검 기준 preset은 `stock-v11-full`, `crypto-v9-full`, `kr-stock-v1-full`, `us-stock-v1-full`입니다.
+- 통합 주식 모델, 국내주식 모델, 해외주식 모델, 코인 모델은 `model_registry.json` 및 Supabase `ml_model_registry`를 통해 serving/recommended/latest 상태를 관리합니다.
 - `ml/data/ops/job_history.json`이 1차 작업 이력 저장소입니다.
 - Supabase의 `ml_dataset_jobs`, `ml_training_runs`, `ml_model_registry`는 동기화 대상이지만, 테이블 부재 시에도 흐름이 계속 진행되도록 작성되어 있습니다.
+- EC2 배포 시에는 `ml/src/export_serving_package.py`로 생성한 서빙 패키지 `.tar.gz`만 업로드하며, raw 학습 데이터와 전체 processed 산출물은 배포 대상에서 제외합니다.
 
 ## 6. 토큰 캐시 흐름
 

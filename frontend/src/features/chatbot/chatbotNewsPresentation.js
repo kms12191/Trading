@@ -61,16 +61,18 @@ function resolveSummaryLines(aiSummary, fallbackSummary) {
 }
 
 export function buildNewsPresentation(toolResult) {
-  if (!NEWS_SOURCES.has(toolResult?.source) || !Array.isArray(toolResult.items)) {
+  const newsResult = toolResult?.source === 'NEWS_DISCLOSURE_COMBINED' ? toolResult.news : toolResult
+
+  if (!NEWS_SOURCES.has(newsResult?.source) || !Array.isArray(newsResult.items)) {
     return { items: [] }
   }
 
   return {
-    items: toolResult.items.map((item) => {
+    items: newsResult.items.map((item) => {
       return {
         title: normalizeNewsText(item?.title) || '뉴스 제목 없음',
         url: String(item?.url || ''),
-        source: normalizeNewsText(item?.source || toolResult.source.replace(/_API$/, '')),
+        source: normalizeNewsText(item?.source || newsResult.source.replace(/_API$/, '')),
         market: marketLabel(normalizeNewsText(item?.market)),
         category: categoryLabel(item),
         symbol: normalizeNewsText(item?.symbol),

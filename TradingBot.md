@@ -763,3 +763,328 @@ GST(083450) 기준으로 확인한 전망 참고자료입니다.
 - 현재 단계는 조회 전용입니다.
 - 실제 주문 취소, 주문 정정, 취소 후 재주문은 아직 실행하지 않습니다.
 - 다음 단계에서 `주문 취소 제안/승인`, `주식 주문 정정 제안`, `코인 취소 후 재주문 제안`으로 확장할 수 있습니다.
+
+## 2026-07-13 챗봇 종목 별칭 정규화 및 후보 선택 보강
+
+### 목적
+
+사용자가 `현대건설우 전망은?`, `현대그린푸드 거래내역 보여줘`, `리플 시세 알려줘`처럼 종목명, 별칭, 코인 한글명을 섞어 입력해도 챗봇이 같은 종목으로 안정적으로 인식하도록 보강했습니다.
+
+### 수정 내용
+
+- `backend/services/chatbot/tool_registry.py`
+  - `normalize_symbol_alias()` 흐름을 명시적으로 추가했습니다.
+  - 사용자 입력은 `_extract_symbol_query()` → `normalize_symbol_alias()` → `/api/symbol/lookup` 순서로 처리합니다.
+  - 국내 주요 종목 별칭을 추가했습니다.
+    - 예: `현대건설 -> 000720`, `현대건설우 -> 000725`, `현대그린푸드 -> 453340`, `두산에너빌리티 -> 034020`
+  - 코인 별칭을 추가했습니다.
+    - 예: `리플 -> XRP`, `이더리움 -> ETH`, `수이 -> SUI`, `체인링크 -> LINK`
+  - `/api/symbol/lookup` 실패 시 `/api/symbol/search`로 유사 후보를 조회합니다.
+  - 후보가 1개면 자동 선택합니다.
+  - 후보가 여러 개면 `어떤 종목을 말하나요?` 안내와 함께 종목 상세 화면으로 이동하는 버튼을 내려줍니다.
+
+- `backend/services/chatbot/chat_service.py`
+  - OpenAI function calling이 `get_asset_outlook`을 호출할 수 있도록 실제 도구 매핑을 추가했습니다.
+
+- `backend/services/chatbot/function_calling.py`
+  - `get_asset_outlook` function schema를 추가했습니다.
+
+- `frontend/src/features/chatbot/ChatbotWidget.jsx`
+  - 기존 챗봇 액션 버튼 구조를 그대로 사용합니다.
+  - 백엔드가 `type: navigate`, `to: /asset/STOCK/{symbol}` 형식의 액션을 내려주면 챗봇 메시지 아래 버튼으로 표시됩니다.
+
+### 기대 동작
+
+```text
+현대건설우 전망은?
+```
+
+별칭으로 바로 정규화되면 `000725` 기준으로 전망 조회가 진행됩니다.
+
+```text
+현대건설 전망은?
+```
+
+여러 후보가 나오는 경우:
+
+```text
+어떤 종목을 말하나요?
+1. 현대건설(000720) / KR
+2. 현대건설우(000725) / KR
+```
+
+그리고 챗봇 메시지 아래에 `현대건설(000720) 조회`, `현대건설우(000725) 조회` 버튼이 표시됩니다.
+
+### 주의
+
+- 후보 버튼은 종목 상세 페이지 이동용입니다.
+- 종목 선택 후 바로 같은 질문을 이어서 실행하는 흐름은 아직 별도 pending context가 필요합니다.
+- 별칭 테이블은 자주 쓰는 종목부터 보강한 상태이며, 신규 별칭은 `SYMBOL_QUERY_ALIASES`에 계속 추가할 수 있습니다.
+
+## 2026-07-13 챗봇 현재가 등락률 재계산 보강
+
+### 목적
+
+챗봇에서 `하이닉스 주가 얼마야?`처럼 현재가를 조회할 때 현재가는 거래소 API 기준으로 맞게 표시되지만, 등락률이 캐시나 거래소 원본 필드와 섞여 실제 현재가 기준과 다르게 보일 수 있어 보정했습니다.
+
+### 수정 내용
+
+- `backend/routes/trade.py`
+  - `/api/chart/quote` 응답 생성 시 `current_price`와 `previous_close`가 있으면 서버에서 등락률을 다시 계산합니다.
+  - 계산식은 `((현재가 - 기준가) / 기준가) * 100`입니다.
+  - KIS 전일대비 부호 필드가 넘어오는 경우 하락/상승 방향을 반영해 기준가를 계산합니다.
+
+- `backend/services/kis_client.py`
+  - `get_price()` 응답에 `previous_close`, `price_change`를 추가했습니다.
+  - KIS `prdy_vrss_sign`을 반영해 하락일 때 전일대비금액 부호를 보정합니다.
+
+- `backend/services/toss_client.py`
+  - 현재가와 기준가가 있으면 Toss 원본 등락률 대신 재계산 등락률을 우선 사용합니다.
+
+- `backend/services/coinone_client.py`
+  - 24시간 기준가를 `previous_close`로 함께 반환합니다.
+
+- `backend/services/binance_client.py`
+  - 현물/선물 24시간 ticker의 `openPrice`를 `previous_close`로 반환하고 등락률을 재계산합니다.
+
+- `backend/tests/test_quote_change_rate.py`
+  - 현재가/기준가 기반 등락률 재계산 테스트를 추가했습니다.
+  - KIS 하락 부호 케이스도 함께 검증합니다.
+
+### 기대 동작
+
+```text
+하이닉스 주가 얼마야?
+```
+
+현재가와 기준가가 함께 조회되면 챗봇 응답의 등락률은 거래소 원본 `change_rate` 필드를 그대로 쓰지 않고, 현재가 기준으로 재계산된 값이 표시됩니다.
+## 2026-07-13 GST 한글 별칭 정규화 보강
+
+### 목적
+
+`GST 얼마야?`는 영문 심볼로 인식되지만, `쥐에스티 얼마야?`, `지에스티는 주가 얼마야?`처럼 한글 발음형으로 입력하면 별칭 매핑이 없어 종목 조회에 실패했습니다.
+
+### 수정 내용
+
+- `backend/services/chatbot/tool_registry.py`
+  - `SYMBOL_QUERY_ALIASES`에 GST 한글 발음 별칭을 추가했습니다.
+
+```text
+GST -> 083450
+지에스티 -> 083450
+쥐에스티 -> 083450
+```
+
+- 종목 후보 정규화 단계에서 끝에 붙은 조사(`의`, `은`, `는`, `이`, `가`, `을`, `를`)를 제거하도록 보강했습니다.
+
+### 기대 동작
+
+```text
+GST 얼마야?
+쥐에스티 얼마야?
+지에스티는 주가 얼마야?
+```
+
+위 입력은 모두 `083450`으로 정규화되어 같은 GST 종목 현재가 조회로 연결됩니다.
+
+## 2026-07-13 해외주식/ETF 한글 별칭 정규화 보강
+
+### 목적
+
+`QQQ 얼마야?`는 영문 티커로 조회되지만, `해외주식 큐큐큐 얼마야?`처럼 한글 발음형이나 자산 구분어가 함께 들어오면 종목 추출이 실패할 수 있었습니다.
+
+### 수정 내용
+
+- `backend/services/chatbot/tool_registry.py`
+  - 해외주식/ETF 한글 별칭을 추가했습니다.
+  - 종목 추출 시 `해외주식`, `미국주식`, `국내주식`, `주식`, `주가` 같은 설명 단어를 제거하도록 보강했습니다.
+
+```text
+큐큐큐 -> QQQ
+인베스코큐큐큐 -> QQQ
+나스닥100 -> QQQ
+에스피와이 / 스파이 -> SPY
+에스앤피500 -> SPY
+브이오오 -> VOO
+슈드 -> SCHD
+티큐큐 -> TQQQ
+에스큐큐큐 -> SQQQ
+엔비 / 엔비디아주식 -> NVDA
+```
+
+### 기대 동작
+
+```text
+해외주식 큐큐큐 얼마야?
+미국주식 스파이 주가 알려줘
+나스닥100 얼마야?
+```
+
+위 입력은 각각 `QQQ`, `SPY`, `QQQ`로 정규화되어 현재가 조회로 연결됩니다.
+
+## 2026-07-13 챗봇 데이터 원천 분리 원칙 보강
+
+### 목적
+
+챗봇이 시세, 보유자산, 거래내역, 미체결 주문, 환율 같은 실제 금융 데이터를 OpenAI 일반 지식으로 추측하지 않고, 로그인 사용자의 개인 거래소 API와 Supabase DB 조회 결과만 기준으로 답하도록 원칙을 명확히 했습니다.
+
+### 수정 내용
+
+- `backend/services/chatbot/prompts/system_role.md`
+  - 실제 금융 데이터는 반드시 프로젝트 도구를 통해 조회한 결과만 사용하도록 명시했습니다.
+  - 주식 데이터는 Toss/KIS, 코인 데이터는 Coinone/Binance, 거래내역과 관심종목은 Supabase DB 및 거래소 동기화 데이터를 우선 사용한다고 정리했습니다.
+  - OpenAI는 조회된 데이터를 자연어로 정리하거나 뉴스/공시/웹 검색 결과를 요약하는 역할로 제한했습니다.
+  - 도구 조회 실패 시 값을 추측하지 않고 실패 이유와 확인 항목을 안내하도록 추가했습니다.
+
+- `backend/services/chatbot/function_calling.py`
+  - function calling 도구 설명에 개인 거래소 API, Supabase DB, 내부 RAG/API 우선 원칙을 반영했습니다.
+  - `get_asset_price`는 Toss/KIS/Coinone/Binance API 기준으로 조회하며 OpenAI 일반 지식으로 가격을 답하지 않는다고 명시했습니다.
+  - `search_web`은 내부 RAG/DB/뉴스·공시 API 이후 부족할 때만 Tavily를 사용하고, OpenAI는 검색 결과 요약에 사용한다고 정리했습니다.
+
+### 기준 흐름
+
+```text
+사용자 질문
+-> 내부 도구 라우팅 우선 확인
+-> 시세/잔고/거래내역/주문/환율이면 개인 거래소 API 또는 Supabase DB 조회
+-> 뉴스/공시/전망이면 내부 RAG/DB/API 우선, 부족할 때 웹 검색
+-> OpenAI는 조회 결과를 설명·요약·분석하는 역할
+```
+
+## 2026-07-14 챗봇 장 운영 캘린더 도구 추가
+
+### 목적
+
+챗봇이 `오늘 한국장 열려?`, `7월 17일 제헌절 국내장 열려?`, `오늘 미국장 정규거래 가능해?` 같은 질문에 OpenAI 일반 지식으로 추측하지 않고, 장 운영 캘린더 API 또는 DB 적재 데이터를 기준으로 답하도록 보강했습니다.
+
+### 수정 내용
+
+- `supabase/migrations/20260714100000_create_market_calendar_days.sql`
+  - `market_calendar_days` 테이블을 추가했습니다.
+  - 주요 컬럼:
+    - `market_country`
+    - `trade_date`
+    - `is_open`
+    - `holiday_name`
+    - `regular_open_at`
+    - `regular_close_at`
+    - `source`
+    - `raw_payload`
+  - `UNIQUE (market_country, trade_date)`로 같은 시장/날짜 데이터가 중복되지 않도록 했습니다.
+
+- `backend/services/chatbot/tool_registry.py`
+  - `get_market_calendar()` 챗봇 도구를 추가했습니다.
+  - 시장 구분 파서:
+    - `한국장`, `국내장`, `국장`, `코스피`, `코스닥`, `제헌절` 등은 `KR`
+    - `미국장`, `미장`, `나스닥`, `뉴욕증시`, `NYSE`, `NASDAQ` 등은 `US`
+  - 날짜 파서:
+    - `오늘`, `내일`, `어제`
+    - `2026년 7월 17일`
+    - `7월 17일`
+  - 특정 날짜는 `market_calendar_days` DB를 먼저 조회합니다.
+  - 오늘 날짜는 DB에 없으면 Toss `get_market_calendar(KR|US)`를 호출하고, 결과를 DB에 저장합니다.
+  - DB에 없는 미래 날짜는 값을 추측하지 않고 캘린더 DB 적재가 필요하다고 안내합니다.
+
+- `backend/services/chatbot/function_calling.py`
+  - OpenAI function calling 스키마에 `get_market_calendar`를 추가했습니다.
+  - 장 운영 여부는 OpenAI 일반 지식으로 답하지 않는다고 설명에 명시했습니다.
+
+- `backend/services/chatbot/chat_service.py`
+  - OpenAI tool call이 `get_market_calendar`를 호출할 수 있도록 연결했습니다.
+
+- `backend/services/chatbot/prompts/system_role.md`
+  - 한국장/미국장 개장, 휴장, 정규장 가능 여부는 반드시 장 운영 캘린더 도구 결과로만 답하도록 원칙을 추가했습니다.
+
+- `backend/services/chatbot/safety_guard.py`
+  - `get_market_calendar`를 읽기 전용 도구로 등록했습니다.
+
+- `backend/services/market_calendar_scheduler.py`
+  - Toss 캘린더 API로 오늘 KR/US 장 운영 정보를 조회해 `market_calendar_days`에 저장하는 스케줄러를 추가했습니다.
+  - `MARKET_CALENDAR_SYNC_ENABLED=true`일 때 worker 또는 gateway scheduler에서 주기적으로 실행됩니다.
+
+- `backend/app.py`, `backend/worker.py`
+  - `MARKET_CALENDAR_SYNC_ENABLED`, `MARKET_CALENDAR_SYNC_INTERVAL_SECONDS`, `MARKET_CALENDAR_SYNC_ENV` 환경변수로 캘린더 적재 스케줄러를 켤 수 있게 연결했습니다.
+
+- `.env.example`
+  - 캘린더 적재 스케줄러 환경변수 예시를 추가했습니다.
+
+- `backend/tests/test_chatbot_market_calendar.py`
+  - 제헌절/국내장 질문이 `KR`로 분류되는지 테스트를 추가했습니다.
+  - 미국장 질문이 `US`로 분류되는지 테스트를 추가했습니다.
+
+### 현재 동작
+
+```text
+오늘 한국장 열려?
+오늘 미국장 정규거래 가능해?
+```
+
+위 질문은 Toss 장 운영 캘린더 API를 조회하고, 결과를 `market_calendar_days`에 저장한 뒤 답변합니다.
+
+```text
+2026년 7월 17일 제헌절 국내장 열려?
+```
+
+해당 날짜가 `market_calendar_days`에 저장되어 있으면 DB 기준으로 답합니다.
+저장되어 있지 않으면 임의 추측하지 않고 캘린더 DB 적재가 필요하다고 안내합니다.
+
+### 남은 작업
+
+현재 스케줄러는 Toss API가 제공하는 오늘 KR/US 장 운영 정보를 주기적으로 저장합니다.
+미래 특정 날짜까지 자동으로 채우려면 KRX, NYSE/Nasdaq 공식 휴장일 캘린더 또는 별도 휴장일 데이터 소스를 추가로 연결해 `market_calendar_days`에 선적재해야 합니다.
+
+## 2026-07-14 국내주식 등락률 현재가 기준 재계산 보강
+
+### 목적
+
+국내주식 현재가는 거래소 API로 최신값을 받아오는데, 등락률은 Toss/KIS 원본 필드나 캐시 기준값이 섞이면 실제 증권사 화면과 1% 이상 차이 날 수 있었습니다.
+
+### 수정 내용
+
+- `backend/routes/trade.py`
+  - `/api/chart/quote`에서 `current_price`와 `previous_close`가 함께 있으면 거래소 원본 `change_rate`보다 서버 재계산값을 우선 사용합니다.
+  - 계산식은 `((현재가 - 전일종가) / 전일종가) * 100`입니다.
+  - 재계산한 경우 `change_rate_source=CALCULATED_FROM_LIVE_PRICE`를 내려줍니다.
+  - 거래소 원본 등락률은 참고용으로 `raw_change_rate`에 보존합니다.
+  - 일봉 캔들 캐시로 보정한 경우 `change_rate_source=CALCULATED_FROM_CANDLE_CACHE`를 내려줍니다.
+
+- `backend/services/toss_client.py`
+  - Toss 원본 등락률이 있을 때 `raw_change_rate`로 함께 반환합니다.
+  - 최종 화면 표시 등락률은 `/api/chart/quote`에서 현재가와 전일종가 기준으로 다시 계산합니다.
+
+- `backend/tests/test_quote_change_rate.py`
+  - `TOSS_PRICE` 원본 등락률이 있어도 현재가와 전일종가가 있으면 재계산 등락률을 우선하는 테스트로 변경했습니다.
+
+### 기대 동작
+
+```text
+하이닉스 주가 얼마야?
+삼성전자 현재가 알려줘
+```
+
+현재가와 전일종가가 함께 조회되면 챗봇과 차트 quote 응답의 등락률은 거래소 원본 필드가 아니라 현재가 기준 재계산값으로 표시됩니다.
+
+## 2026-07-14 국내주식 Toss 등락률 KIS 전일종가 보강
+
+### 목적
+
+삼성전자(005930)처럼 Toss 현재가는 맞지만 Toss 응답의 전일종가/기준가가 실제 증권 화면 기준과 달라 등락률이 1%p 이상 차이 나는 문제를 줄이기 위한 보정입니다.
+
+### 수정 내용
+
+- `backend/routes/trade.py`
+  - `/api/chart/quote`에서 `exchange=TOSS`이고 종목코드가 국내 6자리 주식이면 KIS 전일종가를 보조 조회합니다.
+  - 현재가는 기존 Toss 값을 유지하고, 등락률은 `Toss 현재가 + KIS 전일종가` 기준으로 다시 계산합니다.
+  - KIS 조회가 실패하면 기존 Toss 결과를 그대로 사용합니다.
+  - 응답에 `previous_close_source`, `raw_previous_close`를 포함해 어떤 기준으로 계산했는지 추적할 수 있게 했습니다.
+
+- `backend/tests/test_quote_change_rate.py`
+  - KIS 전일종가 보강 헬퍼가 국내 종목의 전일종가를 가져오는 테스트를 추가했습니다.
+
+### 기대 동작
+
+```text
+삼성전자 현재가 알려줘
+```
+
+국내주식은 KIS 전일종가 기준으로 등락률을 계산해 Toss 기준가 차이로 인한 등락률 오차를 줄입니다.

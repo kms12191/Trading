@@ -742,6 +742,7 @@ class TossClient(ExchangeClient):
                 return {
                     "current_price": current_price,
                     "change_rate": change_rate,
+                    "raw_change_rate": change_rate if has_api_change_rate else None,
                     "previous_close": prev_close,
                     "change_rate_source": "TOSS_PRICE" if has_api_change_rate else "CALCULATED",
                     "symbol_used": candidate,

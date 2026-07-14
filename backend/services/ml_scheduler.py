@@ -398,8 +398,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                     if last_stock_date != today_str:
                         with distributed_lock("stock_automation", 7200) as locked:
                             if locked:
-                                last_stock_date = today_str
-                                _save_last_stock_date(today_str)  # 파일에 영속화
+                                stock_run_started = False
                                 if supabase_service_role_key:
                                     try:
                                         auth_header = f"Bearer {supabase_service_role_key}"
@@ -417,7 +416,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                             record = toss_keys[0]
                                             client_id = crypto.decrypt(record.get("encrypted_access_key"))
                                             client_secret = crypto.decrypt(record.get("encrypted_secret_key"))
-                                            
+
                                             token_res = requests.post(
                                                 "https://open-api.tossinvest.com/oauth2/token",
                                                 headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -430,7 +429,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                             )
                                             token_json = token_res.json()
                                             access_token = token_json.get("access_token")
-                                            
+
                                             if access_token:
                                                 for preset_key in get_stock_shadow_preset_keys():
                                                     dataset_job = None
@@ -439,7 +438,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                         preset = resolve_automation_preset(preset_key)
                                                         dataset_config = preset["dataset"]
                                                         training_config = preset["training"]
-                                                        
+
                                                         # 금요일 16:30 학습 기동 시 Auto-HPO 튜닝 선행 적용
                                                         if now_kr.weekday() == 4:
                                                             try:
@@ -450,10 +449,10 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                                 )
                                                             except Exception:
                                                                 pass
-                                                        
+
                                                         preset_symbols = load_preset_symbols(dataset_config["preset"], DEFAULT_UNIVERSE_PATH)
                                                         symbols = list(dict.fromkeys([*(dataset_config.get("symbols") or []), *preset_symbols]))
-                                                        
+
                                                         dataset_job = create_job(
                                                             "dataset_export",
                                                             {
@@ -466,13 +465,14 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                                 "count": dataset_config["count"],
                                                             },
                                                         )
-                                                        
+                                                        stock_run_started = True
+
                                                         if dataset_config.get("include_macro"):
                                                             macro_rows = fetch_macro_indices(int(dataset_config["count"]))
                                                             macro_output = PROJECT_ROOT / "ml" / "data" / "raw" / "macro_indices.csv"
                                                             if macro_rows:
                                                                 write_rows(macro_output, macro_rows, append=bool(dataset_config.get("append", True)))
-                                                        
+
                                                         rows, failures = fetch_toss_candles(
                                                             symbols,
                                                             access_token,
@@ -485,7 +485,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                         raw_output_name = dataset_config.get("raw_output", "stock_candles.csv")
                                                         output = PROJECT_ROOT / "ml" / "data" / "raw" / raw_output_name
                                                         write_rows(output, rows, append=bool(dataset_config.get("append", True)))
-                                                        
+
                                                         update_job(
                                                             dataset_job["id"],
                                                             {
@@ -498,7 +498,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                                 "symbols": symbols,
                                                             },
                                                         )
-                                                        
+
                                                         train_job = create_job(
                                                             "training_run",
                                                             {
@@ -510,7 +510,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                                 "dataset_job_id": dataset_job["id"],
                                                             },
                                                         )
-                                                        
+
                                                         for command in training_config.get("pre_build_commands") or []:
                                                             resolved_command = [
                                                                 sys.executable if token == "python" else token
@@ -530,14 +530,14 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                                     + "\n"
                                                                     + completed.stderr[-4000:]
                                                                 )
-                                                        
+
                                                         result = run_ml_pipeline(
                                                             config_path=training_config["config"],
                                                             risk_config_path=training_config.get("risk_config"),
                                                             skip_build_features=bool(training_config.get("skip_build_features", False)),
                                                             summary_output=training_config.get("summary_output"),
                                                         )
-                                                        
+
                                                         update_job(
                                                             train_job["id"],
                                                             {
@@ -549,7 +549,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                                 "stderr": result["stderr"][-8000:],
                                                             },
                                                         )
-                                                        
+
                                                         latest_ds_job = next((j for j in list_jobs(limit=100) if j.get("id") == dataset_job["id"]), None)
                                                         if latest_ds_job:
                                                             sync_dataset_job_to_supabase(auth_header, latest_ds_job)
@@ -600,9 +600,17 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                                     sync_training_job_to_supabase(auth_header, latest_tr_job)
                                                             except Exception:
                                                                 pass
-                                                
-                                    except Exception:
-                                        pass
+                                            else:
+                                                logger.warning("[StockAutomation] Toss OAuth token was not issued.")
+                                        else:
+                                            logger.warning("[StockAutomation] TOSS REAL API key was not found.")
+                                        if stock_run_started:
+                                            last_stock_date = today_str
+                                            _save_last_stock_date(today_str)
+                                    except Exception as error:
+                                        logger.exception("[StockAutomation] run failed before preset execution: %s", error)
+                                else:
+                                    logger.warning("[StockAutomation] SUPABASE_SERVICE_ROLE_KEY is not configured.")
                             else:
                                 # 락 획득 실패 = 다른 프로세스가 이미 실행 중이므로 오늘 날짜 저장
                                 last_stock_date = today_str

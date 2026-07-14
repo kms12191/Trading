@@ -3,7 +3,7 @@ import math
 import os
 import re
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlencode
@@ -12,7 +12,7 @@ import requests
 
 from backend.services.auth_service import get_user_id_from_header
 from backend.services.chatbot.conversation_repository import ChatbotConversationRepository
-from backend.services.supabase_client import query_supabase, safe_query_supabase
+from backend.services.supabase_client import query_supabase, safe_query_supabase, safe_query_supabase_as_service_role
 from backend.services.symbol_metadata import enrich_symbol
 from backend.services.chatbot.web_fallback_search_service import ChatbotWebFallbackSearchService
 from backend.services.chatbot.safety_guard import enforce_tool_safety
@@ -23,6 +23,9 @@ from backend.services.chatbot.portfolio_summary_service import (
     normalize_account_summary,
 )
 from backend.services.chatbot.recommendation_service import ChatbotRecommendationService
+from backend.services.chatbot.asset_ml_outlook import build_single_asset_ml_outlook
+from backend.services.toss_client import TossClient
+from backend.utils.crypto_helper import CryptoHelper
 
 
 API_BASE_URL = os.getenv("CHATBOT_INTERNAL_API_BASE_URL", "http://localhost:5050")
@@ -273,9 +276,11 @@ def list_available_tools() -> list[str]:
         "get_holdings",
         "search_trade_history",
         "list_open_orders",
+        "get_market_calendar",
         "get_exchange_rate",
         "get_asset_price",
         "get_asset_orderbook",
+        "get_asset_candles",
         "search_web",
         "get_asset_outlook",
     ]
@@ -349,10 +354,6 @@ def _format_trade_datetime_parts(value) -> tuple[str, str]:
 
 
 def _extract_symbol_query(text: str) -> str:
-    ticker_match = re.search(r"(?<![A-Za-z0-9._-])([A-Za-z][A-Za-z0-9._-]{1,11})(?:의|은|는|이|가|을|를|에|에서)?", text)
-    if ticker_match:
-        return normalize_symbol_alias(ticker_match.group(1))
-
     cleaned = SYMBOL_COMMAND_PATTERN.sub(" ", text)
     cleaned = re.sub(r"\d+(?:\.\d+)?\s*(만원|천원|원|만)", " ", cleaned)
     cleaned = KOREAN_MONEY_NUMBER_PATTERN.sub(" ", cleaned)
@@ -428,6 +429,308 @@ def _detect_env(text: str) -> str | None:
     if "실전" in text or "실거래" in text or "REAL" in text.upper():
         return "REAL"
     return None
+
+
+def _detect_market_country_for_calendar(text: str) -> str | None:
+    value = str(text or "")
+    upper_value = value.upper()
+    kr_keywords = [
+        "한국장",
+        "국내장",
+        "국장",
+        "한국 증시",
+        "국내 증시",
+        "코스피",
+        "코스닥",
+        "KRX",
+        "KOSPI",
+        "KOSDAQ",
+        "제헌절",
+        "한글날",
+        "광복절",
+        "개천절",
+        "추석",
+        "설날",
+    ]
+    us_keywords = [
+        "미국장",
+        "미장",
+        "미국 증시",
+        "나스닥",
+        "뉴욕증시",
+        "NYSE",
+        "NASDAQ",
+        "S&P",
+        "에스앤피",
+        "다우",
+    ]
+    if any(keyword.upper() in upper_value for keyword in us_keywords):
+        return "US"
+    if any(keyword.upper() in upper_value for keyword in kr_keywords):
+        return "KR"
+    return None
+
+
+def _detect_calendar_date(text: str) -> str:
+    value = str(text or "")
+    now = datetime.now(timezone(timedelta(hours=9)))
+    if "오늘" in value:
+        return now.date().isoformat()
+    if "내일" in value:
+        return (now.date() + timedelta(days=1)).isoformat()
+    if "어제" in value:
+        return (now.date() - timedelta(days=1)).isoformat()
+
+    iso_match = re.search(r"(20\d{2})[-./년\s]+(\d{1,2})[-./월\s]+(\d{1,2})", value)
+    if iso_match:
+        year, month, day = (int(part) for part in iso_match.groups())
+        return datetime(year, month, day).date().isoformat()
+
+    month_day_match = re.search(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일", value)
+    if month_day_match:
+        month, day = (int(part) for part in month_day_match.groups())
+        return datetime(now.year, month, day).date().isoformat()
+
+    return now.date().isoformat()
+
+
+def _is_calendar_request(text: str) -> bool:
+    value = str(text or "")
+    calendar_keywords = [
+        "장 열",
+        "장열",
+        "개장",
+        "휴장",
+        "거래 가능",
+        "정규거래",
+        "정규 거래",
+        "장 운영",
+        "캘린더",
+        "쉬는날",
+        "쉬는 날",
+    ]
+    return any(keyword in value for keyword in calendar_keywords) and any(
+        keyword in value
+        for keyword in ["장", "증시", "거래", "시장", "한국", "국내", "미국", "제헌절", "휴장", "개장"]
+    )
+
+
+def _get_user_toss_calendar_client(auth_header: str, broker_env: str = "REAL") -> TossClient:
+    user_id, _ = get_user_id_from_header(auth_header)
+    params = {
+        "user_id": f"eq.{user_id}",
+        "exchange": "eq.TOSS",
+        "broker_env": f"eq.{broker_env}",
+        "select": "encrypted_access_key,encrypted_secret_key,toss_account_seq",
+        "limit": "1",
+    }
+    records = safe_query_supabase(auth_header, "user_api_keys", "GET", params=params) or []
+    if records:
+        encryption_key = os.getenv("ENCRYPTION_KEY", "default-dev-encryption-key-32bytes!")
+        crypto = CryptoHelper(encryption_key)
+        record = records[0]
+        return TossClient(
+            client_id=crypto.decrypt(record.get("encrypted_access_key")),
+            client_secret=crypto.decrypt(record.get("encrypted_secret_key")),
+            account_seq=record.get("toss_account_seq"),
+            env=broker_env,
+            user_id=user_id,
+        )
+
+    client_id = os.getenv("SHARED_TOSS_CLIENT_ID") or os.getenv("TOSS_CLIENT_ID") or os.getenv("TOSS_API_KEY")
+    client_secret = os.getenv("SHARED_TOSS_CLIENT_SECRET") or os.getenv("TOSS_CLIENT_SECRET") or os.getenv("TOSS_SECRET_KEY")
+    account_seq = os.getenv("SHARED_TOSS_ACCOUNT_SEQ") or os.getenv("TOSS_ACCOUNT_SEQ")
+    if client_id and client_secret:
+        return TossClient(
+            client_id=client_id,
+            client_secret=client_secret,
+            account_seq=account_seq,
+            env=broker_env,
+            user_id="shared_system",
+        )
+
+    return TossClient(client_id="", client_secret="", env="MOCK", user_id="mock_calendar")
+
+
+def _calendar_session(raw: dict, key: str) -> dict:
+    today = raw.get("today") if isinstance(raw, dict) else {}
+    integrated = today.get("integrated") if isinstance(today, dict) else {}
+    session = integrated.get(key) if isinstance(integrated, dict) else {}
+    return session if isinstance(session, dict) else {}
+
+
+def _normalize_calendar_row(market_country: str, trade_date: str, raw: dict, source: str) -> dict:
+    today = raw.get("today") if isinstance(raw, dict) else {}
+    regular = _calendar_session(raw, "regularMarket")
+    regular_open_at = regular.get("startTime")
+    regular_close_at = regular.get("endTime")
+    is_open = bool(today and regular_open_at and regular_close_at)
+    holiday_name = ""
+    if isinstance(today, dict):
+        holiday_name = str(today.get("holidayName") or today.get("name") or "").strip()
+    if not is_open and not holiday_name:
+        holiday_name = "휴장일"
+    return {
+        "market_country": market_country,
+        "trade_date": trade_date,
+        "is_open": is_open,
+        "holiday_name": holiday_name or None,
+        "regular_open_at": regular_open_at,
+        "regular_close_at": regular_close_at,
+        "source": source,
+        "raw_payload": raw,
+    }
+
+
+def _fetch_calendar_row_from_db(market_country: str, trade_date: str) -> dict | None:
+    rows = safe_query_supabase_as_service_role(
+        "market_calendar_days",
+        "GET",
+        params={
+            "market_country": f"eq.{market_country}",
+            "trade_date": f"eq.{trade_date}",
+            "select": "id,market_country,trade_date,is_open,holiday_name,regular_open_at,regular_close_at,source,raw_payload",
+            "limit": "1",
+        },
+    ) or []
+    return rows[0] if rows else None
+
+
+def _upsert_calendar_row(row: dict) -> None:
+    existing = _fetch_calendar_row_from_db(row["market_country"], row["trade_date"])
+    if existing and existing.get("id"):
+        safe_query_supabase_as_service_role(
+            f"market_calendar_days?id=eq.{existing['id']}",
+            "PATCH",
+            json_data=row,
+        )
+        return
+    safe_query_supabase_as_service_role("market_calendar_days", "POST", json_data=row)
+
+
+def _format_calendar_reply(row: dict, requested_text: str) -> str:
+    country = row.get("market_country")
+    country_label = "한국장" if country == "KR" else "미국장"
+    trade_date = row.get("trade_date")
+    source = row.get("source") or "DB"
+    if row.get("is_open"):
+        open_at = str(row.get("regular_open_at") or "")
+        close_at = str(row.get("regular_close_at") or "")
+        session_text = ""
+        if open_at and close_at:
+            session_text = f"\n정규장 시간: {open_at} ~ {close_at}"
+        return f"{trade_date} 기준\n{country_label}은 정규 거래일입니다.{session_text}\n출처: {source}"
+    holiday = row.get("holiday_name") or "휴장일"
+    return f"{trade_date} 기준\n{country_label}은 휴장일입니다.\n사유: {holiday}\n출처: {source}"
+
+
+def get_market_calendar(auth_header: str, message: str) -> dict:
+    market_country = _detect_market_country_for_calendar(message)
+    trade_date = _detect_calendar_date(message)
+    if not market_country:
+        return {
+            "reply": "어느 시장의 장 운영 여부를 확인할까요?\n예: 한국장, 미국장",
+            "data": {
+                "source": "MARKET_CALENDAR",
+                "reason": "missing_market_country",
+                "trade_date": trade_date,
+            },
+        }
+
+    cached_row = _fetch_calendar_row_from_db(market_country, trade_date)
+    if cached_row:
+        return {
+            "reply": _format_calendar_reply(cached_row, message),
+            "data": {
+                "source": "MARKET_CALENDAR_DB",
+                "market_country": market_country,
+                "trade_date": trade_date,
+                "row": cached_row,
+            },
+        }
+
+    today = datetime.now(timezone(timedelta(hours=9))).date().isoformat()
+    if trade_date != today:
+        country_label = "한국장" if market_country == "KR" else "미국장"
+        return {
+            "reply": (
+                f"{trade_date} 기준 {country_label} 장 운영 데이터가 아직 DB에 없습니다.\n"
+                "특정 날짜의 개장/휴장 여부는 캘린더 DB 적재 후 확인할 수 있습니다.\n"
+                "현재는 값을 추측하지 않습니다."
+            ),
+            "data": {
+                "source": "MARKET_CALENDAR_DB_MISS",
+                "market_country": market_country,
+                "trade_date": trade_date,
+            },
+        }
+
+    env = _detect_env(message) or "REAL"
+    try:
+        client = _get_user_toss_calendar_client(auth_header, env)
+        raw = client.get_market_calendar(market_country)
+    except Exception as error:
+        return {
+            "reply": (
+                "장 운영 캘린더를 조회하지 못했습니다.\n"
+                "Toss API 키, 계좌 환경, API 허용 IP를 확인한 뒤 다시 시도해 주세요."
+            ),
+            "data": {
+                "source": "MARKET_CALENDAR_ERROR",
+                "market_country": market_country,
+                "trade_date": trade_date,
+                "error": str(error),
+            },
+        }
+
+    row = _normalize_calendar_row(market_country, trade_date, raw, "TOSS")
+    _upsert_calendar_row(row)
+    return {
+        "reply": _format_calendar_reply(row, message),
+        "data": {
+            "source": "MARKET_CALENDAR_TOSS",
+            "market_country": market_country,
+            "trade_date": trade_date,
+            "row": row,
+        },
+    }
+
+
+def _detect_candle_interval(text: str) -> str:
+    value = str(text or "")
+    normalized = value.upper()
+    if "1분" in value or "1M" in normalized:
+        return "1m"
+    if "5분" in value or "5M" in normalized:
+        return "5m"
+    if "15분" in value or "15M" in normalized:
+        return "15m"
+    if "30분" in value or "30M" in normalized:
+        return "30m"
+    if "4시간" in value or "4H" in normalized:
+        return "4h"
+    if "1시간" in value or "시간봉" in value or "1H" in normalized:
+        return "1h"
+    if "주봉" in value or "1W" in normalized:
+        return "1w"
+    if "월봉" in value or "1MO" in normalized or "1MTH" in normalized:
+        return "1M"
+    return "1d"
+
+
+def _format_candle_interval(interval: str) -> str:
+    labels = {
+        "1m": "1분봉",
+        "5m": "5분봉",
+        "15m": "15분봉",
+        "30m": "30분봉",
+        "1h": "1시간봉",
+        "4h": "4시간봉",
+        "1d": "일봉",
+        "1w": "주봉",
+        "1M": "월봉",
+    }
+    return labels.get(interval, interval)
 
 
 def _is_plain_order_requiring_confirmation(message: str, parsed: ParsedOrderIntent) -> bool:
@@ -895,6 +1198,144 @@ def get_asset_orderbook(auth_header: str, message: str) -> dict:
             "asks": asks[:5],
             "bids": bids[:5],
             "meta": meta,
+        },
+    }
+
+
+def get_asset_candles(auth_header: str, message: str) -> dict:
+    symbol_query = _extract_symbol_query(message)
+    if not symbol_query:
+        return {
+            "reply": "캔들 흐름을 확인할 종목명이나 종목코드를 알려주세요.",
+            "data": {"source": "ASSET_CANDLES", "reason": "missing_symbol"},
+        }
+
+    try:
+        symbol_data = _resolve_symbol(auth_header, symbol_query)
+    except SymbolDisambiguationError as error:
+        return _build_symbol_choice_response(error.query, error.candidates)
+    except Exception:
+        return {
+            "reply": f"{symbol_query} 종목을 찾지 못했습니다.\n종목명이나 종목코드를 다시 확인해 주세요.",
+            "data": {"source": "ASSET_CANDLES", "query": symbol_query, "reason": "symbol_not_found"},
+        }
+
+    symbol = str(symbol_data.get("symbol") or symbol_query).upper()
+    display_name = str(symbol_data.get("display_name") or symbol).strip()
+    asset_type = str(symbol_data.get("asset_type") or "").upper()
+    market = str(symbol_data.get("market") or "").strip().upper()
+    label = f"{display_name}({symbol})" if display_name and display_name.upper() != symbol else symbol
+    exchange = _detect_exchange(message) or _default_exchange_for_asset(asset_type, market)
+    broker_env = _detect_env(message) or "REAL"
+    interval = _detect_candle_interval(message)
+    count = 20
+
+    try:
+        payload = _get_internal(
+            "/api/chart/candles",
+            auth_header,
+            params={
+                "exchange": exchange,
+                "symbol": symbol,
+                "interval": interval,
+                "count": count,
+                "broker_env": broker_env,
+            },
+        )
+    except Exception:
+        return {
+            "reply": (
+                f"현재 {label}의 최근 캔들 차트 흐름을 확인할 수 없습니다.\n"
+                "거래소 API 키, 허용 IP 설정 또는 장 운영 상태를 점검해 주세요.\n"
+                "정확한 시세와 차트 정보가 필요하면 다시 요청해 주시기 바랍니다."
+            ),
+            "actions": [
+                {
+                    "type": "navigate",
+                    "label": "상세보기",
+                    "to": _asset_route(symbol_data),
+                }
+            ],
+            "data": {
+                "source": "ASSET_CANDLES",
+                "symbol": symbol,
+                "exchange": exchange,
+                "broker_env": broker_env,
+                "interval": interval,
+                "reason": "candles_api_failed",
+            },
+        }
+
+    candles = payload.get("data") or []
+    candles = [candle for candle in candles if isinstance(candle, dict)]
+    if not candles:
+        return {
+            "reply": (
+                f"현재 {label}의 최근 캔들 차트 흐름을 확인할 수 없습니다.\n"
+                "거래소 API 응답이 비어 있거나 장 운영 상태가 캔들 제공 대상이 아닐 수 있습니다.\n"
+                "정확한 시세와 차트 정보가 필요하면 다시 요청해 주시기 바랍니다."
+            ),
+            "actions": [
+                {
+                    "type": "navigate",
+                    "label": "상세보기",
+                    "to": _asset_route(symbol_data),
+                }
+            ],
+            "data": {
+                "source": "ASSET_CANDLES",
+                "symbol": symbol,
+                "exchange": exchange,
+                "broker_env": broker_env,
+                "interval": interval,
+                "reason": "empty_candles",
+            },
+        }
+
+    recent = candles[-min(len(candles), 5):]
+    first_close = _to_float(candles[0].get("close"))
+    last_close = _to_float(candles[-1].get("close"))
+    highs = [_to_float(candle.get("high")) for candle in recent if _to_float(candle.get("high")) > 0]
+    lows = [_to_float(candle.get("low")) for candle in recent if _to_float(candle.get("low")) > 0]
+    bullish_count = sum(1 for candle in recent if _to_float(candle.get("close")) >= _to_float(candle.get("open")))
+    bearish_count = len(recent) - bullish_count
+    change_rate = ((last_close - first_close) / first_close * 100) if first_close > 0 else 0.0
+    currency = "USD" if market == "US" else "KRW"
+    interval_label = _format_candle_interval(interval)
+
+    reply_lines = [
+        f"{label}의 최근 {len(candles)}개 {interval_label} 캔들 흐름입니다.",
+        f"첫 종가 대비 마지막 종가는 {change_rate:+.2f}% 변화했습니다.",
+    ]
+    if last_close > 0:
+        reply_lines.append(f"마지막 종가는 {_format_money(last_close, currency)}입니다.")
+    if highs and lows:
+        reply_lines.append(f"최근 {len(recent)}개 캔들의 고가/저가 범위는 {_format_money(max(highs), currency)} ~ {_format_money(min(lows), currency)}입니다.")
+    reply_lines.append(f"최근 {len(recent)}개 기준 양봉 {bullish_count}개, 음봉 {bearish_count}개입니다.")
+    reply_lines.append("캔들 흐름은 변동성 참고 자료이며, 단정적 예측으로 해석하면 안 됩니다.")
+
+    return {
+        "reply": "\n".join(reply_lines),
+        "actions": [
+            {
+                "type": "navigate",
+                "label": "상세보기",
+                "to": _asset_route(symbol_data),
+            }
+        ],
+        "data": {
+            "source": "ASSET_CANDLES",
+            "symbol": symbol,
+            "display_name": display_name,
+            "asset_type": asset_type,
+            "market": market,
+            "exchange": exchange,
+            "broker_env": broker_env,
+            "interval": interval,
+            "candle_count": len(candles),
+            "change_rate": change_rate,
+            "last_close": last_close,
+            "candles": recent,
         },
     }
 
@@ -2138,6 +2579,10 @@ def get_asset_outlook(auth_header: str, message: str) -> dict:
     asset_type = str(symbol_data.get("asset_type") or "").upper()
     market = str(symbol_data.get("market") or "").strip()
     lookup_label = f"{display_name}({symbol})" if display_name and display_name.upper() != symbol else symbol
+    ml_result = build_single_asset_ml_outlook(auth_header, message, symbol_data)
+    if ml_result:
+        return ml_result
+
     context_parts = [lookup_label, "최근 뉴스 공시 시세 전망 리스크"]
     if asset_type:
         context_parts.append(asset_type)
@@ -2219,6 +2664,13 @@ def _is_asset_price_request(text: str) -> bool:
 def _is_asset_orderbook_request(text: str) -> bool:
     value = str(text or "")
     if not any(keyword in value for keyword in ["호가", "오더북", "orderbook", "ORDERBOOK"]):
+        return False
+    return bool(_extract_symbol_query(value))
+
+
+def _is_asset_candle_request(text: str) -> bool:
+    value = str(text or "")
+    if not any(keyword in value for keyword in ["캔들", "차트 흐름", "봉 흐름", "일봉", "주봉", "월봉", "분봉", "시간봉"]):
         return False
     return bool(_extract_symbol_query(value))
 
@@ -2501,10 +2953,14 @@ def run_chatbot_tool(auth_header: str | None, message: str) -> dict | None:
     is_direct_read_request = any(keyword in text for keyword in ["보여줘", "조회", "알려줘", "뽑아줘", "요약", "뭐뭐 있어", "얼마"])
     if "투자성향" in text and any(keyword in text for keyword in ["재분석", "다시", "변경", "수정"]):
         return get_investment_profile_reanalysis_guide()
+    if _is_calendar_request(text):
+        return guarded("get_market_calendar", get_market_calendar)
     if any(keyword in text for keyword in ["환율", "환전", "달러", "미달러", "엔화", "유로", "위안", "테더", "USDT"]):
         return guarded("get_exchange_rate", get_exchange_rate)
     if _is_asset_orderbook_request(text):
         return guarded("get_asset_orderbook", get_asset_orderbook)
+    if _is_asset_candle_request(text):
+        return guarded("get_asset_candles", get_asset_candles)
     if _is_asset_price_request(text):
         return guarded("get_asset_price", get_asset_price)
     if any(keyword in text for keyword in ["순위", "랭킹", "상위", "필터"]):

@@ -61,6 +61,7 @@ backend/
 │   │   ├── order_parser.py
 │   │   ├── portfolio_summary_service.py
 │   │   ├── prompt_registry.py
+│   │   ├── qa_event_repository.py
 │   │   ├── rag_service.py
 │   │   ├── recommendation_service.py
 │   │   ├── safety_guard.py
@@ -115,7 +116,7 @@ backend/
   - 전체 사용자 미완료 주문 상태 동기화 스케줄러
 - `routes/`
   - HTTP API 입구
-  - `admin_users.py`는 관리자 전용 사용자 목록 및 실제 챗봇 토큰 사용량 API를 제공하고, 집계·정렬·페이지 제한은 service-role 전용 Supabase RPC에 위임합니다.
+  - `admin_users.py`는 관리자 전용 사용자 목록, 실제 챗봇 토큰 사용량, 유저별 거래내역 조회, role 변경 API를 제공합니다. 사용량 집계·정렬·페이지 제한은 service-role 전용 Supabase RPC에 위임하고, 관리용 거래내역은 `trade_proposals`, `broker_order_history`, `asset_transfer_proposals`의 제한 필드만 반환하며 보유자산/잔고는 노출하지 않습니다.
   - `disclosures.py`는 OpenDART 공시 목록 조회 및 수동 동기화 API를 담당
   - `transfer.py`는 코인원 ↔ 바이낸스 가상자산 출금 사전검증, 수수료 조회, 승인, 상태 추적 API를 담당
   - `knowledge.py`는 Obsidian Markdown 노트 동기화와 앱 자동메모리 조회 API를 담당
@@ -124,6 +125,7 @@ backend/
   - `chatbot/conversation_repository.py`는 Supabase `chat_history`와 `chatbot_conversation_states`를 사용해 다중 워커 간 대화 이력, 만료 가능한 대기 작업, 최근 추천 상태를 공유
   - `chatbot/portfolio_summary_service.py`는 거래소별 KRW·USD·USDT 잔고를 원화로 환산하고 REAL/MOCK 계좌 합계를 분리
   - `chatbot/llm_client.py`는 OpenAI Chat Completions 스트림의 텍스트 delta를 전달하고 분할된 tool-call과 usage를 누적
+  - `chatbot/qa_event_repository.py`는 챗봇 QA 분석용 자동 이벤트를 `chatbot_qa_events`에 service role로 저장하며, 민감한 거래소 raw payload 대신 trace·도구·지연시간 요약만 남깁니다.
   - `obsidian_service.py`는 Markdown frontmatter/title/hash 정규화를 담당
   - `knowledge_chunk_service.py`는 저장된 노트 본문을 RAG/embedding 대상 chunk로 분할
   - `knowledge_repository.py`는 `user_knowledge_notes`, `user_memory_facts` Supabase 저장/조회 래퍼를 담당
@@ -211,6 +213,7 @@ frontend/
 - `AdminUsers.jsx`
   - 관리자 유저 관리 탭의 데스크톱/반응형 UI
   - UTC 기준 실제 챗봇 토큰 사용량 집계와 사용자별 사용 내역을 조회
+  - 현재 기본 모델 `gpt-4.1-mini` 가격 기준으로 통산/30일/유저별/요청별 예상 비용을 추정 표시
 - `supabaseClient.js`, `lib/supabaseClient.js`
   - Supabase 초기화 경로가 2개 존재
   - 향후 통합 시 import 호출부 전수 확인이 필요
@@ -230,6 +233,7 @@ ml/
 ├── experiments.md
 ├── live_run_checklist.md
 ├── requirements.txt
+├── serving_package_runbook.md
 ├── test_yf.py
 ├── configs/
 ├── data/
@@ -240,12 +244,14 @@ ml/
 ├── models/
 ├── notebooks/
 ├── reports/
+├── serving_packages/
 └── src/
     ├── backtest_signals.py
     ├── build_features.py
     ├── compare_experiments.py
     ├── compare_model_versions.py
     ├── evaluate.py
+    ├── export_serving_package.py
     ├── model_utils.py
     ├── policy_utils.py
     ├── predict.py
@@ -261,7 +267,7 @@ ml/
 - `configs/`
   - 현재 기준 주식 신호 `v1~v11`
   - 주식 위험 `v1~v11`
-  - 코인 신호/위험 `v1~v8`
+  - 코인 신호/위험 `v1~v9`
   - 3분리 shadow 모델 설정: `lgbm_kr_stock_v1.yaml`, `lgbm_kr_stock_risk_v1.yaml`, `lgbm_us_stock_v1.yaml`, `lgbm_us_stock_risk_v1.yaml`
 - `data/raw/`
   - 원천 캔들 및 외부 피처 CSV
@@ -272,6 +278,9 @@ ml/
   - 학습된 joblib 및 metrics JSON
 - `reports/`
   - 비교 리포트와 최신 실험 리포트
+- `serving_packages/`
+  - EC2 업로드용 서빙 패키지 출력 디렉토리
+  - `manifest.json`, 모델 joblib, risk 모델 joblib, config, metrics, summary만 포함하며 raw 학습 데이터는 포함하지 않습니다.
 
 ## supabase
 

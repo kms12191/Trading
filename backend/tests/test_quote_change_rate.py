@@ -55,6 +55,33 @@ def test_recalculate_change_rate_from_current_and_previous_close():
     assert trade._recalculate_change_rate(1909000, 1900000) == 0.4737
 
 
+def test_load_kis_previous_close_for_toss_kr_quote(monkeypatch):
+    class FakeKISClient:
+        def get_price(self, symbol):
+            assert symbol == "005930"
+            return {
+                "current_price": 268000,
+                "previous_close": 260700,
+                "change_rate": 2.8,
+            }
+
+    monkeypatch.setattr(
+        trade,
+        "_load_user_exchange_record",
+        lambda auth_header, user_id, exchange, broker_env: ({"user_id": user_id}, "access", "secret"),
+    )
+    monkeypatch.setattr(
+        trade,
+        "_build_exchange_client",
+        lambda exchange, broker_env, record, access_key, secret_key: FakeKISClient(),
+    )
+
+    previous_close, env = trade._load_kis_previous_close_for_quote("Bearer token", "user-1", "005930", "REAL")
+
+    assert previous_close == 260700
+    assert env == "REAL"
+
+
 def test_extract_previous_close_from_quote_payload_direct_field():
     quote = {
         "current_price": 1909000,
@@ -69,7 +96,7 @@ def test_extract_previous_close_from_quote_payload_direct_field():
     assert change_rate == 0.4737
 
 
-def test_toss_price_source_keeps_api_change_rate_even_with_previous_close():
+def test_toss_price_source_recalculates_change_rate_from_live_price_and_previous_close():
     quote = {
         "current_price": 1909000,
         "previous_close": 1900000,
@@ -81,7 +108,7 @@ def test_toss_price_source_keeps_api_change_rate_even_with_previous_close():
 
     assert current_price == 1909000
     assert previous_close == 1900000
-    assert change_rate == -12.08
+    assert change_rate == 0.4737
 
 
 def test_extract_previous_close_from_kis_price_difference():
@@ -138,6 +165,7 @@ def test_toss_price_keeps_percent_change_rate_scale(monkeypatch):
     assert quote["current_price"] == 1909000
     assert quote["previous_close"] == 1900000
     assert quote["change_rate"] == 0.47
+    assert quote["raw_change_rate"] == 0.47
 
 
 def test_toss_price_does_not_calculate_change_rate_from_ambiguous_previous_close(monkeypatch):

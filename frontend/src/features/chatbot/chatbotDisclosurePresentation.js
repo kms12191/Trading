@@ -76,11 +76,13 @@ function isUsefulDisclosurePair(label, value) {
 }
 
 export function buildDisclosurePresentation(toolResult) {
-  if (toolResult?.source !== 'DISCLOSURE_DB' || !Array.isArray(toolResult.items)) {
+  const disclosureResult = toolResult?.source === 'NEWS_DISCLOSURE_COMBINED' ? toolResult.disclosure : toolResult
+
+  if (disclosureResult?.source !== 'DISCLOSURE_DB' || !Array.isArray(disclosureResult.items)) {
     return { items: [], sourceUrl: '' }
   }
 
-  const items = toolResult.items.map((item) => {
+  const items = disclosureResult.items.map((item) => {
     const analysis = item?.analysis || {}
     const metrics = (Array.isArray(analysis.metrics) ? analysis.metrics : [])
       .map(normalizeMetric)
@@ -115,6 +117,6 @@ export function buildDisclosurePresentation(toolResult) {
 
   return {
     items,
-    sourceUrl: String(toolResult.source_url || ''),
+    sourceUrl: String(disclosureResult.source_url || ''),
   }
 }

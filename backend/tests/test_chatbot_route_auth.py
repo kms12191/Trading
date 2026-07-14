@@ -46,6 +46,56 @@ def test_chatbot_route_rejects_token_not_validated_by_supabase(monkeypatch):
     assert response.get_json()["success"] is False
 
 
+def test_chatbot_message_route_records_qa_event(monkeypatch):
+    monkeypatch.setattr(
+        "backend.routes.chatbot.validate_access_token",
+        lambda auth_header: ("user-1", "token"),
+    )
+    monkeypatch.setattr(
+        "backend.routes.chatbot.chatbot_service.reply",
+        lambda message, **kwargs: {
+            "reply": "삼성전자 현재가는 80,000원입니다.",
+            "actions": [],
+            "meta": {
+                "source": "PROJECT_TOOL",
+                "tool_result": {"source": "ASSET_PRICE", "symbol": "005930"},
+                "trace_steps": [{"kind": "db", "label": "Supabase DB 조회"}],
+            },
+        },
+    )
+    inserted = []
+    monkeypatch.setattr(
+        "backend.services.supabase_client.safe_query_supabase_as_service_role",
+        lambda endpoint, method="GET", json_data=None, params=None: inserted.append({
+            "endpoint": endpoint,
+            "method": method,
+            "json_data": json_data,
+            "params": params,
+        }) or [{"id": "event-1"}],
+    )
+
+    response = app.test_client().post(
+        "/api/chatbot/message",
+        headers={"Authorization": "Bearer valid"},
+        json={"message": "삼성전자 현재가 알려줘"},
+    )
+
+    assert response.status_code == 200
+    assert len(inserted) == 1
+    assert inserted[0]["endpoint"] == "chatbot_qa_events"
+    assert inserted[0]["method"] == "POST"
+    assert inserted[0]["params"] is None
+    payload = inserted[0]["json_data"]
+    assert payload["event_type"] == "TOOL_RESULT"
+    assert payload["user_id"] == "user-1"
+    assert payload["request_id"]
+    assert payload["event_payload"]["tool_source"] == "ASSET_PRICE"
+    assert payload["event_payload"]["symbol"] == "005930"
+    assert payload["event_payload"]["user_message_preview"] == "삼성전자 현재가 알려줘"
+    assert payload["event_payload"]["assistant_message_preview"] == "삼성전자 현재가는 80,000원입니다."
+    assert isinstance(payload["event_payload"]["latency_ms"], int)
+
+
 def test_chatbot_stream_route_emits_trace_delta_and_done_events(monkeypatch):
     monkeypatch.setattr(
         "backend.routes.chatbot.validate_access_token",

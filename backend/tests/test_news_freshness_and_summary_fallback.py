@@ -76,6 +76,34 @@ def test_market_news_query_uses_news_pipeline_not_vector_db(monkeypatch):
     assert calls == ["api"]
 
 
+def test_market_news_reply_explains_search_criteria():
+    service = object.__new__(ChatbotWebFallbackSearchService)
+
+    class FakeSummaryService:
+        def summarize(self, article):
+            return {"ai_summary": "1. 국내 증시 주요 흐름을 요약했습니다."}
+
+    service.news_summary_service = FakeSummaryService()
+
+    result = service._format_external_news(
+        "NAVER",
+        "국내 증시 시장 주요 뉴스",
+        [
+            {
+                "title": "코스피 장중 상승",
+                "summary": "국내 증시 주요 기사입니다.",
+                "url": "https://example.com/market",
+            }
+        ],
+    )
+
+    assert result["data"]["criteria"]["provider"] == "NAVER"
+    assert result["data"]["criteria"]["query"] == "국내 증시 시장 주요 뉴스"
+    assert result["data"]["criteria"]["sort"] == "date"
+    assert "조회 기준:" in result["reply"]
+    assert "최신순" in result["reply"]
+
+
 def test_stock_news_query_does_not_fallback_to_dart_disclosures(monkeypatch):
     service = object.__new__(ChatbotWebFallbackSearchService)
     calls: list[str] = []
@@ -137,6 +165,178 @@ def test_crypto_news_tavily_filters_wiki_like_sources():
     assert "namu.wiki" not in result["reply"]
 
 
+def test_crypto_news_tavily_filters_knowledge_in_sources():
+    service = object.__new__(ChatbotWebFallbackSearchService)
+    service.tavily_enabled = True
+
+    class FakeTavilyClient:
+        def search(self, query, max_results):
+            return {
+                "results": [
+                    {
+                        "title": "비트코인이 뭔가요? : 네이버 지식iN",
+                        "content": "지식인 답변입니다.",
+                        "url": "https://kin.naver.com/qna/detail.naver?d1id=4&dirId=401",
+                    },
+                    {
+                        "title": "비트코인 ETF 수급 점검",
+                        "content": "비트코인 시장 수급을 다룬 최신 기사입니다.",
+                        "url": "https://example-news.kr/bitcoin-etf",
+                    },
+                ]
+            }
+
+    class FakeSummaryService:
+        def summarize(self, article):
+            return {"ai_summary": "1. 비트코인 ETF 수급과 가격 흐름을 요약했습니다."}
+
+    service.tavily_client = FakeTavilyClient()
+    service.news_summary_service = FakeSummaryService()
+
+    result = service._search_tavily("비트코인 관련 뉴스 요약해줘", 3)
+
+    assert result is not None
+    urls = [item["url"] for item in result["data"]["items"]]
+    assert urls == ["https://example-news.kr/bitcoin-etf"]
+    assert result["data"]["criteria"]["provider"] == "TAVILY"
+    assert "kin.naver.com" in result["data"]["criteria"]["excluded_sources"]
+    assert "조회 기준:" in result["reply"]
+    assert "kin.naver.com" not in result["reply"]
+    assert all("지식" not in str(item.get("title") or "") for item in result["data"]["items"])
+
+
+def test_combined_news_and_disclosure_query_returns_both_sections(monkeypatch):
+    service = object.__new__(ChatbotWebFallbackSearchService)
+    service.max_results = 5
+    calls: list[str] = []
+
+    def fake_api(query, limit):
+        calls.append(f"api:{query}:{limit}")
+        if "공시" in query and "뉴스" not in query:
+            return {"reply": "공시 요약", "data": {"source": "DISCLOSURE_DB", "items": [{"report_nm": "공시"}]}}
+        return {"reply": "뉴스 요약", "data": {"source": "NAVER_API", "items": [{"title": "뉴스"}]}}
+
+    monkeypatch.setattr(service, "_search_existing_open_apis", fake_api)
+    monkeypatch.setattr(service, "_search_internal_db", lambda query, limit: None)
+    monkeypatch.setattr(service, "_search_rag", lambda auth_header, user_id, query, limit: None)
+    monkeypatch.setattr(service, "_search_tavily", lambda query, limit: None)
+
+    result = service.search("Bearer token", "user-1", "삼성전자 최근 공시와 뉴스 보고 정리해줘", limit=5)
+
+    assert result["data"]["source"] == "NEWS_DISCLOSURE_COMBINED"
+    assert result["data"]["news"]["source"] == "NAVER_API"
+    assert result["data"]["disclosure"]["source"] == "DISCLOSURE_DB"
+    assert "뉴스 요약" in result["reply"]
+    assert "공시 요약" in result["reply"]
+    assert calls == [
+        "api:삼성전자 뉴스:1",
+        "api:삼성전자 공시:1",
+    ]
+
+
+def test_combined_query_normalizes_samsung_typo_before_search(monkeypatch):
+    service = object.__new__(ChatbotWebFallbackSearchService)
+    service.max_results = 5
+    calls: list[str] = []
+
+    def fake_api(query, limit):
+        calls.append(f"api:{query}:{limit}")
+        if "공시" in query and "뉴스" not in query:
+            return {"reply": "삼성전자 공시", "data": {"source": "DISCLOSURE_DB", "items": [{"corp_name": "삼성전자"}]}}
+        return {"reply": "삼성전자 뉴스", "data": {"source": "NAVER_API", "items": [{"title": "삼성전자 뉴스"}]}}
+
+    monkeypatch.setattr(service, "_search_existing_open_apis", fake_api)
+    monkeypatch.setattr(service, "_search_internal_db", lambda query, limit: None)
+    monkeypatch.setattr(service, "_search_rag", lambda auth_header, user_id, query, limit: None)
+    monkeypatch.setattr(service, "_search_tavily", lambda query, limit: None)
+
+    result = service.search("Bearer token", "user-1", "심상전자 최근 공시와 뉴스 보여줘", limit=5)
+
+    assert result["data"]["news_query"] == "삼성전자 뉴스"
+    assert result["data"]["disclosure_query"] == "삼성전자 공시"
+    assert calls == [
+        "api:삼성전자 뉴스:1",
+        "api:삼성전자 공시:1",
+    ]
+
+
+def test_disclosure_db_filters_out_other_company_rows_for_target():
+    service = object.__new__(ChatbotWebFallbackSearchService)
+
+    class FakeDartRepository:
+        def list_disclosures(self, query, limit):
+            assert query == "삼성전자"
+            return [
+                {
+                    "corp_name": "LG전자",
+                    "stock_code": "066570",
+                    "report_nm": "풍문또는보도에대한해명",
+                    "summary": "LG전자 공시입니다.",
+                    "url": "https://dart.fss.or.kr/lg",
+                },
+                {
+                    "corp_name": "삼성전자",
+                    "stock_code": "005930",
+                    "report_nm": "주요사항보고서",
+                    "summary": "삼성전자 공시입니다.",
+                    "url": "https://dart.fss.or.kr/samsung",
+                },
+            ]
+
+    service.dart_repository = FakeDartRepository()
+    service.dart_analysis_service = None
+    service.disclosure_knowledge_sync_service = None
+
+    result = service._search_disclosure_db("심상전자 최근 공시 보여줘", 1)
+
+    assert result is not None
+    assert result["data"]["items"][0]["corp_name"] == "삼성전자"
+    assert "LG전자" not in result["reply"]
+
+
+def test_naver_news_filters_unrelated_latest_articles(monkeypatch):
+    service = object.__new__(ChatbotWebFallbackSearchService)
+    service.naver_client_id = "client"
+    service.naver_client_secret = "secret"
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "items": [
+                    {
+                        "title": "서울 집값 74주째 상승…은행권 대출 조이기",
+                        "description": "서울 집값과 은행 대출 규제 관련 기사입니다.",
+                        "originallink": "https://example.com/real-estate",
+                        "pubDate": "Tue, 14 Jul 2026 09:00:00 +0900",
+                    },
+                    {
+                        "title": "삼성전자, 반도체 투자 확대",
+                        "description": "삼성전자가 반도체 투자 확대 계획을 밝혔습니다.",
+                        "originallink": "https://example.com/samsung",
+                        "pubDate": "Tue, 14 Jul 2026 09:10:00 +0900",
+                    },
+                ]
+            }
+
+    class FakeSummaryService:
+        def summarize(self, article):
+            return {"ai_summary": "1. 삼성전자 반도체 투자 뉴스를 요약했습니다."}
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: FakeResponse())
+    service.news_repository = type("FakeNewsRepository", (), {"upsert_articles": lambda self, articles: None})()
+    service.news_summary_service = FakeSummaryService()
+
+    result = service._search_naver_news("심상전자 최근 뉴스 보여줘", 2)
+
+    assert result is not None
+    assert result["data"]["query"] == "삼성전자"
+    assert [item["url"] for item in result["data"]["items"]] == ["https://example.com/samsung"]
+    assert "서울 집값" not in result["reply"]
+
+
 def test_generic_disclosure_query_asks_for_symbol_without_db_or_rag(monkeypatch):
     service = object.__new__(ChatbotWebFallbackSearchService)
     service.max_results = 5
@@ -150,6 +350,24 @@ def test_generic_disclosure_query_asks_for_symbol_without_db_or_rag(monkeypatch)
     monkeypatch.setattr(service, "_search_tavily", fail_lookup)
 
     result = service.search("Bearer token", "user-1", "최근 공시 목록 보여줘", limit=3)
+
+    assert result["data"]["source"] == "DISCLOSURE_SYMBOL_REQUIRED"
+    assert "어떤 종목" in result["reply"]
+
+
+def test_recent_disclosure_lookup_asks_for_symbol_without_db_or_rag(monkeypatch):
+    service = object.__new__(ChatbotWebFallbackSearchService)
+    service.max_results = 5
+
+    def fail_lookup(*args):
+        raise AssertionError("종목 없는 최근 공시 조회는 임의 DB/RAG 조회를 실행하지 않아야 합니다.")
+
+    monkeypatch.setattr(service, "_sync_and_search_dart", fail_lookup)
+    monkeypatch.setattr(service, "_search_internal_db", fail_lookup)
+    monkeypatch.setattr(service, "_search_rag", fail_lookup)
+    monkeypatch.setattr(service, "_search_tavily", fail_lookup)
+
+    result = service.search("Bearer token", "user-1", "최근 공시 조회", limit=3)
 
     assert result["data"]["source"] == "DISCLOSURE_SYMBOL_REQUIRED"
     assert "어떤 종목" in result["reply"]

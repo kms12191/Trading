@@ -22,6 +22,13 @@ from backend.services.symbol_metadata import enrich_symbol
 
 PROJECT_ROOT = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+ASSET_KEY_TO_TYPE = {
+    "stock": "STOCK",
+    "crypto": "CRYPTO",
+    "kr_stock": "STOCK_KR",
+    "us_stock": "STOCK_US",
+}
+
 PROMOTION_THRESHOLDS = {
     "stock": {
         "min_valid_rows": 800,
@@ -439,7 +446,9 @@ def evaluate_promotion_candidate(
         thresholds["min_composite_precision_at_top_n"],
         ">=",
     )
-    add_check("max_drawdown_net", (candidate_backtest.get("max_drawdown_net") or -1.0) >= thresholds["min_max_drawdown_net"], candidate_backtest.get("max_drawdown_net"), thresholds["min_max_drawdown_net"], ">=")
+    max_drawdown_net = candidate_backtest.get("max_drawdown_net")
+    max_drawdown_actual = -1.0 if max_drawdown_net is None else max_drawdown_net
+    add_check("max_drawdown_net", max_drawdown_actual >= thresholds["min_max_drawdown_net"], max_drawdown_actual, thresholds["min_max_drawdown_net"], ">=")
 
     if current_serving and current_serving.get("version") != candidate.get("version"):
         candidate_cv_roc_auc = candidate_cv.get("roc_auc") or 0.0
@@ -921,7 +930,7 @@ def build_dataset_quality_report(asset_key: str, config_path: str | None = None)
     dataset_path = resolve_dataset_path_from_config(asset_key, config_path)
     required_columns = ["exchange", "asset_type", "symbol", "date", "open", "high", "low", "close", "volume"]
     report = {
-        "asset_type": "STOCK" if asset_key == "stock" else "CRYPTO",
+        "asset_type": ASSET_KEY_TO_TYPE.get(asset_key, "STOCK"),
         "path": str(dataset_path),
         "exists": dataset_path.exists(),
         "row_count": 0,
@@ -1022,7 +1031,7 @@ def build_dataset_quality_report(asset_key: str, config_path: str | None = None)
     if invalid_volume_count > 0:
         issues.append(f"거래량 이상치 행이 {invalid_volume_count}건 있습니다.")
     if report["staleness_hours"] is not None:
-        stale_limit = 72 if asset_key == "stock" else 12
+        stale_limit = 72 if asset_key in ("stock", "kr_stock", "us_stock") else 12
         if report["staleness_hours"] > stale_limit:
             issues.append(f"데이터 최신성이 낮습니다. 마지막 캔들 기준 {report['staleness_hours']}시간 지났습니다.")
 
@@ -1057,7 +1066,7 @@ def build_promotion_guard_report(asset_key: str, auth_header: str | None, model_
     candidate_metrics = candidate.get("metrics") or {}
 
     return {
-        "asset_type": "STOCK" if asset_key == "stock" else "CRYPTO",
+        "asset_type": ASSET_KEY_TO_TYPE.get(asset_key, "STOCK"),
         "candidate_version": candidate.get("version"),
         "candidate_model_version": (candidate_metrics.get("model_version") or model_version),
         "serving_version": (current_serving or {}).get("version"),
@@ -1074,11 +1083,11 @@ def build_serving_audit_report(auth_header: str | None) -> dict:
     asset_reports: dict[str, dict] = {}
     blocking_count = 0
 
-    for asset_key in ("stock", "crypto"):
+    for asset_key in ("stock", "crypto", "kr_stock", "us_stock"):
         selection = resolve_active_model_selection(asset_key, auth_header)
         if selection is None:
             asset_reports[asset_key] = {
-                "asset_type": "STOCK" if asset_key == "stock" else "CRYPTO",
+                "asset_type": ASSET_KEY_TO_TYPE.get(asset_key, "STOCK"),
                 "status": "missing",
                 "message": "모델 결과를 찾을 수 없습니다.",
             }
@@ -1126,7 +1135,7 @@ def build_serving_audit_report(auth_header: str | None) -> dict:
             actions.append("추천 후보도 아직 기준 미달입니다.")
 
         asset_reports[asset_key] = {
-            "asset_type": "STOCK" if asset_key == "stock" else "CRYPTO",
+            "asset_type": ASSET_KEY_TO_TYPE.get(asset_key, "STOCK"),
             "status": report_status,
             "message": message,
             "serving_version": serving_version,
@@ -1163,6 +1172,26 @@ def read_asset_type_from_config(config_path: str) -> str | None:
     except Exception:
         return None
 
+def infer_asset_key_for_model(asset_type: str | None, config_path: str | None, model_version: str | None) -> str | None:
+    """설정 파일과 모델 버전을 기반으로 통합/분리 모델 asset key를 판별합니다."""
+    version_text = str(model_version or "").lower()
+    config_text = str(config_path or "").lower()
+    if "lgbm_kr_stock" in version_text or "lgbm_kr_stock" in config_text:
+        return "kr_stock"
+    if "lgbm_us_stock" in version_text or "lgbm_us_stock" in config_text:
+        return "us_stock"
+
+    normalized_asset_type = str(asset_type or "").upper()
+    if normalized_asset_type == "CRYPTO":
+        return "crypto"
+    if normalized_asset_type == "STOCK":
+        return "stock"
+    if normalized_asset_type == "STOCK_KR":
+        return "kr_stock"
+    if normalized_asset_type == "STOCK_US":
+        return "us_stock"
+    return None
+
 def build_training_audit_bundle(
     auth_header: str | None,
     asset_type: str | None,
@@ -1171,11 +1200,10 @@ def build_training_audit_bundle(
 ) -> dict | None:
     """학습 직후 승격 검증과 serving 감사를 공통 포맷으로 구성합니다."""
     normalized_asset_type = str(asset_type or "").upper() or str(read_asset_type_from_config(str(config_path or "")) or "").upper()
-    if normalized_asset_type not in ("STOCK", "CRYPTO"):
-        return None
-
-    asset_key = "stock" if normalized_asset_type == "STOCK" else "crypto"
     resolved_model_version = str(model_version or "").strip() or read_model_version_from_config(str(config_path or ""))
+    asset_key = infer_asset_key_for_model(normalized_asset_type, config_path, resolved_model_version)
+    if asset_key is None:
+        return None
     if not resolved_model_version:
         return None
 

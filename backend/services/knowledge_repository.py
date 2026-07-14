@@ -87,22 +87,11 @@ class KnowledgeRepository:
         return [row for row in rows if isinstance(row, dict)]
 
     def list_auto_memory(self, auth_header: str, user_id: str) -> dict[str, list[str]]:
-        rows = safe_query_supabase(
-            auth_header,
-            "user_memory_facts",
-            "GET",
-            params={
-                "user_id": f"eq.{user_id}",
-                "is_active": "eq.true",
-                "select": "memory_type,content,symbol,confidence,evidence_count",
-                "order": "confidence.desc,evidence_count.desc,updated_at.desc",
-                "limit": "30",
-            },
-        )
+        rows = self.list_memory_facts(auth_header, user_id, limit=30)
         favorite_symbols: list[str] = []
         repeated_mistakes: list[str] = []
 
-        for row in rows if isinstance(rows, list) else []:
+        for row in rows:
             content = str(row.get("content") or "").strip()
             if not content:
                 continue
@@ -116,6 +105,69 @@ class KnowledgeRepository:
             "favorite_symbols": favorite_symbols,
             "repeated_mistakes": repeated_mistakes,
         }
+
+    def list_memory_facts(
+        self,
+        auth_header: str,
+        user_id: str,
+        memory_type: str | None = None,
+        limit: int = 12,
+    ) -> list[dict[str, Any]]:
+        params = {
+            "user_id": f"eq.{user_id}",
+            "is_active": "eq.true",
+            "select": "memory_type,content,symbol,confidence,evidence_count",
+            "order": "confidence.desc,evidence_count.desc,updated_at.desc",
+            "limit": str(limit),
+        }
+        if memory_type:
+            params["memory_type"] = f"eq.{memory_type}"
+        rows = safe_query_supabase(auth_header, "user_memory_facts", "GET", params=params)
+        if not isinstance(rows, list):
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    def list_watchlist_items(
+        self,
+        auth_header: str,
+        user_id: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        params = {
+            "user_id": f"eq.{user_id}",
+            "select": "id,symbol,name,asset_type,exchange,market_country,currency,latest_price,change_rate,sort_order,updated_at",
+            "order": "sort_order.asc.nullslast,updated_at.desc",
+            "limit": str(limit),
+        }
+        rows = safe_query_supabase(auth_header, "user_watchlist", "GET", params=params)
+        if not isinstance(rows, list):
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    def search_user_notes(
+        self,
+        auth_header: str,
+        user_id: str,
+        query: str,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        params = {
+            "user_id": f"eq.{user_id}",
+            "select": "id,title,file_path,content,source,modified_at,frontmatter",
+            "order": "modified_at.desc",
+            "limit": str(limit),
+        }
+        normalized_query = str(query or "").strip()
+        if normalized_query:
+            params["or"] = (
+                f"(title.ilike.*{normalized_query}*,"
+                f"content.ilike.*{normalized_query}*,"
+                f"file_path.ilike.*{normalized_query}*)"
+            )
+        rows = safe_query_supabase(auth_header, "user_knowledge_notes", "GET", params=params)
+        if not isinstance(rows, list):
+            return []
+        return [row for row in rows if isinstance(row, dict)]
 
     def upsert_memory_fact(self, auth_header: str, user_id: str, fact: dict[str, Any]) -> dict[str, Any]:
         memory_type = str(fact.get("memory_type") or "").strip()

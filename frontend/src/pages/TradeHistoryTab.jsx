@@ -31,27 +31,20 @@ const formatUnitCurrency = (value, currency = 'KRW') => {
   })}`
 }
 
-const mapTradeFailureStatus = (side) => (
-  String(side || '').toUpperCase() === 'SELL' ? '판매실패' : '구매실패'
-)
-
 const isActionableOrderStatus = (status) => (
-  ['PENDING', 'APPROVED', 'ORDERED', 'OPEN', 'PARTIALLY_FILLED', 'MODIFIED'].includes(String(status || '').toUpperCase())
+  ['APPROVED', 'ORDERED', 'OPEN', 'PARTIALLY_FILLED', 'MODIFIED'].includes(String(status || '').toUpperCase())
 )
 
-const mapTradeStatus = (status, side = '') => {
+const mapTradeStatus = (status) => {
   const normalizedStatus = String(status || '').toUpperCase()
-  if (['APPROVED', 'ORDERED'].includes(normalizedStatus)) return '주문 완료'
-  if (['PENDING', 'OPEN', 'PARTIALLY_FILLED', 'MODIFIED'].includes(normalizedStatus)) return '미체결'
+  if (normalizedStatus === 'PENDING') return '승인대기'
+  if (['APPROVED', 'ORDERED'].includes(normalizedStatus)) return '주문접수'
+  if (normalizedStatus === 'OPEN') return '미체결'
+  if (normalizedStatus === 'PARTIALLY_FILLED') return '부분체결'
+  if (normalizedStatus === 'MODIFIED') return '정정접수'
   if (normalizedStatus === 'EXECUTED') return '체결완료'
-  if (['FAILED', 'REJECTED', 'EXPIRED'].includes(normalizedStatus)) return mapTradeFailureStatus(side)
+  if (['FAILED', 'REJECTED', 'EXPIRED'].includes(normalizedStatus)) return '주문실패'
   if (['CANCELED', 'CANCELLED'].includes(normalizedStatus)) return '취소완료'
-  if (['PENDING', 'APPROVED', 'OPEN', 'ORDERED', 'PARTIALLY_FILLED'].includes(normalizedStatus)) return '미체결'
-  if (normalizedStatus === 'EXECUTED') return '체결완료'
-  if (normalizedStatus === 'REJECTED') return '거절'
-  if (normalizedStatus === 'FAILED') return '실패'
-  if (['CANCELED', 'CANCELLED'].includes(normalizedStatus)) return '취소완료'
-  if (normalizedStatus === 'MODIFIED') return '미체결'
   return normalizedStatus || '-'
 }
 
@@ -70,7 +63,67 @@ const isMissingBrokerHistoryTableError = (error) => {
 const TRADE_HISTORY_SELECT_FIELDS = 'id,exchange,asset_type,ticker,symbol,side,price,volume,order_amount,ord_type,market_country,currency,broker_env,client_order_id,external_order_id,external_order_org_no,status,failure_reason,created_at'
 const BROKER_HISTORY_SELECT_FIELDS = 'id,exchange,broker_env,symbol,market_country,side,price,quantity,order_amount,status,raw_status,currency,client_order_id,external_order_id,filled_quantity,average_filled_price,filled_amount,commission,tax,ordered_at,filled_at,settlement_date'
 const isCancelReplaceExchange = (exchange) => ['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(String(exchange || '').toUpperCase())
+const TRADE_EXCHANGE_OPTIONS = ['ALL', 'TOSS', 'KIS', 'COINONE', 'BINANCE', 'BINANCE_UM_FUTURES']
+const TRADE_EXCHANGE_LABELS = {
+  ALL: '전체',
+  TOSS: '토스증권',
+  KIS: '한국투자증권',
+  COINONE: '코인원',
+  BINANCE: '바이낸스 현물',
+  BINANCE_UM_FUTURES: '바이낸스 선물',
+}
+const TRADE_SIDE_OPTIONS = ['ALL', '매수', '매도', '출금', '입금']
+const TRADE_STATUS_OPTIONS = ['ALL', '승인대기', '주문접수', '미체결', '부분체결', '정정접수', '체결완료', '취소완료', '주문실패', '전송중', '출금완료', '입금완료', '출금실패']
 const symbolDisplayNameCache = new Map()
+
+const normalizeOrderIdentityPart = (value) => String(value || '').trim()
+
+const getOrderIdentityKeys = (row = {}) => {
+  const exchange = normalizeOrderIdentityPart(row.exchange).toUpperCase()
+  const brokerEnv = normalizeOrderIdentityPart(row.broker_env || row.brokerEnv || 'REAL').toUpperCase()
+  if (!exchange || !brokerEnv) return []
+
+  return [
+    ['external', row.external_order_id],
+    ['client', row.client_order_id],
+  ]
+    .map(([type, value]) => [type, normalizeOrderIdentityPart(value)])
+    .filter(([, value]) => value)
+    .map(([type, value]) => `${exchange}|${brokerEnv}|${type}|${value}`)
+}
+
+const buildBrokerOrderLookup = (proposals = [], brokerOrders = []) => {
+  const proposalOrderKeys = new Set(proposals.flatMap(getOrderIdentityKeys))
+  const brokerByKey = new Map()
+  const linkedBrokerOrderIds = new Set()
+
+  brokerOrders.forEach((order) => {
+    const orderKeys = getOrderIdentityKeys(order)
+    orderKeys.forEach((key) => {
+      if (!brokerByKey.has(key)) {
+        brokerByKey.set(key, order)
+      }
+    })
+    if (orderKeys.some((key) => proposalOrderKeys.has(key))) {
+      linkedBrokerOrderIds.add(String(order.id))
+    }
+  })
+
+  return { brokerByKey, linkedBrokerOrderIds }
+}
+
+const findLinkedBrokerOrder = (proposal, brokerOrderLookup) => {
+  if (!brokerOrderLookup?.brokerByKey) return null
+  for (const key of getOrderIdentityKeys(proposal)) {
+    const brokerOrder = brokerOrderLookup.brokerByKey.get(key)
+    if (brokerOrder) return brokerOrder
+  }
+  return null
+}
+
+const filterUnlinkedBrokerOrders = (brokerOrders = [], brokerOrderLookup) => (
+  brokerOrders.filter((order) => !brokerOrderLookup?.linkedBrokerOrderIds?.has(String(order.id)))
+)
 
 const formatCryptoAmount = (value, symbol = '') => {
   const numericValue = Number(value)
@@ -168,7 +221,8 @@ const hydrateTradeProposals = async (proposals = []) => {
   })
 }
 
-const mapProposalToTrade = (proposal) => {
+const mapProposalToTrade = (proposal, brokerOrderLookup) => {
+  const linkedBrokerOrder = findLinkedBrokerOrder(proposal, brokerOrderLookup)
   const createdAt = proposal.created_at ? new Date(proposal.created_at) : null
   const isValidDate = createdAt && !Number.isNaN(createdAt.getTime())
   const date = isValidDate ? createdAt.toISOString().slice(0, 10) : '-'
@@ -188,12 +242,23 @@ const mapProposalToTrade = (proposal) => {
   )
   const ticker = proposal.symbol || proposal.ticker || '-'
   const displayName = proposal.display_name || ticker
+  const rawStatus = linkedBrokerOrder?.status || linkedBrokerOrder?.raw_status || proposal.status
+  const orderNumber = proposal.external_order_id
+    || linkedBrokerOrder?.external_order_id
+    || proposal.client_order_id
+    || linkedBrokerOrder?.client_order_id
+    || proposal.id
+  const hasLinkedBrokerOrder = Boolean(linkedBrokerOrder)
 
   return {
     id: proposal.id,
     sourceType: 'APP',
-    rawStatus: proposal.status,
-    isActionable: isActionableOrderStatus(proposal.status),
+    sourceLabel: 'AE 거래',
+    sourceDescription: hasLinkedBrokerOrder
+      ? 'AE에서 생성·승인한 주문이며 토스 원장과 연결됨'
+      : 'AE에서 생성·승인한 앱 주문',
+    rawStatus,
+    isActionable: isActionableOrderStatus(rawStatus) && Boolean(proposal.external_order_id || linkedBrokerOrder?.external_order_id),
     brokerEnv: proposal.broker_env || 'REAL',
     orderOrgNo: proposal.external_order_org_no || '',
     marketCountry: proposal.market_country || '',
@@ -210,10 +275,12 @@ const mapProposalToTrade = (proposal) => {
     price: price === null ? '-' : formatUnitCurrency(price, currency),
     quantity: quantity === null ? '-' : formatNumber(quantity, { maximumFractionDigits: 8 }),
     amount: computedAmount === null ? '-' : formatCurrency(computedAmount, currency),
-    status: mapTradeStatus(proposal.status, proposal.side),
+    status: mapTradeStatus(rawStatus, proposal.side),
     exchangeRate: '-',
-    fees: '-',
-    orderNumber: proposal.external_order_id || proposal.client_order_id || proposal.id,
+    fees: linkedBrokerOrder && (linkedBrokerOrder.commission || linkedBrokerOrder.tax)
+      ? formatCurrency((Number(linkedBrokerOrder.commission || 0) + Number(linkedBrokerOrder.tax || 0)), currency)
+      : '-',
+    orderNumber,
   }
 }
 
@@ -242,6 +309,8 @@ const mapBrokerHistoryToTrade = (order, symbolNameMap = {}) => {
   return {
     id: `broker-${order.id}`,
     sourceType: 'BROKER',
+    sourceLabel: '토스 앱/브로커',
+    sourceDescription: '거래소 앱 또는 브로커 원장에서 불러온 주문',
     rawStatus: normalizedStatus,
     isActionable: false,
     brokerEnv: order.broker_env || 'REAL',
@@ -284,6 +353,8 @@ const mapTransferToTrades = (transfer) => {
     {
       id: `transfer-withdraw-${transfer.id}`,
       sourceType: 'TRANSFER',
+      sourceLabel: 'AE 자산이동',
+      sourceDescription: 'AE에서 요청한 자산 이동',
       rawStatus: transfer.status,
       isActionable: false,
       brokerEnv: 'REAL',
@@ -312,6 +383,8 @@ const mapTransferToTrades = (transfer) => {
     rows.push({
       id: `transfer-deposit-${transfer.id}`,
       sourceType: 'TRANSFER',
+      sourceLabel: 'AE 자산이동',
+      sourceDescription: 'AE에서 요청한 자산 이동',
       rawStatus: transfer.status,
       isActionable: false,
       brokerEnv: 'REAL',
@@ -369,9 +442,11 @@ export default function TradeHistoryTab() {
   const mergeTrades = async (proposals = [], brokerOrders = [], transferRows = []) => {
     const hydratedRows = await hydrateTradeProposals(proposals)
     const brokerSymbolMap = await fetchSymbolDisplayNames(brokerOrders)
+    const brokerOrderLookup = buildBrokerOrderLookup(hydratedRows, brokerOrders)
+    const unlinkedBrokerOrders = filterUnlinkedBrokerOrders(brokerOrders, brokerOrderLookup)
     return [
-      ...hydratedRows.map(mapProposalToTrade),
-      ...brokerOrders.map((order) => mapBrokerHistoryToTrade(order, brokerSymbolMap)),
+      ...hydratedRows.map((proposal) => mapProposalToTrade(proposal, brokerOrderLookup)),
+      ...unlinkedBrokerOrders.map((order) => mapBrokerHistoryToTrade(order, brokerSymbolMap)),
       ...transferRows.flatMap(mapTransferToTrades),
     ].sort((a, b) => {
       const left = new Date(`${a.date}T${a.time === '-' ? '00:00:00' : a.time}`).getTime()
@@ -562,7 +637,7 @@ export default function TradeHistoryTab() {
     isCancelReplaceExchange(trade.exchange) ? '취소 후 재주문' : '주문 정정'
   )
 
-  const getAuthHeader = async () => {
+  async function getAuthHeader() {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.access_token) {
       throw new Error('로그인 세션을 확인할 수 없습니다.')
@@ -570,7 +645,7 @@ export default function TradeHistoryTab() {
     return `Bearer ${session.access_token}`
   }
 
-  const syncTradeStatuses = async () => {
+  async function syncTradeStatuses() {
     try {
       const authHeader = await getAuthHeader()
       await fetch(`${API_BASE_URL}/api/trade/orders/sync-status`, {
@@ -642,9 +717,9 @@ export default function TradeHistoryTab() {
       return payload
     } catch (error) {
       if (error?.name === 'AbortError') {
-        throw new Error('주문 처리 요청 시간이 초과되었습니다. 백엔드와 거래소 응답 상태를 확인해 주세요.')
+        throw new Error('주문 처리 요청 시간이 초과되었습니다. 백엔드와 거래소 응답 상태를 확인해 주세요.', { cause: error })
       }
-      throw new Error(buildApiErrorText(error, '주문 처리 요청에 실패했습니다.'))
+      throw new Error(buildApiErrorText(error, '주문 처리 요청에 실패했습니다.'), { cause: error })
     } finally {
       window.clearTimeout(timeoutId)
     }
@@ -677,7 +752,7 @@ export default function TradeHistoryTab() {
     setActionNotice('')
     try {
       const payload = await requestOrderAction('/api/trade/orders/sync-status', {})
-      setActionNotice(`거래소 주문상태 갱신 완료: 확인 ${payload.checked_count ?? 0}건 / 반영 ${payload.synced_count ?? 0}건`)
+      setActionNotice(`앱 주문 상태 갱신 완료: 확인 ${payload.checked_count ?? 0}건 / 반영 ${payload.synced_count ?? 0}건`)
       await refreshTradeHistory()
     } catch (error) {
       setActionNotice(error.message)
@@ -799,22 +874,21 @@ export default function TradeHistoryTab() {
                 onChange={(event) => setDateRange((prev) => ({ ...prev, end: event.target.value }))}
               />
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
-              <span>Exchange:</span>
-              {['ALL', 'TOSS', 'KIS', 'COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].map((item) => (
-                <button
-                  key={item}
-                  className={`rounded px-3 py-2 text-xs font-bold transition ${selectedExchange === item
-                      ? 'bg-ai-cyan text-[#07111f]'
-                      : 'bg-slate-700/70 text-slate-200 hover:bg-slate-600'
-                    }`}
-                  type="button"
-                  onClick={() => setSelectedExchange(item)}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
+            <label className="flex h-10 min-w-56 items-center gap-2 rounded border border-slate-700 bg-[#0f172a] px-3 text-sm text-slate-400">
+              <span className="shrink-0 text-xs font-bold text-slate-500">거래소</span>
+              <select
+                className="min-w-0 flex-1 bg-transparent text-xs font-bold text-slate-200 outline-none [color-scheme:dark]"
+                value={selectedExchange}
+                onChange={(event) => setSelectedExchange(event.target.value)}
+                aria-label="거래소 선택"
+              >
+                {TRADE_EXCHANGE_OPTIONS.map((item) => (
+                  <option key={item} value={item}>
+                    {TRADE_EXCHANGE_LABELS[item]}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
           <button
             className={`h-10 rounded border px-4 text-sm font-bold transition ${
@@ -825,63 +899,57 @@ export default function TradeHistoryTab() {
             type="button"
             onClick={() => setIsMoreFiltersOpen((prev) => !prev)}
           >
-            More Filters
+            필터
           </button>
           <button
             className="h-10 rounded border border-blue-500/40 bg-blue-500/10 px-4 text-sm font-bold text-blue-300 transition hover:bg-blue-500/15 disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
             disabled={Boolean(actionLoadingId)}
             onClick={handleSyncBrokerHistory}
+            title="토스 앱/브로커 주문 원장을 불러옵니다."
           >
-            {actionLoadingId === 'sync-broker-history' ? '토스 동기화 중' : '토스 원장 동기화'}
+            {actionLoadingId === 'sync-broker-history' ? '불러오는 중' : '토스 내역'}
           </button>
           <button
             className="h-10 rounded border border-cyan-500/40 bg-cyan-500/10 px-4 text-sm font-bold text-cyan-300 transition hover:bg-cyan-500/15 disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
             disabled={Boolean(actionLoadingId)}
             onClick={handleSyncOrderStatuses}
+            title="AE 거래 주문 상태를 거래소 기준으로 갱신합니다."
           >
-            {actionLoadingId === 'sync-order-statuses' ? '상태 갱신 중' : '거래소 상태 갱신'}
+            {actionLoadingId === 'sync-order-statuses' ? '갱신 중' : '상태 갱신'}
           </button>
         </div>
         {isMoreFiltersOpen ? (
           <div className="mt-3 flex justify-end border-t border-slate-800 pt-3">
-            <div className="w-full rounded border border-slate-800 bg-[#0f172a] p-3 md:max-w-4xl">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="flex flex-wrap items-center gap-2 md:ml-[25px]">
-                  <span className="w-10 text-xs font-bold text-slate-500">구분</span>
-                  {['ALL', '매수', '매도', '출금', '입금'].map((item) => (
-                    <button
-                      key={item}
-                      className={`rounded px-3 py-1.5 text-xs font-bold transition ${
-                        selectedTradeSide === item
-                          ? 'bg-ai-cyan text-[#07111f]'
-                          : 'bg-slate-700/70 text-slate-200 hover:bg-slate-600'
-                      }`}
-                      type="button"
-                      onClick={() => setSelectedTradeSide(item)}
-                    >
-                      {item === 'ALL' ? '전체' : item}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex flex-wrap items-center gap-2 md:flex-1 md:justify-end md:pr-[25px]">
-                  <span className="w-10 text-xs font-bold text-slate-500">상태</span>
-                  {['ALL', '주문 완료', '미체결', '체결완료', '취소완료', '전송중', '출금완료', '입금완료', '출금실패', '구매실패', '판매실패'].map((item) => (
-                    <button
-                      key={item}
-                      className={`rounded px-3 py-1.5 text-xs font-bold transition ${
-                        selectedTradeStatus === item
-                          ? 'bg-ai-cyan text-[#07111f]'
-                          : 'bg-slate-700/70 text-slate-200 hover:bg-slate-600'
-                      }`}
-                      type="button"
-                      onClick={() => setSelectedTradeStatus(item)}
-                    >
-                      {item === 'ALL' ? '전체' : item}
-                    </button>
-                  ))}
-                </div>
+            <div className="w-full rounded border border-slate-800 bg-[#0f172a] p-3 md:max-w-xl">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="flex h-10 items-center gap-2 rounded border border-slate-700 bg-[#111827] px-3 text-sm text-slate-400">
+                  <span className="shrink-0 text-xs font-bold text-slate-500">구분</span>
+                  <select
+                    className="min-w-0 flex-1 bg-transparent text-xs font-bold text-slate-200 outline-none [color-scheme:dark]"
+                    value={selectedTradeSide}
+                    onChange={(event) => setSelectedTradeSide(event.target.value)}
+                    aria-label="거래 구분 선택"
+                  >
+                    {TRADE_SIDE_OPTIONS.map((item) => (
+                      <option key={item} value={item}>{item === 'ALL' ? '전체' : item}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex h-10 items-center gap-2 rounded border border-slate-700 bg-[#111827] px-3 text-sm text-slate-400">
+                  <span className="shrink-0 text-xs font-bold text-slate-500">상태</span>
+                  <select
+                    className="min-w-0 flex-1 bg-transparent text-xs font-bold text-slate-200 outline-none [color-scheme:dark]"
+                    value={selectedTradeStatus}
+                    onChange={(event) => setSelectedTradeStatus(event.target.value)}
+                    aria-label="거래 상태 선택"
+                  >
+                    {TRADE_STATUS_OPTIONS.map((item) => (
+                      <option key={item} value={item}>{item === 'ALL' ? '전체' : item}</option>
+                    ))}
+                  </select>
+                </label>
               </div>
             </div>
           </div>
@@ -908,15 +976,16 @@ export default function TradeHistoryTab() {
                   <td className="px-4 py-4 font-mono text-xs text-slate-300">{trade.date.replaceAll('-', '.')} {trade.time}</td>
                   <td className="px-4 py-4">
                     <span className={`rounded border px-2 py-1 text-xs font-black ${exchangeTone[trade.exchange] || 'border-slate-600 bg-slate-700 text-slate-200'}`}>
-                      {trade.exchange}
+                      {TRADE_EXCHANGE_LABELS[trade.exchange] || trade.exchange}
                     </span>
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
                       <AssetLogo symbol={trade.ticker} assetType={trade.assetType} name={trade.symbolName} size="h-8 w-8" />
                       <div>
-                        <p className="font-bold text-white leading-tight">{trade.symbolName}</p>
+                      <p className="font-bold text-white leading-tight">{trade.symbolName}</p>
                         <p className="mt-0.5 text-xs text-slate-500 font-mono">{trade.ticker}</p>
+                        <p className="mt-1 text-[11px] font-bold text-ai-cyan/80">{trade.sourceLabel}</p>
                       </div>
                     </div>
                   </td>
@@ -941,7 +1010,7 @@ export default function TradeHistoryTab() {
                         ? 'bg-slate-600/60 text-slate-200'
                         : 'border border-slate-600 bg-slate-700/30 text-slate-200'
                       }`}>
-                        {trade.status}{trade.status === '미체결' ? ' (Pending)' : ''}
+                        {trade.status}
                       </span>
                       {trade.isActionable && trade.sourceType === 'APP' ? (
                         <div className="flex flex-wrap gap-2">
@@ -1023,11 +1092,12 @@ export default function TradeHistoryTab() {
                   <div className="text-right">
                     <p className="font-bold text-white">
                       {selectedTrade.sourceType === 'TRANSFER'
-                        ? '자산 이동'
+                        ? 'AE 자산이동'
                         : selectedTrade.sourceType === 'BROKER'
-                          ? '브로커 원장'
+                          ? '토스 앱/브로커'
                           : '지정가'} {selectedTrade.side}
                     </p>
+                    <p className="mt-1 text-xs font-bold text-ai-cyan">{selectedTrade.sourceLabel}</p>
                     <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${selectedTrade.status === '체결완료' ? 'bg-emerald-400/15 text-emerald-300' : 'bg-slate-700 text-slate-200'
                       }`}>
                       {selectedTrade.status}
@@ -1146,7 +1216,10 @@ export default function TradeHistoryTab() {
                 </div>
                 <div className="flex items-center justify-between">
                   <dt>원천</dt>
-                  <dd className="font-mono">{selectedTrade.sourceType === 'BROKER' ? 'BROKER_HISTORY' : 'TRADE_PROPOSAL'}</dd>
+                  <dd className="text-right font-bold text-slate-300">
+                    <span className="block">{selectedTrade.sourceLabel}</span>
+                    <span className="block text-[11px] font-normal text-slate-500">{selectedTrade.sourceDescription}</span>
+                  </dd>
                 </div>
               </dl>
             </div>

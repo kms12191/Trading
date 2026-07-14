@@ -20,6 +20,7 @@ ALLOWED_SORTS = {
     "recent_used_at",
     "created_at",
 }
+ALLOWED_PROFILE_ROLES = {"USER", "ADMIN"}
 
 
 class InvalidQueryParameter(ValueError):
@@ -106,6 +107,90 @@ def _bounded_query_int(value, default, minimum, maximum, name):
         raise InvalidQueryParameter(f"{name} 값은 숫자여야 합니다.") from error
 
 
+def _load_admin_target_user(user_id):
+    rows = _supabase_request(
+        "profiles",
+        params={
+            "select": "id,email,nickname,role,updated_at",
+            "id": f"eq.{user_id}",
+            "limit": "1",
+        },
+    ) or []
+    if not rows:
+        return None
+    return rows[0]
+
+
+def _first_present(row, *keys):
+    for key in keys:
+        value = row.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _map_admin_trade_proposal(row):
+    return {
+        "id": f"proposal-{row.get('id')}",
+        "sourceType": "APP",
+        "sourceLabel": "AE 거래",
+        "exchange": row.get("exchange") or "-",
+        "symbol": row.get("symbol") or row.get("ticker") or "-",
+        "side": row.get("side") or "-",
+        "price": row.get("price"),
+        "quantity": row.get("volume"),
+        "orderAmount": row.get("order_amount"),
+        "status": row.get("status") or "-",
+        "currency": row.get("currency") or "KRW",
+        "brokerEnv": row.get("broker_env") or "REAL",
+        "externalOrderId": row.get("external_order_id") or row.get("client_order_id") or "",
+        "occurredAt": row.get("created_at"),
+    }
+
+
+def _map_admin_broker_order(row):
+    return {
+        "id": f"broker-{row.get('id')}",
+        "sourceType": "BROKER",
+        "sourceLabel": "토스 앱/브로커",
+        "exchange": row.get("exchange") or "-",
+        "symbol": row.get("symbol") or "-",
+        "side": row.get("side") or "-",
+        "price": _first_present(row, "average_filled_price", "price"),
+        "quantity": _first_present(row, "filled_quantity", "quantity"),
+        "orderAmount": _first_present(row, "filled_amount", "order_amount"),
+        "status": row.get("status") or row.get("raw_status") or "-",
+        "currency": row.get("currency") or "KRW",
+        "brokerEnv": row.get("broker_env") or "REAL",
+        "externalOrderId": row.get("external_order_id") or row.get("client_order_id") or "",
+        "occurredAt": row.get("ordered_at") or row.get("filled_at"),
+    }
+
+
+def _map_admin_transfer(row):
+    currency = str(row.get("currency") or "").upper()
+    return {
+        "id": f"transfer-{row.get('id')}",
+        "sourceType": "TRANSFER",
+        "sourceLabel": "AE 자산이동",
+        "exchange": f"{row.get('from_exchange') or '-'} → {row.get('to_exchange') or '-'}",
+        "symbol": currency or "-",
+        "side": "출금" if str(row.get("status") or "").upper() != "COMPLETED" else "자산이동",
+        "price": None,
+        "quantity": row.get("amount"),
+        "orderAmount": None,
+        "status": row.get("status") or "-",
+        "currency": currency,
+        "brokerEnv": "REAL",
+        "externalOrderId": row.get("external_transaction_id") or "",
+        "occurredAt": row.get("submitted_at") or row.get("created_at") or row.get("updated_at"),
+    }
+
+
+def _sort_admin_trade_rows(rows):
+    return sorted(rows, key=lambda row: str(row.get("occurredAt") or ""), reverse=True)
+
+
 @admin_users_bp.route("/api/admin/users", methods=["GET"])
 def list_admin_users():
     try:
@@ -179,3 +264,91 @@ def get_admin_user_chatbot_usage(user_id):
         return _json_error(error, "유저 사용량 권한 확인 실패", 403)
     except Exception as error:
         return _json_error(error, "유저 사용량 조회 실패", 500)
+
+
+@admin_users_bp.route("/api/admin/users/<user_id>/trade-history", methods=["GET"])
+def get_admin_user_trade_history(user_id):
+    try:
+        _verify_admin(request.headers.get("Authorization"))
+        limit = _bounded_query_int(request.args.get("limit"), 50, 1, 200, "limit")
+        target_user = _load_admin_target_user(user_id)
+        if target_user is None:
+            return _json_error(ValueError("사용자를 찾을 수 없습니다."), "유저 거래내역 조회 실패", 404)
+
+        proposal_rows = _supabase_request(
+            "trade_proposals",
+            params={
+                "select": "id,exchange,ticker,symbol,side,price,volume,order_amount,status,currency,broker_env,client_order_id,external_order_id,created_at",
+                "user_id": f"eq.{user_id}",
+                "order": "created_at.desc",
+                "limit": str(limit),
+            },
+        ) or []
+        broker_rows = _supabase_request(
+            "broker_order_history",
+            params={
+                "select": "id,exchange,symbol,side,price,quantity,order_amount,status,raw_status,currency,broker_env,client_order_id,external_order_id,filled_quantity,average_filled_price,filled_amount,ordered_at,filled_at",
+                "user_id": f"eq.{user_id}",
+                "order": "ordered_at.desc",
+                "limit": str(limit),
+            },
+        ) or []
+        transfer_rows = _supabase_request(
+            "asset_transfer_proposals",
+            params={
+                "select": "id,from_exchange,to_exchange,currency,amount,status,external_transaction_id,submitted_at,created_at,updated_at",
+                "user_id": f"eq.{user_id}",
+                "order": "created_at.desc",
+                "limit": str(limit),
+            },
+        ) or []
+
+        rows = _sort_admin_trade_rows([
+            *(_map_admin_trade_proposal(row) for row in proposal_rows),
+            *(_map_admin_broker_order(row) for row in broker_rows),
+            *(_map_admin_transfer(row) for row in transfer_rows),
+        ])[:limit]
+        return jsonify({"success": True, "user": target_user, "data": rows})
+    except InvalidQueryParameter as error:
+        return _json_error(error, "유저 거래내역 조회 실패", 400)
+    except ValueError as error:
+        return _json_error(error, "유저 거래내역 조회 실패", 401)
+    except PermissionError as error:
+        return _json_error(error, "유저 거래내역 권한 확인 실패", 403)
+    except Exception as error:
+        return _json_error(error, "유저 거래내역 조회 실패", 500)
+
+
+@admin_users_bp.route("/api/admin/users/<user_id>/role", methods=["PATCH"])
+def update_admin_user_role(user_id):
+    try:
+        actor = _verify_admin(request.headers.get("Authorization"))
+        if user_id == actor.get("id"):
+            raise InvalidQueryParameter("자기 자신의 권한은 이 화면에서 변경할 수 없습니다.")
+
+        data = request.json or {}
+        next_role = str(data.get("role") or "").strip().upper()
+        if next_role not in ALLOWED_PROFILE_ROLES:
+            raise InvalidQueryParameter("role은 USER 또는 ADMIN만 가능합니다.")
+
+        target_user = _load_admin_target_user(user_id)
+        if target_user is None:
+            return _json_error(ValueError("사용자를 찾을 수 없습니다."), "유저 권한 변경 실패", 404)
+
+        rows = _supabase_request(
+            "profiles",
+            method="PATCH",
+            params={"id": f"eq.{user_id}", "select": "id,email,nickname,role,updated_at"},
+            json_data={"role": next_role},
+            extra_headers={"Prefer": "return=representation"},
+        ) or []
+        updated_user = rows[0] if rows else {**target_user, "role": next_role}
+        return jsonify({"success": True, "data": updated_user})
+    except InvalidQueryParameter as error:
+        return _json_error(error, "유저 권한 변경 실패", 400)
+    except ValueError as error:
+        return _json_error(error, "유저 권한 변경 실패", 401)
+    except PermissionError as error:
+        return _json_error(error, "유저 권한 변경 권한 확인 실패", 403)
+    except Exception as error:
+        return _json_error(error, "유저 권한 변경 실패", 500)

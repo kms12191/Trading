@@ -1,17 +1,20 @@
 import json
 import queue
 import threading
+from time import perf_counter
 from uuid import uuid4
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
 from backend.services.auth_service import validate_access_token
 from backend.services.chatbot.chat_service import ChatbotService
+from backend.services.chatbot.qa_event_repository import ChatbotQAEventRepository
 from backend.services.error_message_service import format_error_payload
 
 
 chatbot_bp = Blueprint("chatbot", __name__)
 chatbot_service = ChatbotService()
+qa_event_repository = ChatbotQAEventRepository()
 
 
 def _format_sse_event(event: str, payload: dict) -> str:
@@ -44,6 +47,46 @@ def _chunk_reply_text(text: str, chunk_size: int = 80) -> list[str]:
     return chunks
 
 
+def _resolve_qa_event_type(result: dict | None) -> str:
+    meta = (result or {}).get("meta") if isinstance(result, dict) else {}
+    if isinstance(meta, dict) and meta.get("tool_result"):
+        return "TOOL_RESULT"
+    if isinstance(meta, dict) and meta.get("tool_calls"):
+        return "OPENAI_TOOL_CALL"
+    return "CHATBOT_REPLY"
+
+
+def _record_chatbot_qa_event(
+    *,
+    event_type: str,
+    user_id: str,
+    request_id: str,
+    message: str,
+    result: dict | None = None,
+    error_payload: dict | None = None,
+    latency_ms: int | None = None,
+) -> None:
+    result = result if isinstance(result, dict) else {}
+    meta = dict(result.get("meta") or {})
+    if latency_ms is not None:
+        meta["latency_ms"] = latency_ms
+    if isinstance(error_payload, dict):
+        error = error_payload.get("error") if isinstance(error_payload.get("error"), dict) else {}
+        meta.update({
+            "source": "ROUTE_ERROR",
+            "error_title": error.get("title") or error_payload.get("message"),
+            "error_code": error.get("code"),
+        })
+    qa_event_repository.record_event(
+        event_type=event_type,
+        user_id=user_id,
+        request_id=request_id,
+        user_message=message,
+        assistant_message=result.get("reply") or "",
+        meta=meta,
+    )
+
+
 @chatbot_bp.route("/api/chatbot/message", methods=["POST"])
 def send_chatbot_message():
     auth_header = request.headers.get("Authorization")
@@ -54,16 +97,39 @@ def send_chatbot_message():
 
     try:
         data = request.json or {}
+        request_id = uuid4().hex[:16]
+        started_at = perf_counter()
         result = chatbot_service.reply(
             data.get("message"),
             user_id=user_id,
             auth_header=auth_header,
             user_timezone=data.get("timezone"),
             structured_order=data.get("structured_order"),
+            request_id=request_id,
+        )
+        _record_chatbot_qa_event(
+            event_type=_resolve_qa_event_type(result),
+            user_id=user_id,
+            request_id=request_id,
+            message=data.get("message"),
+            result=result,
+            latency_ms=int((perf_counter() - started_at) * 1000),
         )
         return jsonify({"success": True, "data": result})
     except Exception as error:
-        return jsonify(format_error_payload(error, "챗봇 응답 생성 실패")), 500
+        payload = format_error_payload(error, "챗봇 응답 생성 실패")
+        try:
+            _record_chatbot_qa_event(
+                event_type="CHATBOT_ERROR",
+                user_id=user_id,
+                request_id=locals().get("request_id") or uuid4().hex[:16],
+                message=(locals().get("data") or {}).get("message"),
+                error_payload=payload,
+                latency_ms=int((perf_counter() - locals().get("started_at", perf_counter())) * 1000),
+            )
+        except Exception:
+            current_app.logger.exception("챗봇 QA 에러 이벤트 저장 실패")
+        return jsonify(payload), 500
 
 
 @chatbot_bp.route("/api/chatbot/stream", methods=["POST"])
@@ -90,6 +156,7 @@ def stream_chatbot_message():
         def run_reply() -> None:
             with app.app_context():
                 try:
+                    started_at = perf_counter()
                     reply_arguments = {
                         "user_id": user_id,
                         "auth_header": auth_header,
@@ -101,6 +168,14 @@ def stream_chatbot_message():
                     if data.get("structured_order"):
                         reply_arguments["structured_order"] = data.get("structured_order")
                     result = chatbot_service.reply(data.get("message"), **reply_arguments)
+                    _record_chatbot_qa_event(
+                        event_type=_resolve_qa_event_type(result),
+                        user_id=user_id,
+                        request_id=request_id,
+                        message=data.get("message"),
+                        result=result,
+                        latency_ms=int((perf_counter() - started_at) * 1000),
+                    )
                     event_queue.put(("result", result))
                 except Exception as error:
                     app.logger.exception(
@@ -110,6 +185,16 @@ def stream_chatbot_message():
                     )
                     payload = format_error_payload(error, "챗봇 스트림 생성 실패")
                     payload["meta"] = {"request_id": request_id}
+                    try:
+                        _record_chatbot_qa_event(
+                            event_type="CHATBOT_ERROR",
+                            user_id=user_id,
+                            request_id=request_id,
+                            message=data.get("message"),
+                            error_payload=payload,
+                        )
+                    except Exception:
+                        app.logger.exception("챗봇 스트림 QA 에러 이벤트 저장 실패")
                     event_queue.put(("error", payload))
 
         yield _format_sse_event("trace", {"kind": "request", "label": "요청 분석"})

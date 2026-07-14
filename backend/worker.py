@@ -16,6 +16,7 @@ from backend.services.news_repository import NewsRepository
 from backend.services.news_ingest import NewsIngestService
 from backend.services.dart_ingest import DartIngestService
 from backend.services.kis_market_universe import KISMarketUniverseService
+from backend.services.market_calendar_scheduler import start_market_calendar_scheduler
 from backend.services.market_snapshot_scheduler import start_market_snapshot_scheduler
 from backend.services.ml_scheduler import start_dart_ingest_scheduler, start_news_ingest_scheduler, start_ml_automation_scheduler
 from backend.services.auto_trading_rule_engine import start_auto_trading_rule_scheduler
@@ -47,6 +48,9 @@ def main():
     OPEN_ORDER_STATUS_SYNC_ENABLED = os.getenv("OPEN_ORDER_STATUS_SYNC_ENABLED", "false").lower() == "true"
     OPEN_ORDER_STATUS_SYNC_INTERVAL_SECONDS = int(os.getenv("OPEN_ORDER_STATUS_SYNC_INTERVAL_SECONDS", "60"))
     OPEN_ORDER_STATUS_SYNC_LIMIT = int(os.getenv("OPEN_ORDER_STATUS_SYNC_LIMIT", "100"))
+    MARKET_CALENDAR_SYNC_ENABLED = os.getenv("MARKET_CALENDAR_SYNC_ENABLED", "false").lower() == "true"
+    MARKET_CALENDAR_SYNC_INTERVAL_SECONDS = int(os.getenv("MARKET_CALENDAR_SYNC_INTERVAL_SECONDS", "86400"))
+    MARKET_CALENDAR_SYNC_ENV = os.getenv("MARKET_CALENDAR_SYNC_ENV", "REAL")
     
     news_ingest_service = NewsIngestService()
     dart_ingest_service = DartIngestService()
@@ -105,6 +109,13 @@ def main():
         enabled=OPEN_ORDER_STATUS_SYNC_ENABLED,
         interval_seconds=OPEN_ORDER_STATUS_SYNC_INTERVAL_SECONDS,
         limit=OPEN_ORDER_STATUS_SYNC_LIMIT,
+    )
+
+    print(f"[Worker] Market Calendar Scheduler (Enabled: {MARKET_CALENDAR_SYNC_ENABLED}) 기동 시도")
+    start_market_calendar_scheduler(
+        enabled=MARKET_CALENDAR_SYNC_ENABLED,
+        interval_seconds=MARKET_CALENDAR_SYNC_INTERVAL_SECONDS,
+        env=MARKET_CALENDAR_SYNC_ENV,
     )
     
     print("[Worker] 모든 스케줄러가 성공적으로 등록되었습니다. 무한 대기 상태로 진입합니다.")

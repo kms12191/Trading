@@ -87,7 +87,7 @@ erDiagram
     *   `volume` (NUMERIC) - 주문 수량
     *   `order_amount` (NUMERIC) - Toss 금액 주문용 원화 금액
     *   `ord_type` (TEXT) - `LIMIT`(지정가), `MARKET`(시장가)
-    *   `status` (TEXT) - `PENDING`(대기), `APPROVED`(승인), `REJECTED`(반려), `EXECUTED`(체결완료), `FAILED`(실패)
+    *   `status` (TEXT) - `PENDING`(승인대기), `APPROVED`/`ORDERED`(주문접수), `OPEN`(미체결), `PARTIALLY_FILLED`(부분체결), `MODIFIED`(정정접수), `REJECTED`/`FAILED`/`EXPIRED`(주문실패), `EXECUTED`(체결완료), `CANCELED`(취소완료)
     *   `failure_reason` (TEXT) - 외부 거래소 에러 코드 및 오류 내용
     *   `client_order_id` (UUID) - 멱등성 보장용 클라이언트 고유 주문 ID
     *   `external_order_id` (TEXT) - 거래소 체결 주문번호
@@ -402,6 +402,26 @@ erDiagram
 *   **RLS**:
     *   조회(SELECT)는 누구나 가능, 갱신(UPSERT)은 `service_role` 계정 전용.
 
+### 2.14.1 market_calendar_days
+*   **용도**: 한국장(`KR`)과 미국장(`US`)의 일자별 개장/휴장 및 정규장 운영 시간을 저장하는 캘린더 캐시 테이블입니다. 챗봇이 특정 날짜의 장 운영 여부를 일반 지식으로 추측하지 않고, DB 또는 Toss 장 운영 캘린더 API 결과를 기준으로 답변할 때 사용합니다.
+*   **주요 컬럼**:
+    *   `id` (UUID, PK)
+    *   `market_country` (TEXT) - `KR` 또는 `US`
+    *   `trade_date` (DATE) - 장 운영 여부를 확인할 기준 일자
+    *   `is_open` (BOOLEAN) - 정규장 운영 여부
+    *   `holiday_name` (TEXT) - 휴장 사유 또는 휴일명
+    *   `regular_open_at` (TIMESTAMPTZ) - 정규장 시작 시각
+    *   `regular_close_at` (TIMESTAMPTZ) - 정규장 종료 시각
+    *   `source` (TEXT) - `TOSS`, `KRX`, `NYSE`, `NASDAQ` 등 데이터 출처
+    *   `raw_payload` (JSONB) - 원본 캘린더 응답
+    *   `created_at` (TIMESTAMPTZ)
+    *   `updated_at` (TIMESTAMPTZ)
+*   **제약조건**:
+    *   `UNIQUE (market_country, trade_date)` 복합 제약조건 적용.
+    *   `market_country IN ('KR', 'US')` 적용.
+*   **RLS**:
+    *   로그인 사용자는 조회(SELECT) 가능, 생성/수정/삭제는 `service_role` 전용.
+
 ---
 
 ### 2.15 paper_portfolios
@@ -482,13 +502,31 @@ erDiagram
     *   실제 사용량 로그는 Flask가 인증된 `user_id`를 확인한 뒤 `service_role`로만 생성하는 서버 작성 감사 데이터입니다.
     *   관리자 전체 집계는 백엔드 service role 기반 `/api/admin/users` 계열 API에서만 제공합니다.
 *   **관리자 RPC**:
-    *   `admin_list_user_token_usage()`가 `auth.users` 전체를 기준으로 검색, 정렬, 전체 요약, 페이지 제한을 DB에서 처리합니다.
+    *   `admin_list_user_token_usage()`가 `auth.users` 전체를 기준으로 검색, 정렬, 전체 요약, 페이지 제한을 DB에서 처리합니다. summary에는 `todayTokens`, `tokens30d`, `totalTokens`가 포함됩니다.
     *   `admin_get_user_token_usage()`가 `auth.users` 기준 사용자 정보와 일별/요청 유형별 집계, 최근 로그 제한을 DB에서 처리합니다.
     *   두 RPC는 `SECURITY DEFINER`로 실행하며 `service_role`만 호출할 수 있습니다. `today` 및 일별 버킷은 UTC 날짜 경계를 사용합니다.
     *   `20260714134000_fix_admin_user_usage_auth_source.sql` migration은 과거 트리거 누락으로 빠진 `profiles` row를 `auth.users`에서 백필해 토큰 로그 FK 저장 실패를 방지합니다.
+    *   `20260714065745_add_admin_user_usage_total_tokens_summary.sql` migration은 관리자 통산 예상 비용 표시를 위해 summary의 전체 누적 토큰(`totalTokens`)을 추가합니다.
 *   **RLS**:
     *   `authenticated` 사용자는 `auth.uid() = user_id`인 자신의 실제 토큰 로그만 조회할 수 있습니다.
     *   일반 사용자의 삽입·수정·삭제 권한은 회수하며, 다른 사용자의 로그도 조회할 수 없습니다.
+
+### 2.17.2 chatbot_qa_events
+*   **용도**: 팀 QA와 회귀 분석을 위해 챗봇 요청 단위의 자동 관찰 이벤트를 저장합니다. 팀원이 별도 메모를 남기지 않아도 라우트가 응답 결과, 도구 결과 요약, trace 종류, 지연시간, 에러 신호를 service role로 기록합니다.
+*   **주요 컬럼**:
+    *   `id` (UUID, PK)
+    *   `user_id` (UUID, FK) - `profiles.id` 참조
+    *   `request_id` (TEXT) - Flask 챗봇 요청 추적 식별자
+    *   `event_type` (TEXT) - `CHATBOT_REPLY`, `TOOL_RESULT`, `OPENAI_TOOL_CALL`, `CHATBOT_ERROR`
+    *   `event_payload` (JSONB) - 민감 원문을 제외한 요약 이벤트. `source`, `tool_source`, `symbol`, `trace_kinds`, `latency_ms`, `error_title`, `error_code`, 토큰 요약 등을 포함할 수 있습니다.
+    *   `created_at` (TIMESTAMPTZ)
+*   **보안 원칙**:
+    *   `raw_order_payload`, 거래소 raw 응답, 계좌 정보, API 키는 저장하지 않습니다.
+    *   일반 사용자와 익명 사용자의 직접 접근 권한은 회수하고, 서버가 `service_role`로만 기록합니다.
+*   **분석 View**:
+    *   `v_chatbot_qa_logs`는 `chat_history` 사용자 메시지를 기준으로 직후 assistant 응답, 근처 QA 이벤트, 실제 토큰 로그, 근처 주문 제안, 현재 대기 상태를 한 줄로 묶습니다.
+    *   `security_invoker = true`로 생성하며 일반 사용자 접근은 열지 않습니다.
+    *   `qa_flags`에는 에러, 주문 제안 생성, pending action, 느린 응답, 토큰 과다 사용, 짧은 답변, 실패성 문구 포함 여부가 자동 플래그로 포함됩니다.
 
 ### 2.18 user_knowledge_notes
 *   **용도**: 앱 내부 투자노트와 Obsidian 플러그인에서 동기화한 Markdown 노트를 사용자별로 저장합니다. 현재 1차 구현은 원문 저장과 해시 기반 변경 감지만 담당하며, 후속 단계에서 `knowledge_chunks`/vector 검색으로 확장합니다.

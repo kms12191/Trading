@@ -38,6 +38,8 @@ ml/data/ops/*
 !ml/data/ops/model_registry.json
 ml/models/*
 !ml/models/*.metrics.json
+ml/serving_packages/*
+!ml/serving_packages/*.tar.gz
 ml/reports
 ml/notebooks
 supabase/.temp

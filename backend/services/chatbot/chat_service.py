@@ -10,18 +10,27 @@ from flask import current_app, has_app_context
 from backend.services.chatbot.conversation_repository import ChatbotConversationRepository
 from backend.services.chatbot.function_calling import FUNCTION_SCHEMAS
 from backend.services.chatbot.llm_client import ChatbotLLMClient
+from backend.services.chatbot.market_context_followup import (
+    MARKET_CONTEXT_ACTION,
+    build_market_context_followup_result,
+    build_market_context_payload,
+    is_market_context_data,
+    is_market_context_followup,
+)
 from backend.services.chatbot.memory_service import ChatbotMemoryService
 from backend.services.chatbot.prompt_registry import build_system_prompt
 from backend.services.chatbot.rag_service import ChatbotRAGService
 from backend.services.chatbot.tool_registry import (
     add_watchlist_item,
     create_trade_proposal_from_message,
+    get_asset_candles,
     get_asset_orderbook,
     get_asset_outlook,
     get_asset_price,
     get_exchange_rate,
     get_holdings,
     get_home_market_rankings,
+    get_market_calendar,
     get_portfolio_summary,
     list_available_tools,
     list_open_orders,
@@ -31,6 +40,14 @@ from backend.services.chatbot.tool_registry import (
 )
 from backend.services.chatbot.order_parser import parse_order_intent
 from backend.services.chatbot.safety_guard import enforce_tool_safety
+from backend.services.chatbot.user_context_lookup import (
+    UserLookupContext,
+    build_favorite_memory_result,
+    build_user_note_result,
+    is_favorite_memory_query,
+    is_user_note_query,
+    is_watchlist_focus_request,
+)
 from backend.services.knowledge_repository import KnowledgeRepository
 from backend.services.supabase_client import safe_query_supabase
 
@@ -90,7 +107,7 @@ def build_tool_trace_steps(tool_result_data: dict | None) -> list[dict]:
         add("ml", "ML 신호")
     if source in {"TAVILY", "TAVILY_FALLBACK", "TAVILY_API"}:
         add("tavily", "Tavily 웹검색")
-    if source in {"DISCLOSURE_DB", "NEWS_DB", "VECTOR_DB", "HOME_MARKET", "OPEN_ORDERS"}:
+    if source in {"DISCLOSURE_DB", "NEWS_DB", "VECTOR_DB", "HOME_MARKET", "OPEN_ORDERS", "MARKET_CALENDAR_DB", "MARKET_CALENDAR_TOSS"}:
         add("db", "Supabase DB 조회")
     if source in {"VECTOR_DB"} or citations:
         add("rag", "RAG 벡터검색")
@@ -458,6 +475,14 @@ class ChatbotService:
                 },
             )
             return
+        if is_market_context_data(data):
+            self._set_pending_action(
+                auth_header,
+                user_id,
+                MARKET_CONTEXT_ACTION,
+                build_market_context_payload(user_text, data),
+            )
+            return
         if data.get("source") != "CHATBOT_ORDER_PARSER":
             return
         reason_to_action = {
@@ -584,6 +609,11 @@ class ChatbotService:
             base = str(arguments.get("base_currency") or "").strip()
             quote = str(arguments.get("quote_currency") or "KRW").strip()
             return f"{base}/{quote} 환율 알려줘".strip()
+        if tool_name == "get_market_calendar":
+            market_country = str(arguments.get("market_country") or "").strip().upper()
+            date = str(arguments.get("date") or "").strip()
+            market_text = "한국장" if market_country == "KR" else "미국장" if market_country == "US" else ""
+            return " ".join(part for part in [date, market_text, "장 운영 여부 알려줘"] if part)
         if tool_name == "get_asset_price":
             query = str(arguments.get("query") or fallback_text).strip()
             exchange = str(arguments.get("exchange") or "").strip()
@@ -594,6 +624,12 @@ class ChatbotService:
             exchange = str(arguments.get("exchange") or "").strip()
             broker_env = str(arguments.get("broker_env") or "").strip()
             return " ".join(part for part in [query, exchange, broker_env, "호가 알려줘"] if part)
+        if tool_name == "get_asset_candles":
+            query = str(arguments.get("query") or fallback_text).strip()
+            exchange = str(arguments.get("exchange") or "").strip()
+            broker_env = str(arguments.get("broker_env") or "").strip()
+            interval = str(arguments.get("interval") or "").strip()
+            return " ".join(part for part in [query, exchange, broker_env, interval, "캔들 흐름 알려줘"] if part)
         if tool_name == "get_home_market_rankings":
             asset_type = str(arguments.get("asset_type") or "").upper()
             asset_text = "코인" if asset_type == "CRYPTO" else "국내주식" if asset_type == "STOCK" else ""
@@ -623,8 +659,10 @@ class ChatbotService:
             "search_trade_history": search_trade_history,
             "list_open_orders": list_open_orders,
             "get_exchange_rate": get_exchange_rate,
+            "get_market_calendar": get_market_calendar,
             "get_asset_price": get_asset_price,
             "get_asset_orderbook": get_asset_orderbook,
+            "get_asset_candles": get_asset_candles,
             "get_asset_outlook": get_asset_outlook,
             "search_web": search_web,
         }
@@ -760,6 +798,36 @@ class ChatbotService:
                         },
                     }
 
+        if pending_peek == MARKET_CONTEXT_ACTION and is_market_context_followup(text):
+            pending_action, pending_payload = self._consume_pending_action(
+                auth_header,
+                user_id,
+            )
+            if pending_action:
+                tool_result = build_market_context_followup_result(pending_payload, text)
+                if tool_result:
+                    tool_data = tool_result.get("data")
+                    trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
+                    self._record_exchange(auth_header, user_id, text, tool_result["reply"])
+                    self._set_pending_action(
+                        auth_header,
+                        user_id,
+                        MARKET_CONTEXT_ACTION,
+                        pending_payload,
+                    )
+                    return {
+                        "reply": tool_result["reply"],
+                        "actions": tool_result.get("actions") or [],
+                        "meta": {
+                            "user_id": user_id,
+                            "available_tools": list_available_tools(),
+                            "tool_result": tool_data,
+                            "trace_steps": trace_steps,
+                            "pending_action": pending_action,
+                            "source": "MARKET_CONTEXT_FOLLOWUP",
+                        },
+                    }
+
         if self._is_confirmation(text):
             self._emit_trace(trace_callback, "pending_action", "대기 작업 확인")
             pending_action, _pending_payload = self._consume_pending_action(
@@ -787,6 +855,52 @@ class ChatbotService:
                         },
                 }
 
+        user_lookup_context = UserLookupContext(
+            auth_header=auth_header,
+            user_id=user_id,
+            text=text,
+            knowledge_repository=self.knowledge_repository,
+        )
+        if is_user_note_query(text):
+            self._emit_trace(trace_callback, "db", "투자노트 조회")
+            tool_result = build_user_note_result(user_lookup_context)
+            if tool_result:
+                tool_data = tool_result.get("data")
+                trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
+                self._record_exchange(auth_header, user_id, text, tool_result["reply"])
+                self._maybe_set_pending_from_tool_result(auth_header, user_id, text, tool_data)
+                return {
+                    "reply": tool_result["reply"],
+                    "actions": tool_result.get("actions") or [],
+                    "meta": {
+                        "user_id": user_id,
+                        "available_tools": list_available_tools(),
+                        "tool_result": tool_data,
+                        "trace_steps": trace_steps,
+                        "source": "USER_KNOWLEDGE_NOTES",
+                    },
+                }
+
+        if is_favorite_memory_query(text) or is_watchlist_focus_request(text):
+            self._emit_trace(trace_callback, "db", "자동메모리 조회")
+            tool_result = build_favorite_memory_result(user_lookup_context)
+            if tool_result:
+                tool_data = tool_result.get("data")
+                source = str(tool_data.get("source") or "USER_MEMORY_FACTS") if isinstance(tool_data, dict) else "USER_MEMORY_FACTS"
+                trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
+                self._record_exchange(auth_header, user_id, text, tool_result["reply"])
+                return {
+                    "reply": tool_result["reply"],
+                    "actions": tool_result.get("actions") or [],
+                    "meta": {
+                        "user_id": user_id,
+                        "available_tools": list_available_tools(),
+                        "tool_result": tool_data,
+                        "trace_steps": trace_steps,
+                        "source": source,
+                    },
+                }
+
         if self._is_direct_disclosure_lookup(text):
             self._emit_trace(trace_callback, "tool_routing", "도구 확인")
             tool_result = search_web(auth_header, text) if auth_header else None
@@ -794,6 +908,7 @@ class ChatbotService:
                 tool_data = tool_result.get("data")
                 trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
                 self._record_exchange(auth_header, user_id, text, tool_result["reply"])
+                self._maybe_set_pending_from_tool_result(auth_header, user_id, text, tool_data)
                 return {
                     "reply": tool_result["reply"],
                     "actions": tool_result.get("actions") or [],
@@ -873,6 +988,7 @@ class ChatbotService:
                 except Exception:
                     self._log_repository_failure("OpenAI 도구 결과 재합성에 실패했습니다.")
                 self._record_exchange(auth_header, user_id, text, final_reply)
+                self._maybe_set_pending_from_tool_result(auth_header, user_id, text, tool_data)
                 return {
                     "reply": final_reply,
                     "actions": tool_result.get("actions") or [],

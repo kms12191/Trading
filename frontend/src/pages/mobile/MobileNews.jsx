@@ -3,9 +3,9 @@ import MobileNewsPage from './MobileNewsPage.jsx'
 
 export default function MobileNews({ isLoggedIn, userEmail, handleLogout }) {
   return (
-    <div className="min-h-screen bg-obsidian-bg px-4 pb-4 pt-3 font-inter text-[#e2e2ec]">
+    <div className="min-h-screen overflow-x-hidden bg-obsidian-bg px-3 py-4 font-inter text-[#e2e2ec] sm:px-4">
       <MobileHeader isLoggedIn={isLoggedIn} handleLogout={handleLogout} />
-      <div className="-mt-5">
+      <div>
         <MobileNewsPage
           isLoggedIn={isLoggedIn}
           userEmail={userEmail}

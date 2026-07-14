@@ -48,6 +48,34 @@ test('keeps complete summary and metric values for wrapping instead of truncatin
   assert.equal(result.items[0].checks.length, 0)
 })
 
+test('normalizes disclosure items from combined news and disclosure search results', () => {
+  const result = buildDisclosurePresentation({
+    source: 'NEWS_DISCLOSURE_COMBINED',
+    news: {
+      source: 'NAVER_API',
+      items: [{ title: '뉴스' }],
+    },
+    disclosure: {
+      source: 'DISCLOSURE_DB',
+      items: [
+        {
+          corp_name: '삼성전자',
+          report_nm: '주요사항보고서',
+          analysis: {
+            plain_summary: '자기주식 처분 공시입니다.',
+            metrics: [{ label: '처분예정금액', value: '322,755,945,000원' }],
+          },
+        },
+      ],
+    },
+  })
+
+  assert.equal(result.items.length, 1)
+  assert.equal(result.items[0].corpName, '삼성전자')
+  assert.equal(result.items[0].summary, '자기주식 처분 공시입니다.')
+  assert.deepEqual(result.items[0].metrics, [{ label: '처분예정금액', value: '322,755,945,000원' }])
+})
+
 test('filters placeholder disclosure table fields from chatbot cards', () => {
   const result = buildDisclosurePresentation({
     source: 'DISCLOSURE_DB',

@@ -35,8 +35,10 @@
 - ML
   - 주식 신호 모델: `v1` ~ `v11`
   - 주식 위험 모델: `v1` ~ `v11`
-  - 코인 신호/위험 모델: `v1` ~ `v8`
-  - 예측 CSV, 백테스트 JSON, 모델 레지스트리 파일 생성
+  - 국내주식 분리 모델: `lgbm_kr_stock_signal_v1`, `lgbm_kr_stock_risk_v1`
+  - 해외주식 분리 모델: `lgbm_us_stock_signal_v1`, `lgbm_us_stock_risk_v1`
+  - 코인 신호/위험 모델: `v1` ~ `v9`
+  - 예측 CSV, 백테스트 JSON, 모델 레지스트리, EC2 서빙 패키지 생성
 
 ## 현재 저장소 기준 핵심 디렉토리
 
@@ -111,10 +113,22 @@ python src/run_pipeline_bundle.py \
 
 ```bash
 python src/run_pipeline_bundle.py \
-  --config configs/lgbm_crypto_v8.yaml \
-  --risk-config configs/lgbm_crypto_risk_v8.yaml \
-  --summary-output data/processed/crypto_v8_summary.json
+  --config configs/lgbm_crypto_v9.yaml \
+  --risk-config configs/lgbm_crypto_risk_v9.yaml \
+  --summary-output data/processed/crypto_v9_summary.json
 ```
+
+EC2에는 학습 산출물 전체를 올리지 않고 서빙 패키지만 올립니다.
+
+```bash
+python3 -m ml.src.export_serving_package \
+  --asset-key kr_stock \
+  --output-root ml/serving_packages \
+  --no-predictions \
+  --archive
+```
+
+생성된 패키지는 `manifest.json`에 모델 파일, risk 모델, config, feature 순서, 정책, 성능 요약, 파일 해시를 포함합니다.
 
 ## 주요 API
 
@@ -201,17 +215,17 @@ python src/run_pipeline_bundle.py \
 ## ML 운영 기준 사실
 
 - 자동화 preset 정의는 현재 `backend/services/ml_automation_service.py` 기준입니다.
-- 기본 자동화 preset:
-  - `stock-v8-full`
-  - `crypto-v8-full`
-- 레거시 자동화 preset:
-  - `stock-v7-full`
-  - `crypto-v7-full`
-- 주식 `v11` 모델 파일과 설정은 존재하지만, 자동화 preset은 아직 `v11`로 승격되지 않았습니다.
+- 운영 점검 기준 preset:
+  - `stock-v11-full`
+  - `crypto-v9-full`
+  - `kr-stock-v1-full`
+  - `us-stock-v1-full`
+- 레거시 자동화 preset은 코드에 남아 있을 수 있으나, 현재 운영 점검 기준은 위 preset입니다.
 - 작업 이력의 1차 저장소는 파일입니다.
   - `ml/data/ops/job_history.json`
   - `ml/data/ops/model_registry.json`
 - Supabase `ml_dataset_jobs`, `ml_training_runs`, `ml_model_registry`는 best-effort 동기화 대상입니다.
+- EC2 배포용 모델은 `ml/src/export_serving_package.py`로 생성한 `ml/serving_packages/*.tar.gz`를 사용합니다.
 
 ## 보안 및 운영 메모
 
@@ -226,7 +240,8 @@ python src/run_pipeline_bundle.py \
 - [project_structure.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/project_structure.md:1)
 - [system_workflow.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/system_workflow.md:1)
 - [database_specification.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/database_specification.md:1)
-- [ml/README.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레잉/teamproject/ml/README.md:1)
+- [ml/README.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/README.md:1)
+- [ml/serving_package_runbook.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/serving_package_runbook.md:1)
 
 ## 2026-07-09 DART summary RAG
 

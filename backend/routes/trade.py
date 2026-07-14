@@ -1041,9 +1041,7 @@ def _normalize_live_quote_prices(live_quote: dict | None) -> tuple[float | None,
         previous_close = current_price - price_change
 
     change_rate = None
-    if str(quote.get("change_rate_source") or "").upper() == "TOSS_PRICE" and quote.get("change_rate") is not None:
-        change_rate = _as_float(quote.get("change_rate"))
-    elif current_price > 0 and previous_close > 0:
+    if current_price > 0 and previous_close > 0:
         change_rate = _recalculate_change_rate(current_price, previous_close)
     elif quote.get("change_rate") is not None:
         change_rate = _as_float(quote.get("change_rate"))
@@ -1053,6 +1051,34 @@ def _normalize_live_quote_prices(live_quote: dict | None) -> tuple[float | None,
         previous_close if previous_close > 0 else None,
         change_rate,
     )
+
+
+def _is_domestic_stock_symbol(symbol: str) -> bool:
+    return bool(re.fullmatch(r"\d{6}", str(symbol or "").strip()))
+
+
+def _load_kis_previous_close_for_quote(auth_header: str, user_id: str, symbol: str, broker_env: str) -> tuple[float | None, str | None]:
+    """
+    Toss 국내주식 시세에서 전일종가가 기준가처럼 내려오는 경우가 있어,
+    국내 6자리 종목은 KIS의 명시적인 전일종가를 보조 기준으로 사용합니다.
+    """
+    env_candidates = []
+    for env in (broker_env, "REAL", "MOCK"):
+        normalized_env = str(env or "").upper()
+        if normalized_env and normalized_env not in env_candidates:
+            env_candidates.append(normalized_env)
+
+    for env in env_candidates:
+        try:
+            record, access_key, secret_key = _load_user_exchange_record(auth_header, user_id, "KIS", env)
+            client = _build_exchange_client("KIS", env, record, access_key, secret_key)
+            quote = client.get_price(symbol) if client and hasattr(client, "get_price") else {}
+            _, previous_close, _ = _normalize_live_quote_prices(quote)
+            if previous_close:
+                return previous_close, env
+        except Exception as error:
+            current_app.logger.debug(f"KIS 전일종가 보강 실패: symbol={symbol} env={env} reason={str(error)}")
+    return None, None
 
 
 def _pick_nested_value(data: dict | None, keys: tuple[str, ...]):
@@ -2785,9 +2811,9 @@ def reject_trade_proposal():
 
 
 @trade_bp.route("/api/trade/orders/sync-status", methods=["POST"])
-def sync_kis_order_statuses():
+def sync_order_statuses():
     """
-    로그인 사용자의 KIS 미체결 거래내역을 실제 미체결/잔고 상태와 맞춰 보정합니다.
+    로그인 사용자의 앱 주문 거래내역을 실제 거래소 주문 상태와 맞춰 보정합니다.
     """
     auth_header = request.headers.get("Authorization")
     if not auth_header:
@@ -2817,6 +2843,84 @@ def sync_kis_order_statuses():
     synced_count = 0
     checked_count = 0
     errors = []
+
+    try:
+        toss_proposals = query_supabase(
+            auth_header,
+            "trade_proposals",
+            "GET",
+            params={
+                "user_id": f"eq.{user_id}",
+                "exchange": "eq.TOSS",
+                "limit": "100",
+                "order": "created_at.desc",
+            },
+        ) or []
+    except Exception as e:
+        toss_proposals = []
+        errors.append(f"Toss order sync query failed: {str(e)[:160]}")
+
+    toss_clients = {}
+    for proposal in toss_proposals:
+        proposal_id = proposal.get("id")
+        symbol = proposal.get("symbol") or proposal.get("ticker")
+        order_id = proposal.get("external_order_id")
+        status = str(proposal.get("status") or "").upper()
+        if status in {"EXECUTED", "CANCELED", "CANCELLED", "REJECTED", "FAILED", "EXPIRED"}:
+            continue
+        if not proposal_id or not symbol or not order_id:
+            continue
+
+        broker_env = _resolve_proposal_broker_env(proposal)
+        try:
+            if broker_env not in toss_clients:
+                record, access_key, secret_key = _load_user_exchange_record(
+                    auth_header,
+                    user_id,
+                    "TOSS",
+                    broker_env,
+                )
+                toss_clients[broker_env] = _build_exchange_client("TOSS", broker_env, record, access_key, secret_key)
+            client = toss_clients[broker_env]
+            checked_count += 1
+
+            current_order = client.get_order_status(order_id)
+            raw_status = str(current_order.get("status") or "").upper()
+            executed_qty = float(current_order.get("executed_qty") or 0)
+            requested_qty = float(proposal.get("volume") or 0)
+            if raw_status in {"FILLED", "EXECUTED", "DONE", "COMPLETED"} or (requested_qty > 0 and executed_qty >= requested_qty):
+                next_status = "EXECUTED"
+            elif raw_status in {"CANCELED", "CANCELLED"}:
+                next_status = "CANCELED"
+            elif raw_status in {"REJECTED", "FAILED", "EXPIRED", "EXPIRED_IN_MATCH"}:
+                next_status = "FAILED"
+            elif executed_qty > 0:
+                next_status = "PARTIALLY_FILLED"
+            else:
+                next_status = "ORDERED"
+
+            sync_detail = {
+                "account": {
+                    "exchange": "TOSS",
+                    "broker_env": broker_env,
+                },
+                "order_status": current_order,
+                "normalized_status": next_status,
+            }
+            patch_payload = {
+                "status": next_status,
+                "broker_env": broker_env,
+                "failure_reason": None,
+                "raw_order_payload": {"sync_status_check": sync_detail},
+            }
+            if next_status == "CANCELED":
+                patch_payload["canceled_at"] = datetime.utcnow().isoformat() + "Z"
+            if next_status == "FAILED":
+                patch_payload["failure_reason"] = f"TOSS order status: {raw_status or 'FAILED'}"
+            _patch_trade_proposal(auth_header, proposal_id, patch_payload)
+            synced_count += 1
+        except Exception as exc:
+            errors.append(f"TOSS {symbol}: {str(exc)[:180]}")
 
     for proposal in proposals:
         proposal_id = proposal.get("id")
@@ -3656,16 +3760,33 @@ def get_quote():
     current_price = None
     previous_close = None
     live_quote = {}
+    change_rate_source = None
+    raw_change_rate = None
+    raw_previous_close = None
+    previous_close_source = None
     if auth_header:
         try:
             user_id, _ = get_user_id_from_header(auth_header)
             record, access_key, secret_key = _load_user_exchange_record(auth_header, user_id, exchange, broker_env)
             client = _build_exchange_client(exchange, broker_env, record, access_key, secret_key)
             live_quote = client.get_price(symbol) if client and hasattr(client, "get_price") else {}
+            raw_change_rate = live_quote.get("change_rate") if isinstance(live_quote, dict) else None
             normalized_price, previous_close, normalized_change_rate = _normalize_live_quote_prices(live_quote)
             current_price = normalized_price
+            raw_previous_close = previous_close
+            previous_close_source = live_quote.get("previous_close_source") if isinstance(live_quote, dict) else None
+            if exchange == "TOSS" and _is_domestic_stock_symbol(symbol):
+                kis_previous_close, kis_env = _load_kis_previous_close_for_quote(auth_header, user_id, symbol, broker_env)
+                if kis_previous_close:
+                    previous_close = kis_previous_close
+                    previous_close_source = f"KIS:{kis_env}"
+                    if current_price:
+                        normalized_change_rate = _recalculate_change_rate(current_price, previous_close)
+                        change_rate_source = "CALCULATED_FROM_KIS_PREVIOUS_CLOSE"
             if normalized_change_rate is not None:
                 change_rate = normalized_change_rate
+                if not change_rate_source:
+                    change_rate_source = "CALCULATED_FROM_LIVE_PRICE" if current_price and previous_close else live_quote.get("change_rate_source")
         except Exception as quote_error:
             current_app.logger.warning(f"차트 현재가 조회 실패: {str(quote_error)}")
 
@@ -3681,8 +3802,13 @@ def get_quote():
                     if prev_close > 0:
                         change_rate = round(((today_close - prev_close) / prev_close) * 100, 4)
                         current_price = today_close
+                        previous_close = prev_close
+                        change_rate_source = "CALCULATED_FROM_CANDLE_CACHE"
                 except (ValueError, TypeError, KeyError):
                     pass
+
+    if not change_rate_source and isinstance(live_quote, dict):
+        change_rate_source = live_quote.get("change_rate_source")
 
     return jsonify({
         "success": True,
@@ -3693,7 +3819,10 @@ def get_quote():
             "currency": _currency_for_quote(exchange, symbol),
             **({"current_price": current_price} if current_price is not None else {}),
             **({"previous_close": previous_close} if "previous_close" in locals() and previous_close is not None else {}),
-            **({"change_rate_source": live_quote.get("change_rate_source")} if isinstance(live_quote, dict) and live_quote.get("change_rate_source") else {}),
+            **({"change_rate_source": change_rate_source} if change_rate_source else {}),
+            **({"raw_change_rate": raw_change_rate} if raw_change_rate is not None else {}),
+            **({"raw_previous_close": raw_previous_close} if raw_previous_close is not None and raw_previous_close != previous_close else {}),
+            **({"previous_close_source": previous_close_source} if previous_close_source else {}),
             **({"symbol_used": live_quote.get("symbol_used")} if isinstance(live_quote, dict) and live_quote.get("symbol_used") else {}),
         }
     })

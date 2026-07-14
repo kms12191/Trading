@@ -20,6 +20,7 @@ import {
 } from './chatbotTimeline'
 import { buildChatbotTraceBadges } from './chatbotTrace'
 import { buildTradeHistoryPresentation } from './chatbotTradeHistoryPresentation'
+import { buildWatchlistPresentation } from './chatbotWatchlistPresentation'
 
 const INITIAL_MESSAGES = [
   {
@@ -29,16 +30,6 @@ const INITIAL_MESSAGES = [
     createdAt: new Date().toISOString(),
     timelineOrder: 0,
   },
-]
-
-const QUICK_MESSAGES = [
-  '자산 요약',
-  '시세 확인',
-  '매매 제안',
-  '뉴스 분석',
-  '공시 조회',
-  '투자 리스크',
-  '이용 가이드',
 ]
 
 function getUserTimeZone() {
@@ -173,13 +164,15 @@ function ChatMessage({ message, onAction }) {
   const newsPresentation = buildNewsPresentation(message.toolResult)
   const mlRecommendationPresentation = buildMlRecommendationPresentation(message.toolResult)
   const tradeHistoryPresentation = buildTradeHistoryPresentation(message.toolResult)
+  const watchlistPresentation = buildWatchlistPresentation(message.toolResult)
   const hasDisclosureCards = !isUser && disclosurePresentation.items.length > 0
   const hasNewsCards = !isUser && newsPresentation.items.length > 0
   const hasMlRecommendationCards = !isUser && mlRecommendationPresentation.shouldRender
   const hasTradeHistoryTable = !isUser && tradeHistoryPresentation.shouldRender
+  const hasWatchlistTable = !isUser && watchlistPresentation.shouldRender
   const citations = !isUser ? buildChatbotCitations(message.toolResult) : []
   const traceBadges = !isUser ? buildChatbotTraceBadges({ traceSteps: message.traceSteps, toolResult: message.toolResult }) : []
-  const hasMessageBody = hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable || Boolean(message.text) || !message.isStreaming
+  const hasMessageBody = hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable || hasWatchlistTable || Boolean(message.text) || !message.isStreaming
 
   if (!hasMessageBody && traceBadges.length === 0) {
     return null
@@ -187,13 +180,13 @@ function ChatMessage({ message, onAction }) {
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`flex flex-col gap-1 ${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable ? 'w-full max-w-[96%]' : 'max-w-[84%]'} ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex flex-col gap-1 ${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable || hasWatchlistTable ? 'w-full max-w-[96%]' : 'max-w-[84%]'} ${isUser ? 'items-end' : 'items-start'}`}>
         {!isUser && traceBadges.length > 0 && (
           <TraceBadges badges={traceBadges} />
         )}
         {hasMessageBody && (
           <div
-            className={`${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable ? 'w-full' : 'whitespace-pre-wrap break-words'} rounded-lg px-3 py-2 text-xs leading-5 ${
+            className={`${hasDisclosureCards || hasNewsCards || hasMlRecommendationCards || hasTradeHistoryTable || hasWatchlistTable ? 'w-full' : 'whitespace-pre-wrap break-words'} rounded-lg px-3 py-2 text-xs leading-5 ${
               isUser
                 ? 'bg-blue-600 text-[#ffffff]'
                 : 'border border-slate-700/80 bg-[#111827] text-slate-100'
@@ -201,10 +194,17 @@ function ChatMessage({ message, onAction }) {
           >
             {hasMlRecommendationCards && !message.isStreaming ? (
               <MlRecommendationResults presentation={mlRecommendationPresentation} />
+            ) : hasNewsCards && hasDisclosureCards && !message.isStreaming ? (
+              <div className="space-y-3">
+                <NewsResults presentation={newsPresentation} />
+                <DisclosureResults presentation={disclosurePresentation} />
+              </div>
             ) : hasNewsCards && !message.isStreaming ? (
               <NewsResults presentation={newsPresentation} />
             ) : hasTradeHistoryTable && !message.isStreaming ? (
               <TradeHistoryResults presentation={tradeHistoryPresentation} />
+            ) : hasWatchlistTable && !message.isStreaming ? (
+              <WatchlistResults presentation={watchlistPresentation} />
             ) : hasDisclosureCards && !message.isStreaming ? (
               <DisclosureResults presentation={disclosurePresentation} />
             ) : message.text}
@@ -236,6 +236,42 @@ function ChatMessage({ message, onAction }) {
         {!isUser && citations.length > 0 && (
           <CitationList citations={citations} />
         )}
+      </div>
+    </div>
+  )
+}
+
+function WatchlistResults({ presentation }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-700/70 pb-2">
+        <p className="font-bold text-cyan-200">{presentation.title || '관심종목'}</p>
+        <span className="shrink-0 rounded border border-cyan-500/30 bg-cyan-950/30 px-2 py-0.5 text-[10px] font-bold text-cyan-100">
+          {presentation.count}건
+        </span>
+      </div>
+
+      <div className="overflow-x-auto rounded border border-slate-700/80">
+        <table className="w-full min-w-[520px] border-collapse text-left text-[11px]">
+          <thead className="bg-slate-900/80 text-[10px] uppercase tracking-[0.08em] text-slate-400">
+            <tr>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">종목명</th>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">종목코드</th>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">분류</th>
+              <th className="whitespace-nowrap px-2.5 py-2 font-bold">거래소</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/80">
+            {presentation.items.map((item) => (
+              <tr key={`${item.exchange}-${item.assetType}-${item.symbol}`} className="bg-slate-950/20">
+                <td className="whitespace-nowrap px-2.5 py-2 font-bold text-slate-100">{item.name}</td>
+                <td className="whitespace-nowrap px-2.5 py-2 font-mono text-cyan-100">{item.symbol}</td>
+                <td className="whitespace-nowrap px-2.5 py-2 text-slate-200">{item.assetType}</td>
+                <td className="whitespace-nowrap px-2.5 py-2 font-mono text-slate-300">{item.exchange}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )
@@ -549,12 +585,6 @@ function ChatOrderForm({ onClose, onSubmit }) {
   const [buyTriggerPrice, setBuyTriggerPrice] = useState('')
   const [conditionalMode, setConditionalMode] = useState('PROPOSAL')
 
-  useEffect(() => {
-    if (exchange === 'TOSS' || exchange === 'COINONE') {
-      setBrokerEnv('REAL')
-    }
-  }, [exchange])
-
   const handleSubmitForm = (e) => {
     e.preventDefault()
     if (!symbolQuery.trim()) {
@@ -634,10 +664,13 @@ function ChatOrderForm({ onClose, onSubmit }) {
           <select
             value={exchange}
             onChange={(e) => {
-              const val = e.target.value;
-              setExchange(val);
+              const val = e.target.value
+              setExchange(val)
+              if (val === 'TOSS' || val === 'COINONE') {
+                setBrokerEnv('REAL')
+              }
               if (val === 'COINONE') {
-                setOrderType('LIMIT');
+                setOrderType('LIMIT')
               }
             }}
             className="w-full rounded border border-slate-700 bg-slate-950 p-1 text-slate-200 outline-none focus:border-ai-cyan"
@@ -853,7 +886,6 @@ export default function ChatbotWidget({
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [showOrderForm, setShowOrderForm] = useState(false)
-  const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false)
   const [pendingProposals, setPendingProposals] = useState([])
   const [proposalActionId, setProposalActionId] = useState('')
   const widgetInstanceId = useId()
@@ -982,7 +1014,6 @@ export default function ChatbotWidget({
   const resetConversation = () => {
     setInput('')
     setIsSending(false)
-    setIsQuickMenuOpen(false)
     setMessages(INITIAL_MESSAGES.map((message) => ({
       ...message,
       createdAt: new Date().toISOString(),
@@ -1186,7 +1217,6 @@ export default function ChatbotWidget({
     if (!trimmed || isSending) return
 
     setInput('')
-    setIsQuickMenuOpen(false)
     addMessage('user', trimmed)
     setIsSending(true)
     const assistantMessageId = addStreamingAssistantMessage()
@@ -1313,7 +1343,18 @@ export default function ChatbotWidget({
                   </button>
                 </div>
                 <h1 className="text-center text-2xl font-black tracking-tight text-white">챗봇 상담</h1>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  {isLoggedIn ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowOrderForm((prev) => !prev)}
+                      disabled={isSending}
+                      className="h-10 shrink-0 rounded-full border border-ai-cyan/60 bg-ai-cyan/10 px-3 text-xs font-bold text-ai-cyan transition active:bg-ai-cyan active:text-[#07111f] disabled:opacity-50"
+                      aria-label="매매 요청 폼 열기"
+                    >
+                      매매 요청
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={closeChat}
@@ -1326,24 +1367,37 @@ export default function ChatbotWidget({
               </>
             ) : (
               <>
-            <div className="flex min-w-0 items-center gap-3">
-              <img
-                src="/chatbot-bot.png"
-                alt="AE 챗봇"
-                className="h-10 w-10 shrink-0 rounded-full border border-ai-cyan/50 object-cover object-top"
-              />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-bold text-white">AE Trading Bot</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={closeChat}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded border border-slate-700 text-sm font-bold text-slate-300 transition hover:border-ai-cyan hover:text-ai-cyan"
-              aria-label="챗봇 닫기"
-            >
-              x
-            </button>
+                <div className="flex min-w-0 items-center gap-3">
+                  <img
+                    src="/chatbot-bot.png"
+                    alt="AE 챗봇"
+                    className="h-10 w-10 shrink-0 rounded-full border border-ai-cyan/50 object-cover object-top"
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-white">AE Trading Bot</p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {isLoggedIn ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowOrderForm((prev) => !prev)}
+                      disabled={isSending}
+                      className="h-8 rounded border border-ai-cyan/60 bg-ai-cyan/10 px-3 text-xs font-bold text-ai-cyan transition hover:bg-ai-cyan hover:text-[#07111f] disabled:opacity-50"
+                      aria-label="매매 요청 폼 열기"
+                    >
+                      매매 요청
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={closeChat}
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded border border-slate-700 text-sm font-bold text-slate-300 transition hover:border-ai-cyan hover:text-ai-cyan"
+                    aria-label="챗봇 닫기"
+                  >
+                    x
+                  </button>
+                </div>
               </>
             )}
           </header>
@@ -1382,41 +1436,6 @@ export default function ChatbotWidget({
             ? 'border-t border-ai-cyan/10 bg-[#061321]/95 px-4 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-4 shadow-[0_-14px_34px_rgba(0,0,0,0.42)] backdrop-blur-xl'
             : 'border-t border-slate-800 bg-[#0b1120] p-3'}
           >
-            {isLoggedIn && (!isMobilePage || isQuickMenuOpen) ? (
-              <div className={isMobilePage
-                ? 'mb-4 rounded-lg border border-slate-800 bg-[#0f172a]/80 p-3'
-                : 'mb-3 flex flex-wrap gap-2'}
-              >
-                {isMobilePage ? (
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Category</p>
-                ) : null}
-                <div className={isMobilePage ? 'flex flex-wrap gap-2' : 'contents'}>
-                {QUICK_MESSAGES.map((message) => (
-                  <button
-                    key={message}
-                    type="button"
-                    onClick={() => {
-                      if (message.includes('매매 제안')) {
-                        setShowOrderForm((prev) => !prev)
-                      } else {
-                        submitMessage(message)
-                      }
-                    }}
-                    disabled={isSending}
-                    className={isMobilePage
-                      ? 'rounded-full border border-slate-700 bg-[#0f172a] px-4 py-2 text-sm font-bold text-slate-300 transition active:border-ai-cyan active:bg-ai-cyan/10 active:text-ai-cyan disabled:opacity-50'
-                      : `rounded border px-2.5 py-1.5 text-[11px] font-bold transition disabled:opacity-50 ${
-                          message.includes('매매 제안')
-                            ? 'border-ai-cyan/60 bg-ai-cyan/10 text-ai-cyan hover:bg-ai-cyan hover:text-[#07111f]'
-                            : 'border-slate-700 text-slate-300 hover:border-ai-cyan hover:text-ai-cyan'
-                        }`}
-                  >
-                    {message}
-                  </button>
-                ))}
-                </div>
-              </div>
-            ) : null}
             {showOrderForm && (
               <div className="mb-3 max-h-[320px] overflow-y-auto rounded-lg border border-slate-800 bg-[#070b14]/90 p-0.5">
                 <ChatOrderForm

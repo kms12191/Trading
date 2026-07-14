@@ -255,18 +255,26 @@ dist
 *.pem
 캐시 파일
 ML raw 데이터
-ML joblib 모델/리포트/노트북
+ML 전체 학습 산출물/리포트/노트북
 ```
 
-챗봇 추천에 필요한 serving 산출물은 예외적으로 업로드합니다.
+챗봇 추천에 필요한 모델은 전체 `ml/` 디렉토리를 올리지 않고, 서빙 패키지로 별도 생성해 업로드합니다. 패키지는 모델 `joblib`, risk 모델 `joblib`, config, metrics, summary, `manifest.json`만 포함하며 raw 학습 데이터는 포함하지 않습니다.
+
+```bash
+python3 -m ml.src.export_serving_package \
+  --asset-key kr_stock \
+  --output-root ml/serving_packages \
+  --no-predictions \
+  --archive
+```
+
+해외주식/코인은 `--asset-key us_stock`, `--asset-key crypto`로 각각 생성합니다. EC2에는 생성된 `.tar.gz`만 업로드합니다.
 
 ```text
-ml/data/ops/model_registry.json
-ml/models/*.metrics.json
-ml/data/processed/*_predictions_lgbm_v*.csv
-ml/data/processed/*_v*_summary.json
-ml/data/processed/*_backtest_*.json
+ml/serving_packages/kr_stock-lgbm_kr_stock_signal_v1.tar.gz
 ```
+
+사전 생성 예측 CSV를 서버 UI/챗봇 추천 캐시로 같이 쓰는 배포라면 `--no-predictions`를 제거합니다. 세부 절차는 `ml/serving_package_runbook.md`를 기준으로 합니다.
 
 ## 7. 재배포 절차
 

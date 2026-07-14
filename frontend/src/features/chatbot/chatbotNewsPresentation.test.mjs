@@ -41,6 +41,33 @@ test('ignores unsupported tool result sources', () => {
   assert.deepEqual(result, { items: [] })
 })
 
+test('normalizes news items from combined news and disclosure search results', () => {
+  const result = buildNewsPresentation({
+    source: 'NEWS_DISCLOSURE_COMBINED',
+    news: {
+      source: 'NAVER_API',
+      items: [
+        {
+          title: '삼성전자 최근 뉴스',
+          ai_summary: '1. 반도체 투자 뉴스입니다.',
+          source: 'NAVER',
+          market: 'DOMESTIC',
+          company_name: '삼성전자',
+          raw_payload: { query_category: 'stock_news' },
+        },
+      ],
+    },
+    disclosure: {
+      source: 'DISCLOSURE_DB',
+      items: [{ report_nm: '공시' }],
+    },
+  })
+
+  assert.equal(result.items.length, 1)
+  assert.equal(result.items[0].title, '삼성전자 최근 뉴스')
+  assert.equal(result.items[0].market, '국내')
+})
+
 test('normalizes repeated news whitespace', () => {
   assert.equal(normalizeNewsText('삼성전자\n\n  최신\t뉴스'), '삼성전자 최신 뉴스')
 })

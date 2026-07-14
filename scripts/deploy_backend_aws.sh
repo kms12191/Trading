@@ -49,6 +49,9 @@ rsync -av --progress -e "ssh ${SSH_OPTS[*]}" \
   --include 'ml/models/' \
   --include 'ml/models/*.metrics.json' \
   --exclude 'ml/models/**' \
+  --include 'ml/serving_packages/' \
+  --include 'ml/serving_packages/*.tar.gz' \
+  --exclude 'ml/serving_packages/**' \
   --exclude 'ml/reports' \
   --exclude 'ml/notebooks' \
   --exclude 'supabase/.temp' \

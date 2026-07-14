@@ -84,6 +84,17 @@ FUNCTION_SCHEMAS = [
         },
     },
     {
+        "name": "get_market_calendar",
+        "description": "한국장 또는 미국장의 개장, 휴장, 정규장 운영 여부를 Toss 캘린더 API와 Supabase 캘린더 DB 기준으로 조회합니다. OpenAI 일반 지식으로 휴장 여부를 추측하지 않습니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "market_country": {"type": "string", "enum": ["KR", "US"], "description": "KR은 한국장, US는 미국장"},
+                "date": {"type": "string", "description": "조회 날짜. 예: 2026-07-17"},
+            },
+        },
+    },
+    {
         "name": "get_asset_price",
         "description": "특정 주식 또는 코인의 현재가와 등락률을 Toss/KIS/Coinone/Binance API 기준으로 조회합니다. OpenAI 일반 지식으로 가격을 답하지 않습니다.",
         "parameters": {
@@ -105,6 +116,21 @@ FUNCTION_SCHEMAS = [
                 "query": {"type": "string", "description": "종목명 또는 종목코드. 예: 삼성전자, 005930, BTC"},
                 "exchange": {"type": "string", "description": "TOSS, KIS, COINONE, BINANCE 등"},
                 "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_asset_candles",
+        "description": "특정 주식 또는 코인의 최근 캔들 차트 데이터를 프로젝트 차트 API 기준으로 조회하고 흐름을 요약합니다. 단정적 예측은 하지 않습니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "종목명 또는 종목코드. 예: 삼성전자, 005930, BTC"},
+                "exchange": {"type": "string", "description": "TOSS, KIS, COINONE, BINANCE 등"},
+                "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
+                "interval": {"type": "string", "description": "1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, 1M"},
+                "count": {"type": "number", "description": "조회할 최근 캔들 개수"},
             },
             "required": ["query"],
         },

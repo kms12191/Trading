@@ -21,6 +21,7 @@ from backend.services.dart_repository import DartRepository
 from backend.services.dart_ingest import DartIngestService
 from backend.services.dart_analysis_service import DartDisclosureAnalysisService
 from backend.services.kis_market_universe import KISMarketUniverseService
+from backend.services.market_calendar_scheduler import start_market_calendar_scheduler
 from backend.services.market_snapshot_scheduler import start_market_snapshot_scheduler
 from backend.services.ml_scheduler import start_dart_ingest_scheduler, start_news_ingest_scheduler, start_ml_automation_scheduler
 from backend.services.auto_trading_rule_engine import start_auto_trading_rule_scheduler
@@ -80,6 +81,9 @@ AUTO_TRADING_RULES_INTERVAL_SECONDS = int(os.getenv("AUTO_TRADING_RULES_INTERVAL
 OPEN_ORDER_STATUS_SYNC_ENABLED = os.getenv("OPEN_ORDER_STATUS_SYNC_ENABLED", "false").lower() == "true"
 OPEN_ORDER_STATUS_SYNC_INTERVAL_SECONDS = int(os.getenv("OPEN_ORDER_STATUS_SYNC_INTERVAL_SECONDS", "60"))
 OPEN_ORDER_STATUS_SYNC_LIMIT = int(os.getenv("OPEN_ORDER_STATUS_SYNC_LIMIT", "100"))
+MARKET_CALENDAR_SYNC_ENABLED = os.getenv("MARKET_CALENDAR_SYNC_ENABLED", "false").lower() == "true"
+MARKET_CALENDAR_SYNC_INTERVAL_SECONDS = int(os.getenv("MARKET_CALENDAR_SYNC_INTERVAL_SECONDS", "86400"))
+MARKET_CALENDAR_SYNC_ENV = os.getenv("MARKET_CALENDAR_SYNC_ENV", "REAL")
 
 # Flask Config에 값 바인딩
 app.config["KIS_APPKEY"] = KIS_APPKEY
@@ -183,6 +187,11 @@ if is_scheduler_host and SCHEDULER_RUN_IN_GATEWAY:
         enabled=OPEN_ORDER_STATUS_SYNC_ENABLED,
         interval_seconds=OPEN_ORDER_STATUS_SYNC_INTERVAL_SECONDS,
         limit=OPEN_ORDER_STATUS_SYNC_LIMIT,
+    )
+    start_market_calendar_scheduler(
+        enabled=MARKET_CALENDAR_SYNC_ENABLED,
+        interval_seconds=MARKET_CALENDAR_SYNC_INTERVAL_SECONDS,
+        env=MARKET_CALENDAR_SYNC_ENV,
     )
 if __name__ == "__main__":
     # Flask 서버 구동 (python backend/app.py 로 기동할 때만 타며, flask run 시에는 타지 않음)

@@ -1,4 +1,5 @@
 from backend.services.chatbot import tool_registry
+from backend.services.chatbot import asset_ml_outlook
 
 
 def test_search_trade_history_displays_crypto_name_instead_of_symbol(monkeypatch):
@@ -55,6 +56,105 @@ def test_extract_symbol_query_keeps_stock_and_crypto_alias_names():
     assert tool_registry._extract_symbol_query("테더 환율 알려줘") == "USDT"
 
 
+def test_search_trade_history_resolves_mixed_korean_stock_name(monkeypatch):
+    captured_queries = []
+    monkeypatch.setattr(tool_registry, "get_user_id_from_header", lambda auth_header: ("user-1", "token"))
+
+    def fake_resolve_symbol(auth_header, query):
+        captured_queries.append(query)
+        if query == "SK네트웍스":
+            return {"symbol": "001740", "display_name": "SK네트웍스"}
+        return {"symbol": query.upper()}
+
+    def fake_safe_query_supabase(auth_header, endpoint, method="GET", json_data=None, params=None):
+        if endpoint == "trade_proposals" and params.get("symbol") == "eq.001740":
+            return [
+                {
+                    "created_at": "2026-07-14T10:00:00Z",
+                    "exchange": "TOSS",
+                    "symbol": "001740",
+                    "display_name": "SK네트웍스",
+                    "side": "BUY",
+                    "status": "EXECUTED",
+                    "price": 5000,
+                    "volume": 1,
+                    "order_amount": 5000,
+                    "currency": "KRW",
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(tool_registry, "_resolve_symbol", fake_resolve_symbol)
+    monkeypatch.setattr(tool_registry, "safe_query_supabase", fake_safe_query_supabase)
+
+    result = tool_registry.search_trade_history("Bearer test", "SK네트웍스 최근 체결 보여줘")
+
+    assert captured_queries == ["SK네트웍스"]
+    assert result["data"]["items"][0]["symbol"] == "001740"
+    assert result["data"]["items"][0]["status"] == "EXECUTED"
+
+
+def test_get_asset_candles_summarizes_recent_candle_flow(monkeypatch):
+    monkeypatch.setattr(
+        tool_registry,
+        "_resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "005930",
+            "display_name": "삼성전자",
+            "asset_type": "STOCK",
+            "market": "KR",
+        },
+    )
+
+    def fake_get_internal(path, auth_header, params=None):
+        assert path == "/api/chart/candles"
+        assert params == {
+            "exchange": "TOSS",
+            "symbol": "005930",
+            "interval": "1d",
+            "count": 20,
+            "broker_env": "REAL",
+        }
+        return {
+            "data": [
+                {"time": "2026-07-10", "open": 250000, "high": 252000, "low": 249000, "close": 251000},
+                {"time": "2026-07-11", "open": 251000, "high": 254000, "low": 250500, "close": 253000},
+                {"time": "2026-07-12", "open": 253000, "high": 255000, "low": 252500, "close": 254500},
+            ]
+        }
+
+    monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
+
+    result = tool_registry.get_asset_candles("Bearer test", "삼성전자 최근 캔들 흐름 알려줘")
+
+    assert result["data"]["source"] == "ASSET_CANDLES"
+    assert result["data"]["symbol"] == "005930"
+    assert result["data"]["candle_count"] == 3
+    assert "최근 3개 일봉 캔들 흐름" in result["reply"]
+    assert "단정적 예측" in result["reply"]
+    assert result["actions"] == [
+        {
+            "type": "navigate",
+            "label": "상세보기",
+            "to": "/asset/STOCK/005930",
+        }
+    ]
+
+
+def test_run_chatbot_tool_routes_candle_request_to_candles(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        tool_registry,
+        "get_asset_candles",
+        lambda auth_header, text: calls.append(text) or {"reply": "candles", "data": {"source": "ASSET_CANDLES"}},
+    )
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "삼성전자 최근 캔들 흐름 알려줘")
+
+    assert calls == ["삼성전자 최근 캔들 흐름 알려줘"]
+    assert result["data"]["source"] == "ASSET_CANDLES"
+
+
 def test_run_chatbot_tool_asks_coin_symbol_for_category_only_price_query():
     result = tool_registry.run_chatbot_tool("Bearer test", "코인 시세 알려줘")
 
@@ -70,6 +170,15 @@ def test_run_chatbot_tool_asks_symbol_for_bare_disclosure_query():
     assert result["data"]["source"] == "CATEGORY_CLARIFICATION"
     assert result["data"]["reason"] == "missing_disclosure_symbol"
     assert "어떤 종목" in result["reply"]
+
+
+def test_run_chatbot_tool_asks_symbol_for_recent_disclosure_lookup():
+    result = tool_registry.run_chatbot_tool("Bearer test", "최근 공시 조회")
+
+    assert result["data"]["source"] == "CATEGORY_CLARIFICATION"
+    assert result["data"]["reason"] == "missing_disclosure_symbol"
+    assert "어떤 종목" in result["reply"]
+    assert "삼성전자 공시" in result["reply"]
 
 
 def test_run_chatbot_tool_asks_news_target_for_bare_news_query():
@@ -355,6 +464,80 @@ def test_recommendation_candidates_adds_next_action_when_predictions_are_missing
     assert "대신" in result["reply"]
     assert "상승률" in result["reply"]
     assert "관심종목" in result["reply"]
+
+
+def test_asset_outlook_uses_ml_signal_for_predictive_question(monkeypatch):
+    monkeypatch.setattr(
+        tool_registry,
+        "_resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "005930",
+            "display_name": "삼성전자",
+            "asset_type": "STOCK",
+            "market": "KR",
+        },
+    )
+    monkeypatch.setattr(
+        asset_ml_outlook,
+        "build_active_signal_payload",
+        lambda **kwargs: {
+            "model_version": "lgbm_kr_stock_signal_v1",
+            "performance": {"roc_auc": 0.61},
+            "predictions": [
+                {
+                    "symbol": "005930",
+                    "display_name": "삼성전자",
+                    "position": "LONG",
+                    "signal_grade": "STRONG_BUY_CANDIDATE",
+                    "up_probability": 0.63,
+                    "risk_probability": 0.31,
+                    "signal_score": 14.2,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        tool_registry.ChatbotWebFallbackSearchService,
+        "search",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("예측형 질문은 뉴스 검색보다 ML 신호를 먼저 사용해야 합니다.")),
+    )
+
+    result = tool_registry.get_asset_outlook("Bearer test", "삼성전자 오를까?")
+
+    assert result["data"]["source"] == "ML_ACTIVE_SIGNAL"
+    assert result["data"]["mode"] == "single_asset_outlook"
+    assert result["data"]["asset_key"] == "kr_stock"
+    assert result["data"]["symbol"] == "005930"
+    assert result["data"]["model_version"] == "lgbm_kr_stock_signal_v1"
+    assert "상승 확률: 63.0%" in result["reply"]
+    assert "모델 기반 참고 신호" in result["reply"]
+
+
+def test_asset_outlook_explains_missing_ml_prediction_without_news_fallback(monkeypatch):
+    monkeypatch.setattr(
+        tool_registry,
+        "_resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "005930",
+            "display_name": "삼성전자",
+            "asset_type": "STOCK",
+            "market": "KR",
+        },
+    )
+    monkeypatch.setattr(asset_ml_outlook, "build_active_signal_payload", lambda **kwargs: None)
+    monkeypatch.setattr(
+        tool_registry.ChatbotWebFallbackSearchService,
+        "search",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("ML 예측 파일이 없을 때 뉴스로 대체하면 안 됩니다.")),
+    )
+
+    result = tool_registry.get_asset_outlook("Bearer test", "삼성전자 오를까?")
+
+    assert result["data"]["source"] == "ML_ACTIVE_SIGNAL"
+    assert result["data"]["reason"] == "missing_active_predictions"
+    assert result["data"]["asset_key"] == "kr_stock"
+    assert "활성 ML 예측 결과를 아직 찾지 못했습니다" in result["reply"]
+    assert "배포 환경" in result["reply"]
 
 
 def test_extract_symbol_query_uses_ml_training_universe_symbols():
