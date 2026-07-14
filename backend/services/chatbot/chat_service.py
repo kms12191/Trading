@@ -16,6 +16,7 @@ from backend.services.chatbot.rag_service import ChatbotRAGService
 from backend.services.chatbot.tool_registry import (
     add_watchlist_item,
     create_trade_proposal_from_message,
+    get_asset_candles,
     get_asset_orderbook,
     get_asset_outlook,
     get_asset_price,
@@ -594,6 +595,12 @@ class ChatbotService:
             exchange = str(arguments.get("exchange") or "").strip()
             broker_env = str(arguments.get("broker_env") or "").strip()
             return " ".join(part for part in [query, exchange, broker_env, "호가 알려줘"] if part)
+        if tool_name == "get_asset_candles":
+            query = str(arguments.get("query") or fallback_text).strip()
+            exchange = str(arguments.get("exchange") or "").strip()
+            broker_env = str(arguments.get("broker_env") or "").strip()
+            interval = str(arguments.get("interval") or "").strip()
+            return " ".join(part for part in [query, exchange, broker_env, interval, "캔들 흐름 알려줘"] if part)
         if tool_name == "get_home_market_rankings":
             asset_type = str(arguments.get("asset_type") or "").upper()
             asset_text = "코인" if asset_type == "CRYPTO" else "국내주식" if asset_type == "STOCK" else ""
@@ -625,6 +632,7 @@ class ChatbotService:
             "get_exchange_rate": get_exchange_rate,
             "get_asset_price": get_asset_price,
             "get_asset_orderbook": get_asset_orderbook,
+            "get_asset_candles": get_asset_candles,
             "get_asset_outlook": get_asset_outlook,
             "search_web": search_web,
         }
