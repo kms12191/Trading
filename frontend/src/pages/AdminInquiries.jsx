@@ -94,11 +94,9 @@ function EmptyInquiryState() {
 
 function ReplyModal({ inquiry, isSubmitting, error, onClose, onSubmit }) {
   const [answer, setAnswer] = useState('')
-  const [status, setStatus] = useState('COMPLETED')
 
   useEffect(() => {
     setAnswer(inquiry?.answer || '')
-    setStatus(inquiry?.status === 'CANCELED' ? 'CANCELED' : inquiry?.status === 'NEED_MORE' ? 'NEED_MORE' : 'COMPLETED')
   }, [inquiry])
 
   if (!inquiry) return null
@@ -125,19 +123,6 @@ function ReplyModal({ inquiry, isSubmitting, error, onClose, onSubmit }) {
               placeholder="문의에 대한 답변을 입력해주세요."
             />
           </label>
-          <label className="grid gap-2 sm:max-w-xs">
-            <span className="text-xs font-bold text-slate-400">처리 상태</span>
-            <select
-              value={status}
-              onChange={(event) => setStatus(event.target.value)}
-              className="rounded border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm font-bold text-slate-300 outline-none transition focus:border-ai-cyan"
-            >
-              <option value="WAITING">답변 대기</option>
-              <option value="COMPLETED">답변 완료</option>
-              <option value="NEED_MORE">추가 확인</option>
-              <option value="CANCELED">취소됨</option>
-            </select>
-          </label>
           {error ? <p className="text-xs font-bold text-rose-400">{error}</p> : null}
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-800 px-5 py-4">
@@ -152,7 +137,7 @@ function ReplyModal({ inquiry, isSubmitting, error, onClose, onSubmit }) {
           <button
             type="button"
             className="rounded bg-ai-cyan px-4 py-2 text-xs font-bold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={() => onSubmit(inquiry.id, { answer, status })}
+            onClick={() => onSubmit(inquiry.id, { answer, status: 'COMPLETED' })}
             disabled={isSubmitting}
           >
             {isSubmitting ? '저장 중...' : '답변 등록'}

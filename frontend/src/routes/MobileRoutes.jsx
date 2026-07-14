@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import MobileHome from '../pages/mobile/MobileHome.jsx'
 import MobileDashboard from '../pages/mobile/MobileDashboard.jsx'
 import MobileNews from '../pages/mobile/MobileNews.jsx'
@@ -10,6 +10,7 @@ import MobileMarketRankings from '../pages/mobile/MobileMarketRankings.jsx'
 import MobileAdminMlData from '../pages/mobile/MobileAdminMlData.jsx'
 import MobileAssetDetail from '../pages/mobile/MobileAssetDetail.jsx'
 import MobileSearchNotFound from '../pages/mobile/MobileSearchNotFound.jsx'
+import MobileChatbot from '../pages/mobile/MobileChatbot.jsx'
 import { INQUIRY_ROUTES } from '../dashboardConstants.js'
 import MobileBottomNavigation from '../components/mobile/MobileBottomNavigation.jsx'
 import MobileHeader from '../components/mobile/MobileHeader.jsx'
@@ -21,6 +22,9 @@ export default function MobileRoutes({
   userProfile,
   setUserProfile,
 }) {
+  const location = useLocation()
+  const isChatbotRoute = location.pathname === '/chatbot'
+
   const protectedInquiryElement = isLoggedIn ? (
     <div className="min-h-screen bg-obsidian-bg px-3 py-4 font-inter text-[#e2e2ec]">
       <MobileHeader isLoggedIn={isLoggedIn} handleLogout={handleLogout} />
@@ -45,8 +49,9 @@ export default function MobileRoutes({
         mx-auto 때문에 가운데 정렬됨
         pb-24는 하단 모바일 네비게이션에 내용이 가리지 않도록 여백 추가
       */}
-      <div className="mx-auto min-h-screen w-full max-w-[430px] overflow-x-hidden bg-obsidian-bg pb-24">
+      <div className={`mx-auto min-h-screen w-full max-w-[430px] overflow-x-hidden bg-obsidian-bg ${isChatbotRoute ? '' : 'pb-24'}`}>
         <Routes>
+          <Route path="/chatbot" element={<MobileChatbot isLoggedIn={isLoggedIn} />} />
           <Route
             path="/"
             element={(
@@ -164,7 +169,7 @@ export default function MobileRoutes({
         </Routes>
 
         {/* 모바일 하단 네비게이션도 430px 영역 안에 들어오게 이동 */}
-        <MobileBottomNavigation isLoggedIn={isLoggedIn} />
+        {!isChatbotRoute ? <MobileBottomNavigation isLoggedIn={isLoggedIn} /> : null}
       </div>
     </div>
   )

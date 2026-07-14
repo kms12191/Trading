@@ -25,16 +25,20 @@ const INITIAL_MESSAGES = [
   {
     id: 'welcome',
     role: 'assistant',
-    text: '안녕하세요. AE 트레이딩 챗봇입니다. \n시세, 보유자산, 매매 제안 흐름을 도와드릴게요.',
+    text: '안녕하세요. 고객님!\n\n궁금하신 내용을 직접 입력해 주세요.',
     createdAt: new Date().toISOString(),
     timelineOrder: 0,
   },
 ]
 
 const QUICK_MESSAGES = [
-  '내 보유자산 요약해줘',
-  '시세 확인은 어떻게 해?',
-  '매매 제안 만들어줘',
+  '자산 요약',
+  '시세 확인',
+  '매매 제안',
+  '뉴스 분석',
+  '공시 조회',
+  '투자 리스크',
+  '이용 가이드',
 ]
 
 function getUserTimeZone() {
@@ -529,6 +533,7 @@ function DisclosureResults({ presentation }) {
   )
 }
 
+<<<<<<< HEAD
 function ChatOrderForm({ onClose, onSubmit }) {
   const [exchange, setExchange] = useState('TOSS')
   const [brokerEnv, setBrokerEnv] = useState('REAL')
@@ -835,14 +840,21 @@ function ChatOrderForm({ onClose, onSubmit }) {
   )
 }
 
-export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
+export default function ChatbotWidget({
+  enabled = true,
+  isLoggedIn = false,
+  presentation = 'floating',
+  onClose = null,
+}) {
   const navigate = useNavigate()
-  const [isOpen, setIsOpen] = useState(false)
+  const isMobilePage = presentation === 'mobile-page'
+  const [isOpen, setIsOpen] = useState(isMobilePage)
   const [panelSize, setPanelSize] = useState(getDefaultChatbotSize)
   const [messages, setMessages] = useState(INITIAL_MESSAGES)
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [showOrderForm, setShowOrderForm] = useState(false)
+  const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false)
   const [pendingProposals, setPendingProposals] = useState([])
   const [proposalActionId, setProposalActionId] = useState('')
   const widgetInstanceId = useId()
@@ -854,12 +866,27 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
   const resizeStateRef = useRef(null)
 
   useEffect(() => {
-    if (!enabled || !isOpen) return
+    const handleOpenChatbot = () => {
+      if (!enabled || isMobilePage) return
+
+      setPanelSize(getDefaultChatbotSize())
+      setIsOpen(true)
+      window.setTimeout(() => inputRef.current?.focus(), 80)
+    }
+
+    window.addEventListener('antry:open-chatbot', handleOpenChatbot)
+    return () => {
+      window.removeEventListener('antry:open-chatbot', handleOpenChatbot)
+    }
+  }, [enabled, isMobilePage])
+
+  useEffect(() => {
+    if (!enabled || (!isOpen && !isMobilePage)) return
 
     window.requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
     })
-  }, [enabled, isOpen, messages, pendingProposals, isSending])
+  }, [enabled, isMobilePage, isOpen, messages, pendingProposals, isSending])
 
   useEffect(() => {
     let active = true
@@ -943,9 +970,27 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
   }
 
   const closeChat = () => {
+    if (isMobilePage) {
+      onClose?.()
+      return
+    }
+
     resizeStateRef.current = null
     setIsOpen(false)
     setPanelSize(getDefaultChatbotSize())
+  }
+
+  const resetConversation = () => {
+    setInput('')
+    setIsSending(false)
+    setIsQuickMenuOpen(false)
+    setMessages(INITIAL_MESSAGES.map((message) => ({
+      ...message,
+      createdAt: new Date().toISOString(),
+    })))
+    setPendingProposals([])
+    messageIdSequenceRef.current = 0
+    timelineOrderSequenceRef.current = 0
   }
 
   const startResize = (event, direction) => {
@@ -989,7 +1034,7 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
   const handleAction = (action) => {
     if (action?.type === 'navigate' && action.to) {
       navigate(action.to)
-      closeChat()
+      if (!isMobilePage) closeChat()
     }
   }
 
@@ -1134,7 +1179,7 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
   const submitMessage = async (text = input) => {
     if (!isLoggedIn) {
       navigate('/login')
-      closeChat()
+      if (!isMobilePage) closeChat()
       return
     }
 
@@ -1142,6 +1187,7 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
     if (!trimmed || isSending) return
 
     setInput('')
+    setIsQuickMenuOpen(false)
     addMessage('user', trimmed)
     setIsSending(true)
     const assistantMessageId = addStreamingAssistantMessage()
@@ -1224,10 +1270,12 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
 
   return (
     <>
-      {isOpen && (
+      {(isOpen || isMobilePage) && (
         <section
-          className="fixed bottom-24 right-4 z-40 flex h-[min(560px,calc(100vh-128px))] w-[min(390px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border border-ai-cyan/35 bg-[#070b14]/95 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur md:right-6 md:h-auto md:w-auto"
-          style={{
+          className={isMobilePage
+            ? 'flex min-h-dvh flex-col overflow-hidden bg-obsidian-bg text-slate-100'
+            : 'fixed bottom-24 right-4 z-40 flex h-[min(560px,calc(100vh-128px))] w-[min(390px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border border-ai-cyan/35 bg-[#070b14]/95 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur md:right-6 md:h-auto md:w-auto'}
+          style={isMobilePage ? undefined : {
             width: `${panelSize.width}px`,
             height: `${panelSize.height}px`,
             maxWidth: 'min(720px, calc(90vw))',
@@ -1249,7 +1297,36 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
             onMouseDown={(event) => startResize(event, 'y')}
             aria-hidden="true"
           />
-          <header className="flex items-center justify-between border-b border-slate-800 bg-[#0f172a] px-4 py-3">
+          <header className={isMobilePage
+            ? 'grid grid-cols-[1fr_auto_1fr] items-center px-5 pb-6 pt-[calc(env(safe-area-inset-top)+18px)]'
+            : 'flex items-center justify-between border-b border-slate-800 bg-[#0f172a] px-4 py-3'}
+          >
+            {isMobilePage ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={resetConversation}
+                    className="grid h-10 w-10 place-items-center rounded-full text-ai-cyan transition active:bg-ai-cyan/10"
+                    aria-label="Reset chat"
+                  >
+                    <span className="material-symbols-outlined text-[30px] leading-none">refresh</span>
+                  </button>
+                </div>
+                <h1 className="text-center text-2xl font-black tracking-tight text-white">챗봇 상담</h1>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={closeChat}
+                    className="grid h-12 w-12 place-items-center rounded-full text-slate-200 transition active:bg-ai-cyan/10 active:text-ai-cyan"
+                    aria-label="Close chatbot"
+                  >
+                    <span className="material-symbols-outlined text-[42px] leading-none">close</span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
             <div className="flex min-w-0 items-center gap-3">
               <img
                 src="/chatbot-bot.png"
@@ -1268,9 +1345,19 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
             >
               x
             </button>
+              </>
+            )}
           </header>
 
-          <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+          <div className={isMobilePage
+            ? 'flex flex-1 flex-col gap-3 overflow-y-auto px-5 pb-6 pt-2'
+            : 'flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4'}
+          >
+            {isMobilePage ? (
+              <div className="mb-1 flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-ai-cyan/40 bg-ai-cyan/10">
+                <img src="/chatbot-bot.png" alt="" className="h-full w-full object-cover object-top" />
+              </div>
+            ) : null}
             {buildChatbotTimeline(messages, pendingProposals).map((item) => (
               item.type === 'message'
                 ? <ChatMessage key={item.id} message={item.data} onAction={handleAction} />
@@ -1292,30 +1379,43 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
             <div ref={messagesEndRef} aria-hidden="true" />
           </div>
 
-          <div className="border-t border-slate-800 bg-[#0b1120] p-3">
-            {isLoggedIn ? (
-              <div className="mb-3 flex flex-wrap gap-2">
+          <div className={isMobilePage
+            ? 'border-t border-ai-cyan/10 bg-[#061321]/95 px-4 pb-[calc(env(safe-area-inset-bottom)+14px)] pt-4 shadow-[0_-14px_34px_rgba(0,0,0,0.42)] backdrop-blur-xl'
+            : 'border-t border-slate-800 bg-[#0b1120] p-3'}
+          >
+            {isLoggedIn && (!isMobilePage || isQuickMenuOpen) ? (
+              <div className={isMobilePage
+                ? 'mb-4 rounded-lg border border-slate-800 bg-[#0f172a]/80 p-3'
+                : 'mb-3 flex flex-wrap gap-2'}
+              >
+                {isMobilePage ? (
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Category</p>
+                ) : null}
+                <div className={isMobilePage ? 'flex flex-wrap gap-2' : 'contents'}>
                 {QUICK_MESSAGES.map((message) => (
                   <button
                     key={message}
                     type="button"
                     onClick={() => {
-                      if (message === '매매 제안 만들어줘') {
+                      if (message.includes('매매 제안')) {
                         setShowOrderForm((prev) => !prev)
                       } else {
                         submitMessage(message)
                       }
                     }}
                     disabled={isSending}
-                    className={`rounded border px-2.5 py-1.5 text-[11px] font-bold transition disabled:opacity-50 ${
-                      message === '매매 제안 만들어줘'
-                        ? 'border-ai-cyan/60 bg-ai-cyan/10 text-ai-cyan hover:bg-ai-cyan hover:text-[#07111f]'
-                        : 'border-slate-700 text-slate-300 hover:border-ai-cyan hover:text-ai-cyan'
-                    }`}
+                    className={isMobilePage
+                      ? 'rounded-full border border-slate-700 bg-[#0f172a] px-4 py-2 text-sm font-bold text-slate-300 transition active:border-ai-cyan active:bg-ai-cyan/10 active:text-ai-cyan disabled:opacity-50'
+                      : `rounded border px-2.5 py-1.5 text-[11px] font-bold transition disabled:opacity-50 ${
+                          message.includes('매매 제안')
+                            ? 'border-ai-cyan/60 bg-ai-cyan/10 text-ai-cyan hover:bg-ai-cyan hover:text-[#07111f]'
+                            : 'border-slate-700 text-slate-300 hover:border-ai-cyan hover:text-ai-cyan'
+                        }`}
                   >
                     {message}
                   </button>
                 ))}
+                </div>
               </div>
             ) : null}
             {showOrderForm && (
@@ -1326,7 +1426,22 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
                 />
               </div>
             )}
-            <form onSubmit={handleSubmit} className="flex items-end gap-2">
+            <form onSubmit={handleSubmit} className={isMobilePage ? 'flex items-center gap-3' : 'flex items-end gap-2'}>
+              {isMobilePage ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsQuickMenuOpen((open) => !open)}
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-slate-400 transition active:bg-ai-cyan/10 active:text-ai-cyan"
+                    aria-label={isQuickMenuOpen ? 'Close chatbot categories' : 'Open chatbot categories'}
+                    aria-expanded={isQuickMenuOpen}
+                  >
+                    <span className="material-symbols-outlined text-[34px] leading-none">menu</span>
+                  </button>
+                  <div className="h-12 w-px shrink-0 bg-slate-700" aria-hidden="true" />
+                </>
+              ) : null}
+>>>>>>> pr-206
               <textarea
                 ref={inputRef}
                 value={input}
@@ -1342,29 +1457,39 @@ export default function ChatbotWidget({ enabled = true, isLoggedIn = false }) {
                 }}
                 rows={2}
                 readOnly={!isLoggedIn}
-                placeholder={isLoggedIn ? '메시지를 입력하세요' : '로그인 후 이용 가능합니다'}
-                className="min-h-11 flex-1 resize-none rounded border border-slate-700 bg-[#111827] px-3 py-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-ai-cyan read-only:cursor-pointer read-only:border-ai-cyan/40"
+                placeholder={isLoggedIn ? (isMobilePage ? '궁금한 점을 입력해 주세요.' : '메시지를 입력하세요') : '로그인 후 이용 가능합니다'}
+                className={isMobilePage
+                  ? 'max-h-28 min-h-12 flex-1 resize-none border-none bg-transparent px-0 py-3 text-lg leading-6 text-slate-100 outline-none placeholder:text-slate-400 read-only:cursor-pointer'
+                  : 'min-h-11 flex-1 resize-none rounded border border-slate-700 bg-[#111827] px-3 py-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-ai-cyan read-only:cursor-pointer read-only:border-ai-cyan/40'}
               />
               <button
                 type="submit"
                 disabled={isLoggedIn ? isSending || !input.trim() : false}
-                className="h-11 shrink-0 rounded bg-ai-cyan px-4 text-xs font-bold text-[#07111f] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                className={isMobilePage
+                  ? 'grid h-12 w-12 shrink-0 place-items-center rounded-full text-ai-cyan transition active:bg-ai-cyan/10 disabled:cursor-not-allowed disabled:opacity-40'
+                  : 'h-11 shrink-0 rounded bg-ai-cyan px-4 text-xs font-bold text-[#07111f] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50'}
               >
-                {isLoggedIn ? '전송' : '로그인'}
+                {isMobilePage ? (
+                  <span className="material-symbols-outlined rotate-[-28deg] text-[42px] leading-none">send</span>
+                ) : (
+                  isLoggedIn ? '전송' : '로그인'
+                )}
               </button>
             </form>
           </div>
         </section>
       )}
 
-      <button
-        type="button"
-        onClick={isOpen ? closeChat : openChat}
-        className="fixed bottom-6 right-4 z-40 grid h-16 w-16 place-items-center overflow-hidden rounded-full border-2 border-ai-cyan/70 bg-[#07111f] shadow-[0_0_28px_rgba(0,242,254,0.28)] transition hover:scale-105 hover:border-ai-cyan md:right-6"
-        aria-label={isOpen ? '챗봇 닫기' : '챗봇 열기'}
-      >
-        <img src="/chatbot-bot.png" alt="" className="h-full w-full object-cover object-top" />
-      </button>
+      {!isMobilePage ? (
+        <button
+          type="button"
+          onClick={isOpen ? closeChat : openChat}
+          className="fixed bottom-6 right-4 z-40 hidden h-16 w-16 place-items-center overflow-hidden rounded-full border-2 border-ai-cyan/70 bg-[#07111f] shadow-[0_0_28px_rgba(0,242,254,0.28)] transition hover:scale-105 hover:border-ai-cyan md:right-6 md:grid"
+          aria-label={isOpen ? '챗봇 닫기' : '챗봇 열기'}
+        >
+          <img src="/chatbot-bot.png" alt="" className="h-full w-full object-cover object-top" />
+        </button>
+      ) : null}
     </>
   )
 }

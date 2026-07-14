@@ -1,6 +1,23 @@
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 export default function MobileHeader({ isLoggedIn, handleLogout }) {
+  const navigate = useNavigate()
+
+  const openChatbot = () => {
+    navigate('/chatbot')
+  }
+
+  const chatbotButton = (
+    <button
+      type="button"
+      onClick={openChatbot}
+      className="grid h-8 w-8 place-items-center rounded-full border border-ai-cyan/40 bg-ai-cyan/10 text-ai-cyan transition active:bg-ai-cyan/20"
+      aria-label="Open chatbot"
+    >
+      <span className="material-symbols-outlined text-[18px] leading-none">chat_bubble</span>
+    </button>
+  )
+
   return (
     <header className="mx-auto mb-4 flex w-full max-w-md items-center justify-between gap-3">
       <Link to="/" className="flex shrink-0 items-center gap-2 no-underline">
@@ -9,14 +26,7 @@ export default function MobileHeader({ isLoggedIn, handleLogout }) {
       </Link>
       {isLoggedIn ? (
         <div className="flex min-w-0 items-center gap-2 rounded-full border border-slate-800 bg-[#061321]/90 px-2 py-1">
-          <button
-            type="button"
-            onClick={() => window.dispatchEvent(new Event('antry:open-chatbot'))}
-            className="grid h-8 w-8 place-items-center rounded-full border border-ai-cyan/40 bg-ai-cyan/10 text-base transition active:bg-ai-cyan/20"
-            aria-label="챗봇 열기"
-          >
-            💬
-          </button>
+          {chatbotButton}
           <button
             type="button"
             onClick={handleLogout}
@@ -26,12 +36,15 @@ export default function MobileHeader({ isLoggedIn, handleLogout }) {
           </button>
         </div>
       ) : (
-        <Link
-          to="/login"
-          className="rounded-full border border-ai-cyan/70 bg-ai-cyan/10 px-4 py-2 text-xs font-black text-ai-cyan no-underline transition active:bg-ai-cyan/20"
-        >
-          LOGIN
-        </Link>
+        <div className="flex min-w-0 items-center gap-2 rounded-full border border-slate-800 bg-[#061321]/90 px-2 py-1">
+          {chatbotButton}
+          <Link
+            to="/login"
+            className="rounded-full border border-ai-cyan/70 bg-ai-cyan/10 px-4 py-2 text-xs font-black text-ai-cyan no-underline transition active:bg-ai-cyan/20"
+          >
+            LOGIN
+          </Link>
+        </div>
       )}
     </header>
   )

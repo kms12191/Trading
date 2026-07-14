@@ -289,7 +289,7 @@ function AppShell({
       </div>
       )}
 
-      <ChatbotWidget enabled={!showAdditionalInfo && !showSurvey} isLoggedIn={isLoggedIn} />
+      <ChatbotWidget enabled={!isMobileDevice && !showAdditionalInfo && !showSurvey} isLoggedIn={isLoggedIn} />
 
     </>
   )

@@ -175,7 +175,7 @@ export default function News({ isLoggedIn, userEmail, handleLogout, hideHeader =
 
       <main className="mx-auto max-w-7xl">
         <section className={`ai-glass rounded-lg ${mobileLayout ? 'p-3' : 'p-4 sm:p-6'}`}>
-          <div className={`${mobileLayout ? 'mb-4 gap-3' : 'mb-5 gap-4'} flex min-w-0 flex-col lg:flex-row lg:items-end lg:justify-between`}>
+          <div className={`${mobileLayout ? 'mb-4 gap-3 lg:items-start' : 'mb-5 gap-4 lg:items-end'} flex min-w-0 flex-col lg:flex-row lg:justify-between`}>
             <div className="min-w-0">
               <h2 className={`${mobileLayout ? 'whitespace-nowrap text-xl leading-7' : 'text-2xl'} font-bold text-white`}>News Board</h2>
               <p className={`${mobileLayout ? 'mt-1 text-xs leading-5' : 'mt-1 text-sm'} text-slate-400`}>
@@ -183,7 +183,7 @@ export default function News({ isLoggedIn, userEmail, handleLogout, hideHeader =
               </p>
             </div>
 
-            <div className={`grid w-full min-w-0 grid-cols-1 ${mobileLayout ? 'gap-2' : 'gap-3 sm:grid-cols-[140px_170px_minmax(220px,1fr)]'}`}>
+            <div className={`grid w-full min-w-0 grid-cols-1 ${mobileLayout ? 'gap-2 lg:max-w-sm' : 'gap-3 sm:grid-cols-[140px_170px_minmax(220px,1fr)]'}`}>
               <select
                 value={newsMarket}
                 onChange={(event) => {
