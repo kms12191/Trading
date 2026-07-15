@@ -142,6 +142,7 @@ npm run build
 루트 `pytest`는 `pytest.ini` 기준으로 `backend/tests`, `tests/backend`를 수집합니다. `ml/test_yf.py`는 야후파이낸스 수동 확인 스크립트 성격이므로 기본 테스트 수집 대상에서 제외합니다.
 
 - 2026-07-15 AssetDetail 1차 리팩토링: 공통 순수 유틸을 `frontend/src/pages/assetDetailModel.js`로 분리하고 명확한 dead code warning을 제거했습니다. 전체 lint 상태는 `0 errors`, `109 warnings`입니다.
+- 2026-07-15 Dashboard 1차 리팩토링: 데스크톱/모바일 대시보드 공통 순수 유틸을 `frontend/src/pages/dashboardModel.js`로 분리하고 Node test를 추가했습니다. 전체 lint 상태는 `0 errors`, `97 warnings`입니다.
 
 ## 주요 API
 

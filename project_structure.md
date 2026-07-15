@@ -219,6 +219,8 @@ frontend/
         ├── assetDetailModel.test.mjs
         ├── AssetsTab.jsx
         ├── Dashboard.jsx
+        ├── dashboardModel.js
+        ├── dashboardModel.test.mjs
         ├── Home.jsx
         ├── Login.jsx
         ├── MarketRankings.jsx
@@ -243,6 +245,10 @@ frontend/
 - `Dashboard.jsx`
   - 메인 대시보드
   - 자산/시장/실거래 vs 모의 토글 흐름
+- `dashboardModel.js`
+  - `Dashboard.jsx`와 `MobileDashboardPage.jsx`가 공유하는 통화 포맷, 자산 평가, 보유자산 병합, 관심종목 판별 순수 유틸
+- `dashboardModel.test.mjs`
+  - `dashboardModel.js`의 순수 함수 Node test
 - `AssetDetail.jsx`
   - 종목 상세
   - 차트, 호가, 체결, 주문 사전검증, ML 신호 카드
