@@ -191,6 +191,9 @@ frontend/
     ├── dashboardUtils.js
     ├── assets/
     ├── components/
+    │   ├── AssetLogo.jsx
+    │   ├── assetLogoModel.js
+    │   ├── assetLogoModel.test.mjs
     │   ├── DashboardComponents.jsx
     │   ├── Header.jsx
     │   ├── InvestmentSurveyModal.jsx
