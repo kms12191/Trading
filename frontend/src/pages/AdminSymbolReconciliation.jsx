@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { buildApiErrorText } from '../lib/apiError.js'
 
@@ -48,14 +48,14 @@ export default function AdminSymbolReconciliation() {
   const [error, setError] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(null)
 
-  const authHeaders = async () => {
+  const authHeaders = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
     const token = data?.session?.access_token
     if (!token) throw new Error('로그인이 필요합니다.')
     return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
-  }
+  }, [])
 
-  const loadLatest = async () => {
+  const loadLatest = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
@@ -73,11 +73,12 @@ export default function AdminSymbolReconciliation() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [authHeaders])
 
   useEffect(() => {
-    loadLatest()
-  }, [])
+    const timeoutId = window.setTimeout(loadLatest, 0)
+    return () => window.clearTimeout(timeoutId)
+  }, [loadLatest])
 
   const filteredItems = useMemo(() => {
     if (statusFilter === 'ALL') return items
