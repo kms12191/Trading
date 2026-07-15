@@ -3,21 +3,20 @@ import { supabase } from '../supabaseClient'
 import Header from '../components/Header.jsx'
 import InvestmentSurveyModal from '../components/InvestmentSurveyModal'
 import { getApiErrorMessage } from '../lib/apiError.js'
+import {
+  buildSettingsSavePayloads,
+  buildSettingsTestPayload,
+  createInitialKeyStatus,
+  formatApiErrorForSettings,
+  normalizeKeysStatus,
+  validateNickname,
+} from './settingsModel.js'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
 export default function Settings({ isLoggedIn, userEmail, handleLogout, userProfile, setUserProfile, hideHeader }) {
   // 브로커 연동 현황 상태
-  const [status, setStatus] = useState({
-    TOSS: { registered: false },
-    KIS: { registered: false },
-    KIS_MOCK: { registered: false },
-    KIS_REAL: { registered: false },
-    COINONE: { registered: false },
-    BINANCE: { registered: false },
-    BINANCE_REAL: { registered: false },
-    BINANCE_MOCK: { registered: false }
-  })
+  const [status, setStatus] = useState(createInitialKeyStatus)
 
   const [activeTab, setActiveTab] = useState('TOSS') // TOSS | KIS | COINONE | BINANCE
   const [loading, setLoading] = useState(false)
@@ -91,17 +90,12 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
 
   const handleSaveProfile = async (event) => {
     event.preventDefault()
-    const nickname = profileForm.nickname.trim()
-
-    if (nickname.length < 2 || nickname.length > 16) {
-      setProfileMessage({ text: '닉네임은 2자 이상 16자 이하로 입력해 주세요.', isError: true })
+    const nicknameValidation = validateNickname(profileForm.nickname)
+    if (!nicknameValidation.ok) {
+      setProfileMessage({ text: nicknameValidation.message, isError: true })
       return
     }
-
-    if (!/^[가-힣a-zA-Z0-9_]+$/.test(nickname)) {
-      setProfileMessage({ text: '닉네임은 한글, 영문, 숫자, 밑줄만 사용할 수 있습니다.', isError: true })
-      return
-    }
+    const { nickname } = nicknameValidation
 
     setProfileSaving(true)
     setProfileMessage({ text: '', isError: false })
@@ -151,33 +145,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
       })
       const resData = await response.json()
       if (resData.success && resData.data) {
-        const raw = resData.data
-        const processed = {
-          ...raw,
-          KIS_MOCK: { registered: false },
-          KIS_REAL: { registered: false },
-          BINANCE_REAL: { registered: false },
-          BINANCE_MOCK: { registered: false }
-        }
-        if (raw.KIS && raw.KIS.accounts) {
-          raw.KIS.accounts.forEach(acc => {
-            if (acc.broker_env === 'MOCK') {
-              processed.KIS_MOCK = acc
-            } else if (acc.broker_env === 'REAL') {
-              processed.KIS_REAL = acc
-            }
-          })
-        }
-        if (raw.BINANCE && raw.BINANCE.accounts) {
-          raw.BINANCE.accounts.forEach(acc => {
-            if (acc.broker_env === 'MOCK' || acc.broker_env === 'DEMO' || acc.broker_env === 'TESTNET') {
-              processed.BINANCE_MOCK = acc
-            } else if (acc.broker_env === 'REAL') {
-              processed.BINANCE_REAL = acc
-            }
-          })
-        }
-        setStatus(processed)
+        setStatus(normalizeKeysStatus(resData.data))
       }
     } catch (error) {
       console.error('연동 현황 로드 실패:', error.message)
@@ -205,40 +173,14 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
       return
     }
 
-    let payload = { exchange }
-    if (exchange === 'TOSS') {
-      payload = {
-        ...payload,
-        client_id: tossForm.client_id,
-        client_secret: tossForm.client_secret,
-        toss_account_seq: tossForm.toss_account_seq,
-        broker_env: tossForm.broker_env
-      }
-    } else if (exchange === 'KIS') {
-      const form = kisSubTab === 'MOCK' ? kisMockForm : kisRealForm
-      payload = {
-        ...payload,
-        appkey: form.appkey,
-        appsecret: form.appsecret,
-        cano: form.cano,
-        acnt_prdt_cd: form.acnt_prdt_cd,
-        broker_env: form.broker_env
-      }
-    } else if (exchange === 'COINONE') {
-      payload = {
-        ...payload,
-        access_token: coinoneForm.access_token,
-        secret_key: coinoneForm.secret_key,
-        broker_env: coinoneForm.broker_env
-      }
-    } else if (exchange === 'BINANCE') {
-      payload = {
-        ...payload,
-        api_key: binanceForm.api_key,
-        secret_key: binanceForm.secret_key,
-        broker_env: binanceForm.broker_env
-      }
-    }
+    const payload = buildSettingsTestPayload(exchange, {
+      tossForm,
+      kisSubTab,
+      kisMockForm,
+      kisRealForm,
+      coinoneForm,
+      binanceForm,
+    })
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/keys/test`, {
@@ -254,11 +196,11 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
         setMessage({ text: resData.message, isError: false })
       } else {
         const message = getApiErrorMessage(resData, '연결 테스트에 실패했습니다.')
-        setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
+        setMessage({ text: formatApiErrorForSettings(message), isError: true })
       }
     } catch (error) {
       const message = getApiErrorMessage(error, '서버 통신에 실패했습니다.')
-      setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
+      setMessage({ text: formatApiErrorForSettings(message), isError: true })
     } finally {
       setLoading(false)
     }
@@ -282,11 +224,11 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
         loadKeysStatus() // 현황 즉시 갱신
       } else {
         const message = getApiErrorMessage(resData, '저장에 실패했습니다.')
-        setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
+        setMessage({ text: formatApiErrorForSettings(message), isError: true })
       }
     } catch (error) {
       const message = getApiErrorMessage(error, '서버 저장에 실패했습니다.')
-      setMessage({ text: message.detail ? `${message.title} ${message.detail}` : message.title, isError: true })
+      setMessage({ text: formatApiErrorForSettings(message), isError: true })
     }
   }
 
@@ -301,90 +243,20 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
       return
     }
 
-    let payload = { exchange }
-    let testPayload = { exchange }
-
-    if (exchange === 'TOSS') {
-      if (!tossForm.client_id || !tossForm.client_secret) {
-        setMessage({ text: 'Toss Client ID와 Secret을 모두 입력해 주세요.', isError: true })
-        setLoading(false)
-        return
-      }
-      payload = {
-        ...payload,
-        client_id: tossForm.client_id,
-        client_secret: tossForm.client_secret,
-        toss_account_seq: tossForm.toss_account_seq,
-        toss_account_no: tossForm.toss_account_no,
-        broker_env: tossForm.broker_env
-      }
-      testPayload = {
-        exchange,
-        client_id: tossForm.client_id,
-        client_secret: tossForm.client_secret,
-        toss_account_seq: tossForm.toss_account_seq,
-        broker_env: tossForm.broker_env
-      }
-    } else if (exchange === 'KIS') {
-      const form = kisSubTab === 'MOCK' ? kisMockForm : kisRealForm
-      if (!form.appkey || !form.appsecret || !form.cano) {
-        setMessage({ text: `KIS ${kisSubTab} AppKey, Secret, 계좌번호를 모두 입력해 주세요.`, isError: true })
-        setLoading(false)
-        return
-      }
-      payload = {
-        ...payload,
-        appkey: form.appkey,
-        appsecret: form.appsecret,
-        cano: form.cano,
-        acnt_prdt_cd: form.acnt_prdt_cd,
-        broker_env: form.broker_env
-      }
-      testPayload = {
-        exchange,
-        appkey: form.appkey,
-        appsecret: form.appsecret,
-        cano: form.cano,
-        acnt_prdt_cd: form.acnt_prdt_cd,
-        broker_env: form.broker_env
-      }
-    } else if (exchange === 'COINONE') {
-      if (!coinoneForm.access_token || !coinoneForm.secret_key) {
-        setMessage({ text: 'Coinone Access Token과 Secret Key를 모두 입력해 주세요.', isError: true })
-        setLoading(false)
-        return
-      }
-      payload = {
-        ...payload,
-        access_token: coinoneForm.access_token,
-        secret_key: coinoneForm.secret_key,
-        broker_env: coinoneForm.broker_env
-      }
-      testPayload = {
-        exchange,
-        access_token: coinoneForm.access_token,
-        secret_key: coinoneForm.secret_key,
-        broker_env: coinoneForm.broker_env
-      }
-    } else if (exchange === 'BINANCE') {
-      if (!binanceForm.api_key || !binanceForm.secret_key) {
-        setMessage({ text: 'Binance API Key와 Secret Key를 모두 입력해 주세요.', isError: true })
-        setLoading(false)
-        return
-      }
-      payload = {
-        ...payload,
-        api_key: binanceForm.api_key,
-        secret_key: binanceForm.secret_key,
-        broker_env: binanceForm.broker_env
-      }
-      testPayload = {
-        exchange,
-        api_key: binanceForm.api_key,
-        secret_key: binanceForm.secret_key,
-        broker_env: binanceForm.broker_env
-      }
+    const savePayloads = buildSettingsSavePayloads(exchange, {
+      tossForm,
+      kisSubTab,
+      kisMockForm,
+      kisRealForm,
+      coinoneForm,
+      binanceForm,
+    })
+    if (!savePayloads.ok) {
+      setMessage({ text: savePayloads.message, isError: true })
+      setLoading(false)
+      return
     }
+    const { payload, testPayload } = savePayloads
 
     try {
       // 1. 연결 테스트 강제 수행
