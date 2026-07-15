@@ -9,6 +9,7 @@ import WatchlistTab from './WatchlistTab.jsx'
 import AssetsTab from './AssetsTab.jsx'
 import TradeHistoryTab from './TradeHistoryTab.jsx'
 import AdminMlData from './AdminMlData.jsx'
+import { resolveWatchlistDisplayCurrency } from './watchlistDisplay.js'
 import { getApiErrorMessage } from '../lib/apiError.js'
 import {
   deductCoinoneTransfersFromEstimatedHoldings,
@@ -280,6 +281,26 @@ const getDashboardWatchlistAssetType = (item = {}) => {
   const market = String(item.market || '').toUpperCase()
   const account = String(item.account || item.exchange || '').toUpperCase()
   return assetType === 'CRYPTO' || /COIN|CRYPTO|BINANCE|COINONE|BTC|ETH|USDT/.test(`${market} ${account}`) ? 'CRYPTO' : 'STOCK'
+}
+
+const getDashboardWatchlistCurrency = (item = {}) => {
+  const sourcePayload = item.sourcePayload || {}
+  const currency = String(item.currency || sourcePayload.currency || '').toUpperCase()
+  if (currency) return currency
+
+  const assetType = getDashboardWatchlistAssetType(item)
+  if (assetType === 'CRYPTO') {
+    const exchange = String(item.exchange || item.account || sourcePayload.exchange || '').toUpperCase()
+    return exchange.includes('BINANCE') ? 'USDT' : 'KRW'
+  }
+
+  const marketCountry = String(item.marketCountry || item.market_country || sourcePayload.market_country || '').toUpperCase()
+  const market = String(item.market || sourcePayload.market || '').toUpperCase()
+  const symbol = String(item.id || item.symbol || sourcePayload.symbol || '').toUpperCase()
+  if (marketCountry === 'US' || market.includes('해외') || (/[A-Z]/.test(symbol) && !/^\d{6}$/.test(symbol))) {
+    return 'USD'
+  }
+  return 'KRW'
 }
 
 const getDashboardWatchlistChartConfig = (item = {}) => {
@@ -1574,7 +1595,7 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                       </thead>
                       <tbody className="block max-h-[136px] overflow-y-auto divide-y divide-slate-800/40 [&>tr]:table [&>tr]:w-full [&>tr]:table-fixed">
                         {dashboardWatchlist.map((item) => {
-                          const stockCurrency = item.currency || (item.marketCountry === 'US' ? 'USD' : 'KRW')
+                          const stockCurrency = getDashboardWatchlistCurrency(item)
                           const savedPrice = parsePriceNumber(item.latestPrice ?? item.average)
                           const currentPrice = getWatchlistCurrentPrice(item) ?? savedPrice
                           const hasSavedPrice = Number.isFinite(savedPrice) && savedPrice > 0
@@ -1582,10 +1603,15 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
                           const priceDelta = hasSavedPrice && hasCurrentPrice ? currentPrice - savedPrice : 0
                           const priceDeltaRate = hasSavedPrice ? (priceDelta / savedPrice) * 100 : 0
                           const priceDeltaTone = priceDelta > 0 ? 'text-red-400' : priceDelta < 0 ? 'text-blue-400' : 'text-white'
-                          const signedDeltaAmount = `${priceDelta > 0 ? '+' : priceDelta < 0 ? '-' : ''}${formatUnitCurrency(Math.abs(priceDelta), stockCurrency, stockCurrency === 'USD' || stockCurrency === 'USDT' ? displayCurrency : 'KRW', balance?.exchange_rate || 1380)}`
+                          const assetType = getDashboardWatchlistAssetType(item)
+                          const currentDisplayCurrency = resolveWatchlistDisplayCurrency({
+                            assetType,
+                            selectedCurrency: stockCurrency,
+                            cryptoChartMode: displayCurrency,
+                          })
+                          const signedDeltaAmount = `${priceDelta > 0 ? '+' : priceDelta < 0 ? '-' : ''}${formatUnitCurrency(Math.abs(priceDelta), stockCurrency, currentDisplayCurrency, balance?.exchange_rate || 1380)}`
                           const signedDeltaRate = `${priceDeltaRate > 0 ? '+' : ''}${priceDeltaRate.toFixed(2)}%`
                           const exchangeRate = balance?.exchange_rate || 1380
-                          const currentDisplayCurrency = stockCurrency === 'USD' || stockCurrency === 'USDT' ? displayCurrency : 'KRW'
                           const isRemoving = removingWatchlistIds.has(item.id)
                           return (
                             <tr key={item.id} className="hover:bg-slate-800/20 transition-colors">
