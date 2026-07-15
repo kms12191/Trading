@@ -25,6 +25,7 @@ export async function sendChatbotMessage(message, options = {}) {
     body: JSON.stringify({
       message,
       timezone: options.timezone,
+      structured_order: options.structured_order,
     }),
   })
 
@@ -35,6 +36,71 @@ export async function sendChatbotMessage(message, options = {}) {
   }
 
   return payload.data
+}
+
+async function orderEntryRequest(path, options = {}) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  if (!session?.access_token) {
+    throw new Error('로그인 후 이용 가능합니다.')
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+      ...(options.headers || {}),
+    },
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || payload.success === false) {
+    throw new Error(buildApiErrorText(payload, '매매 요청 정보를 처리하지 못했습니다.'))
+  }
+  return payload.data
+}
+
+function withQuery(path, params) {
+  const query = new URLSearchParams(
+    Object.entries(params || {}).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  )
+  return `${path}?${query.toString()}`
+}
+
+export function fetchOrderEntryAccounts() {
+  return orderEntryRequest('/api/trade/order-entry/accounts')
+}
+
+export function searchOrderEntrySymbols(params) {
+  return orderEntryRequest(withQuery('/api/trade/order-entry/symbols', params))
+}
+
+export function fetchOrderEntryHoldings(params) {
+  return orderEntryRequest(withQuery('/api/trade/order-entry/holdings', params))
+}
+
+export function fetchOrderEntryContext(params) {
+  return orderEntryRequest(withQuery('/api/trade/order-entry/context', params))
+}
+
+export function precheckOrderEntry(order) {
+  return orderEntryRequest('/api/trade/precheck', {
+    method: 'POST',
+    body: JSON.stringify(order),
+  })
+}
+
+export function createOrderEntryProposal(order, precheckToken, timezone) {
+  return sendChatbotMessage('[매매 요청] 구조화 주문 제안 생성', {
+    timezone,
+    structured_order: {
+      is_structured_order: true,
+      ...order,
+      precheck_token: precheckToken,
+    },
+  })
 }
 
 export async function streamChatbotMessage(message, handlers = {}, options = {}) {

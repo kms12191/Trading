@@ -25,6 +25,7 @@ _TOOL_RISK_LEVELS = {
     "get_asset_price": RiskLevel.READ,
     "get_asset_orderbook": RiskLevel.READ,
     "get_asset_candles": RiskLevel.READ,
+    "get_crypto_market_context": RiskLevel.READ,
     "search_web": RiskLevel.READ,
     "get_asset_outlook": RiskLevel.READ,
     "add_watchlist_item": RiskLevel.WRITE,

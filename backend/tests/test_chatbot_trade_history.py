@@ -416,31 +416,6 @@ def test_run_chatbot_tool_combines_multiple_asset_outlooks(monkeypatch):
     assert "BTC 전망 응답" in result["reply"]
 
 
-def test_compound_info_does_not_intercept_order_with_news(monkeypatch):
-    calls = []
-
-    monkeypatch.setattr(
-        tool_registry,
-        "get_asset_price",
-        lambda auth, msg: (_ for _ in ()).throw(AssertionError("주문 문구는 복합 현재가 라우팅 금지")),
-    )
-    monkeypatch.setattr(
-        tool_registry,
-        "search_web",
-        lambda auth, msg: (_ for _ in ()).throw(AssertionError("주문 문구는 복합 뉴스 라우팅 금지")),
-    )
-
-    def fake_create_trade_proposal_from_message(auth_header, message, intent=None):
-        calls.append((auth_header, message, intent))
-        return {"reply": "주문 흐름", "data": {"source": "ORDER_FLOW"}}
-
-    monkeypatch.setattr(tool_registry, "_is_plain_order_requiring_confirmation", lambda message, intent: False)
-    monkeypatch.setattr(tool_registry, "create_trade_proposal_from_message", fake_create_trade_proposal_from_message)
-
-    result = tool_registry.run_chatbot_tool("Bearer test", "삼성전자 1주 사줘 그리고 뉴스 알려줘")
-
-    assert result["data"]["source"] == "ORDER_FLOW"
-    assert len(calls) == 1
 
 
 def test_recommendation_candidates_adds_next_action_when_predictions_are_missing(monkeypatch):

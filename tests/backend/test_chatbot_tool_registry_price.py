@@ -1,4 +1,5 @@
 from backend.services.chatbot import tool_registry
+from backend.services.chatbot.function_calling import FUNCTION_SCHEMAS
 from flask import Flask
 
 from backend.routes import trade
@@ -28,6 +29,8 @@ def test_price_question_routes_to_asset_price_lookup(monkeypatch):
                     "currency": "USD",
                 }
             }
+        if path == "/api/stocks/warnings":
+            return {"data": {"warnings": []}}
         raise AssertionError(f"unexpected path: {path}")
 
     monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
@@ -41,6 +44,7 @@ def test_price_question_routes_to_asset_price_lookup(monkeypatch):
     assert calls == [
         ("/api/symbol/lookup", {"query": "RDDT"}),
         ("/api/chart/quote", {"exchange": "TOSS", "symbol": "RDDT", "broker_env": "REAL"}),
+        ("/api/stocks/warnings", {"symbol": "RDDT", "exchange": "TOSS", "broker_env": "REAL"}),
     ]
 
 
@@ -236,6 +240,206 @@ def test_order_without_exchange_asks_for_exchange_before_price(monkeypatch):
     assert "거래소" in result["reply"]
     assert "토스" in result["reply"]
     assert "KIS" in result["reply"]
+
+
+def test_crypto_analysis_routes_to_market_context(monkeypatch):
+    calls = []
+
+    def fake_get_internal(path, auth_header, params=None):
+        calls.append((path, params))
+        if path == "/api/symbol/lookup":
+            return {
+                "data": {
+                    "symbol": "XRP",
+                    "display_name": "리플",
+                    "asset_type": "CRYPTO",
+                    "market": "KR",
+                    "exchange": "COINONE",
+                }
+            }
+        if path == "/api/chart/quote":
+            return {
+                "data": {
+                    "symbol": "XRP",
+                    "exchange": "COINONE",
+                    "current_price": 4200,
+                    "change_rate": 3.25,
+                    "currency": "KRW",
+                }
+            }
+        if path == "/api/chart/orderbook":
+            return {
+                "data": {
+                    "asks": [{"price": 4210, "size": 1200}],
+                    "bids": [{"price": 4195, "size": 950}],
+                },
+                "meta": {"source": "LIVE", "is_mock": False},
+            }
+        if path == "/api/chart/candles":
+            return {
+                "data": [
+                    {"time": "2026-07-15T00:00:00+09:00", "open": 4000, "high": 4100, "low": 3980, "close": 4050},
+                    {"time": "2026-07-15T01:00:00+09:00", "open": 4050, "high": 4220, "low": 4040, "close": 4200},
+                ]
+            }
+        raise AssertionError(f"unexpected path: {path}")
+
+    def fake_ml_outlook(auth_header, message, symbol_data):
+        return {
+            "reply": "리플(XRP) 질문은 ML 활성 신호 기준으로 보면 매수 후보입니다.",
+            "data": {
+                "source": "ML_ACTIVE_SIGNAL",
+                "asset_key": "crypto",
+                "symbol": "XRP",
+                "prediction": {
+                    "position": "LONG",
+                    "signal_grade": "B",
+                    "up_probability": 0.61,
+                    "risk_probability": 0.18,
+                    "signal_score": 0.43,
+                    "model_version": "lgbm_crypto_signal_v9",
+                },
+            },
+        }
+
+    monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
+    monkeypatch.setattr(tool_registry, "build_single_asset_ml_outlook", fake_ml_outlook)
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "리플 코인 분석해줘")
+
+    assert result is not None
+    assert result["data"]["source"] == "CRYPTO_MARKET_CONTEXT"
+    assert result["data"]["symbol"] == "XRP"
+    assert result["data"]["exchange"] == "COINONE"
+    assert result["data"]["quote"]["current_price"] == 4200
+    assert result["data"]["orderbook"]["best_ask"]["price"] == 4210
+    assert result["data"]["liquidity"]["spread_rate"] == 0.36
+    assert result["data"]["liquidity"]["estimated_buy_slippage_rate"] == 0.24
+    assert result["data"]["candles"]["interval"] == "1h"
+    assert result["data"]["ml"]["prediction"]["model_version"] == "lgbm_crypto_signal_v9"
+    assert "24시간 거래되는 가상자산" in result["reply"]
+    assert "스프레드" in result["reply"]
+    assert "Coinone는 KRW 현물" in result["reply"]
+    assert calls == [
+        ("/api/symbol/lookup", {"query": "XRP"}),
+        ("/api/chart/quote", {"exchange": "COINONE", "symbol": "XRP", "broker_env": "REAL"}),
+        ("/api/chart/orderbook", {"exchange": "COINONE", "symbol": "XRP", "broker_env": "REAL"}),
+        ("/api/chart/candles", {"exchange": "COINONE", "symbol": "XRP", "interval": "1h", "count": 24, "broker_env": "REAL"}),
+    ]
+
+
+def test_function_schemas_include_crypto_market_context():
+    schema = next((item for item in FUNCTION_SCHEMAS if item["name"] == "get_crypto_market_context"), None)
+
+    assert schema is not None
+    assert schema["parameters"]["required"] == ["query"]
+    assert "query" in schema["parameters"]["properties"]
+
+
+def test_crypto_context_keeps_binance_futures_exchange(monkeypatch):
+    requested_exchanges = []
+
+    def fake_get_internal(path, auth_header, params=None):
+        if path == "/api/symbol/lookup":
+            return {
+                "data": {
+                    "symbol": "BTC",
+                    "display_name": "비트코인",
+                    "asset_type": "CRYPTO",
+                    "market": "GLOBAL",
+                }
+            }
+        if path in {"/api/chart/quote", "/api/chart/orderbook", "/api/chart/candles"}:
+            requested_exchanges.append(params["exchange"])
+        if path == "/api/chart/quote":
+            return {"data": {"current_price": 120000, "change_rate": 1.2, "currency": "USD"}}
+        if path == "/api/chart/orderbook":
+            return {"data": {"asks": [{"price": 120010, "size": 1}], "bids": [{"price": 119990, "size": 1}]}}
+        if path == "/api/chart/candles":
+            return {"data": [{"close": 119000}, {"close": 120000}]}
+        raise AssertionError(f"unexpected path: {path}")
+
+    monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
+    monkeypatch.setattr(tool_registry, "build_single_asset_ml_outlook", lambda auth_header, message, symbol_data: None)
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "바이낸스 선물 BTC 코인 분석해줘")
+
+    assert result["data"]["exchange"] == "BINANCE_UM_FUTURES"
+    assert requested_exchanges == ["BINANCE_UM_FUTURES", "BINANCE_UM_FUTURES", "BINANCE_UM_FUTURES"]
+    assert "Binance USD-M 선물" in result["reply"]
+
+
+def test_crypto_context_includes_user_holding_snapshot(monkeypatch):
+    def fake_get_internal(path, auth_header, params=None):
+        if path == "/api/symbol/lookup":
+            return {"data": {"symbol": "XRP", "display_name": "리플", "asset_type": "CRYPTO"}}
+        if path == "/api/chart/quote":
+            return {"data": {"current_price": 4200, "change_rate": 1.5, "currency": "KRW"}}
+        if path == "/api/chart/orderbook":
+            return {"data": {"asks": [{"price": 4210, "size": 1200}], "bids": [{"price": 4190, "size": 1000}]}}
+        if path == "/api/chart/candles":
+            return {"data": [{"close": 4100}, {"close": 4200}]}
+        raise AssertionError(f"unexpected path: {path}")
+
+    def fake_post_internal(path, auth_header, body=None):
+        assert path == "/api/dashboard/balance"
+        if body == {"exchange": "COINONE", "env": "REAL"}:
+            return {
+                "data": {
+                    "currency": "KRW",
+                    "total_evaluation": 1_000_000,
+                    "holdings": [
+                        {
+                            "symbol": "XRP",
+                            "currency": "XRP",
+                            "quantity": 100,
+                            "avg_price": 4000,
+                            "profit_rate": 5.0,
+                            "evaluation": 420000,
+                        }
+                    ],
+                }
+            }
+        raise RuntimeError("등록된 계좌가 없습니다.")
+
+    monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
+    monkeypatch.setattr(tool_registry, "_post_internal", fake_post_internal)
+    monkeypatch.setattr(tool_registry, "build_single_asset_ml_outlook", lambda auth_header, message, symbol_data: None)
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "내 리플 코인 팔까 분석해줘")
+
+    assert result["data"]["holding"]["quantity"] == 100
+    assert result["data"]["holding"]["avg_price"] == 4000
+    assert result["data"]["holding"]["profit_rate"] == 5.0
+    assert result["data"]["holding"]["portfolio_weight_rate"] == 42.0
+    assert "보유: 100 XRP" in result["reply"]
+
+
+def test_crypto_context_includes_kimchi_premium_for_coinone(monkeypatch):
+    def fake_get_internal(path, auth_header, params=None):
+        if path == "/api/symbol/lookup":
+            return {"data": {"symbol": "BTC", "display_name": "비트코인", "asset_type": "CRYPTO"}}
+        if path == "/api/chart/quote" and params["exchange"] == "COINONE":
+            return {"data": {"current_price": 100_000_000, "change_rate": 0.5, "currency": "KRW"}}
+        if path == "/api/chart/quote" and params["exchange"] == "BINANCE":
+            return {"data": {"current_price": 66_000, "change_rate": 0.4, "currency": "USD"}}
+        if path == "/api/chart/orderbook":
+            return {"data": {"asks": [{"price": 100_100_000, "size": 0.4}], "bids": [{"price": 99_900_000, "size": 0.3}]}}
+        if path == "/api/chart/candles":
+            return {"data": [{"close": 99_000_000}, {"close": 100_000_000}]}
+        if path == "/api/market/exchange-rate":
+            return {"data": {"rate": 1500.0, "base_currency": "USDT", "quote_currency": "KRW", "source": "COINONE_USDT_KRW"}}
+        raise AssertionError(f"unexpected path: {path}")
+
+    monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
+    monkeypatch.setattr(tool_registry, "build_single_asset_ml_outlook", lambda auth_header, message, symbol_data: None)
+
+    result = tool_registry.run_chatbot_tool("Bearer test", "비트코인 코인 분석해줘")
+
+    assert result["data"]["premium"]["premium_rate"] == 1.01
+    assert result["data"]["premium"]["coinone_price_krw"] == 100_000_000
+    assert result["data"]["premium"]["binance_price_krw"] == 99_000_000
+    assert "김치프리미엄" in result["reply"]
 
 
 def test_toss_mock_order_is_blocked_before_precheck(monkeypatch):
