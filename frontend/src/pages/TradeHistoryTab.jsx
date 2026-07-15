@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { buildApiErrorText } from '../lib/apiError.js'
 import AssetLogo from '../components/AssetLogo.jsx'
@@ -119,6 +119,29 @@ export default function TradeHistoryTab() {
     }
     return Array.isArray(payload.data) ? payload.data : []
   }
+
+  const getAuthHeader = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) {
+      throw new Error('로그인 세션을 확인할 수 없습니다.')
+    }
+    return `Bearer ${session.access_token}`
+  }, [])
+
+  const syncTradeStatuses = useCallback(async () => {
+    try {
+      const authHeader = await getAuthHeader()
+      await fetch(`${API_BASE_URL}/api/trade/orders/sync-status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authHeader,
+        },
+      })
+    } catch {
+      // 상태 동기화 실패는 거래내역 조회 자체를 막지 않습니다.
+    }
+  }, [getAuthHeader])
 
   useEffect(() => {
     let ignore = false
@@ -273,7 +296,7 @@ export default function TradeHistoryTab() {
         supabase.removeChannel(transferChannel)
       }
     }
-  }, [])
+  }, [syncTradeStatuses])
 
   const handleOpenModify = (trade) => {
     setSelectedTrade(trade)
@@ -288,29 +311,6 @@ export default function TradeHistoryTab() {
   const getPrimaryActionLabel = (trade) => (
     isCancelReplaceExchange(trade.exchange) ? '취소 후 재주문' : '주문 정정'
   )
-
-  async function getAuthHeader() {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token) {
-      throw new Error('로그인 세션을 확인할 수 없습니다.')
-    }
-    return `Bearer ${session.access_token}`
-  }
-
-  async function syncTradeStatuses() {
-    try {
-      const authHeader = await getAuthHeader()
-      await fetch(`${API_BASE_URL}/api/trade/orders/sync-status`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: authHeader,
-        },
-      })
-    } catch {
-      // 상태 동기화 실패는 거래내역 조회 자체를 막지 않습니다.
-    }
-  }
 
   const refreshTradeHistory = async () => {
     await syncTradeStatuses()

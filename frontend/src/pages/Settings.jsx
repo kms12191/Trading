@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import Header from '../components/Header.jsx'
 import InvestmentSurveyModal from '../components/InvestmentSurveyModal'
@@ -82,11 +82,11 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
 
 
   // 세션 헤더 획득 헬퍼 함수
-  const getAuthHeader = async () => {
+  const getAuthHeader = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) return null
     return `Bearer ${session.access_token}`
-  }
+  }, [])
 
   const handleSaveProfile = async (event) => {
     event.preventDefault()
@@ -132,7 +132,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
   }
 
   // API Key 등록 현황 로드
-  const loadKeysStatus = async () => {
+  const loadKeysStatus = useCallback(async () => {
     const authHeader = await getAuthHeader()
     if (!authHeader) return
 
@@ -150,7 +150,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
     } catch (error) {
       console.error('연동 현황 로드 실패:', error.message)
     }
-  }
+  }, [getAuthHeader])
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -160,7 +160,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
       return () => window.clearTimeout(timerId)
     }
     return undefined
-  }, [isLoggedIn])
+  }, [isLoggedIn, loadKeysStatus])
 
   // 연결 테스트 핸들러
   const handleTestConnection = async (exchange) => {
