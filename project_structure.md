@@ -292,6 +292,8 @@ frontend/
   - `Home.jsx`와 `useMobileHomeMarket.js`가 공유하는 시장 랭킹 포맷, 국내·해외 판별, 정렬, 관심종목 키 계산 순수 유틸
 - `homeModel.test.mjs`
   - `homeModel.js`의 순수 함수 Node test
+- `MarketRankings.jsx`
+  - 홈 시장 랭킹 더보기 화면이며 `homeModel.js`의 포맷/관심종목 키 계산을 재사용
 - `AdminInquiryPanel.jsx`
   - 3분리 모델 자동화 상태 모니터링 및 수동 검증 패널
 - `AdminMlData.jsx`
