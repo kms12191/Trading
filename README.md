@@ -162,6 +162,7 @@ npm run build
 - 2026-07-15 공통 effect 1차 정리: 디바이스 감지 훅, 대시보드 사이드바 권한 표시, 데스크톱/모바일 뉴스 초기 로딩 effect 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `4 warnings`입니다.
 - 2026-07-15 Settings/TradeHistory 의존성 정리: 데스크톱/모바일 설정 화면의 키 상태 로더와 거래내역 주문 상태 동기화 함수를 안정화해 남은 effect 의존성 경고를 모두 정리했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`입니다.
 - 2026-07-15 AssetDetail 3차 리팩토링: 데스크톱/모바일 종목 상세의 뉴스·공시·ML 지표·캔들 포맷 순수 유틸을 `assetDetailModel.js`로 이동하고 Node test를 보강했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AssetDetail.jsx`는 4,824줄, `MobileAssetDetail.jsx`는 4,812줄입니다.
+- 2026-07-15 AdminMlData 2차 리팩토링: 데스크톱/모바일 ML 관리자 화면의 공통 수집 상태 패널을 `frontend/src/pages/adminMlDataPanels.jsx`로 분리했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 2,963줄, `MobileAdminMlData.jsx`는 2,924줄입니다.
 
 ## 주요 API
 

@@ -217,6 +217,7 @@ frontend/
         ├── AdminInquiries.jsx
         ├── AdminInquiryPanel.jsx
         ├── AdminMlData.jsx
+        ├── adminMlDataPanels.jsx
         ├── adminMlDataModel.js
         ├── adminMlDataModel.test.mjs
         ├── AdminSymbolReconciliation.jsx
@@ -303,6 +304,8 @@ frontend/
   - ML 운영 콘솔
   - readiness, serving audit, 활성 신호, 자동화 실행, 작업 이력, 고급 도구
   - 관리자 유저 관리 탭에서 `AdminUsers.jsx`를 렌더링
+- `adminMlDataPanels.jsx`
+  - `AdminMlData.jsx`와 `MobileAdminMlData.jsx`가 공유하는 ML 관리자 UI 패널 컴포넌트
 - `adminMlDataModel.js`
   - `AdminMlData.jsx`와 `MobileAdminMlData.jsx`가 공유하는 ML 프리셋, 경로/수치 포맷, 승격 검증 요약, 데이터 품질 상세 순수 유틸
 - `adminMlDataModel.test.mjs`
