@@ -44,6 +44,7 @@ function AdminProtectedRoute({ isLoggedIn, userProfile, children }) {
 
 function AppShell({
   isLoggedIn,
+  authReady,
   userEmail,
   userId,
   userProfile,
@@ -105,7 +106,11 @@ function AppShell({
     }
   }
 
-  const protectedInquiryElement = isLoggedIn ? (
+  const protectedInquiryElement = !authReady ? (
+    <div className="min-h-screen bg-obsidian-bg flex items-center justify-center text-xs font-bold text-slate-400">
+      인증 상태 확인 중...
+    </div>
+  ) : isLoggedIn ? (
     <Inquiry
       isLoggedIn={isLoggedIn}
       userEmail={userEmail}
@@ -201,6 +206,7 @@ function AppShell({
       {isMobileDevice ? (
         <MobileRoutes
           isLoggedIn={isLoggedIn}
+          authReady={authReady}
           userEmail={userEmail}
           handleLogout={handleLogout}
           userProfile={userProfile}
@@ -323,6 +329,7 @@ function AppShell({
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [authReady, setAuthReady] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [userId, setUserId] = useState('')
   const [userProfile, setUserProfile] = useState(null)
@@ -394,14 +401,16 @@ export default function App() {
       }
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      checkUserSession(session)
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      await checkUserSession(session)
+      setAuthReady(true)
     })
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      checkUserSession(session)
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      await checkUserSession(session)
+      setAuthReady(true)
     })
 
     return () => {
@@ -428,6 +437,7 @@ export default function App() {
     <Router>
       <AppShell
         isLoggedIn={isLoggedIn}
+        authReady={authReady}
         userEmail={userEmail}
         userId={userId}
         userProfile={userProfile}

@@ -42,6 +42,7 @@ function AdminProtectedRoute({ isLoggedIn, userProfile, children }) {
 
 export default function MobileRoutes({
   isLoggedIn,
+  authReady = true,
   userEmail,
   handleLogout,
   userProfile,
@@ -50,7 +51,11 @@ export default function MobileRoutes({
   const location = useLocation()
   const isChatbotRoute = location.pathname === '/chatbot'
 
-  const protectedInquiryElement = isLoggedIn ? (
+  const protectedInquiryElement = !authReady ? (
+    <div className="min-h-screen bg-obsidian-bg flex items-center justify-center text-xs font-bold text-slate-400">
+      인증 상태 확인 중...
+    </div>
+  ) : isLoggedIn ? (
     <div className="min-h-screen bg-obsidian-bg px-3 py-4 font-inter text-[#e2e2ec]">
       <MobileHeader isLoggedIn={isLoggedIn} handleLogout={handleLogout} />
       <MobileInquiry

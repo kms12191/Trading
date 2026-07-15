@@ -1445,20 +1445,6 @@ export default function ChatbotWidget({
               </div>
             )}
             <form onSubmit={handleSubmit} className={isMobilePage ? 'flex items-center gap-3' : 'flex items-end gap-2'}>
-              {isMobilePage ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setIsQuickMenuOpen((open) => !open)}
-                    className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-slate-400 transition active:bg-ai-cyan/10 active:text-ai-cyan"
-                    aria-label={isQuickMenuOpen ? 'Close chatbot categories' : 'Open chatbot categories'}
-                    aria-expanded={isQuickMenuOpen}
-                  >
-                    <span className="material-symbols-outlined text-[34px] leading-none">menu</span>
-                  </button>
-                  <div className="h-12 w-px shrink-0 bg-slate-700" aria-hidden="true" />
-                </>
-              ) : null}
               <textarea
                 ref={inputRef}
                 value={input}
