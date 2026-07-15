@@ -187,7 +187,6 @@ function SidebarNav({ activeTab, isOpen, isLoggedIn, onClose, onOpen, onTabChang
 
   useEffect(() => {
     if (!isLoggedIn) {
-      setRole('USER')
       return
     }
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -206,9 +205,10 @@ function SidebarNav({ activeTab, isOpen, isLoggedIn, onClose, onOpen, onTabChang
     })
   }, [isLoggedIn])
 
+  const effectiveRole = isLoggedIn ? role : 'USER'
   const visibleTabs = DASHBOARD_TABS.filter((tab) => {
     if (tab.authOnly && !isLoggedIn) return false
-    if (tab.adminOnly && role !== 'ADMIN') return false
+    if (tab.adminOnly && effectiveRole !== 'ADMIN') return false
     return true
   })
   const isRouteActive = (route, exact = false) => route && (exact ? pathname === route : pathname === route || pathname.startsWith(`${route}/`))

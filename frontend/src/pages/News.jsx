@@ -123,7 +123,8 @@ export default function News({ isLoggedIn, userEmail, handleLogout }) {
   }, [newsCategory, newsMarket, newsQuery, page])
 
   useEffect(() => {
-    loadNews()
+    const timeoutId = window.setTimeout(loadNews, 0)
+    return () => window.clearTimeout(timeoutId)
   }, [loadNews])
 
   const handleSummaryToggle = useCallback(

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 function detectDeviceType() {
   if (typeof window !== 'undefined') {
@@ -47,11 +47,7 @@ function detectDeviceType() {
 }
 
 export default function useDeviceType() {
-  const [device, setDevice] = useState(detectDeviceType)
-
-  useEffect(() => {
-    setDevice(detectDeviceType())
-  }, [])
+  const [device] = useState(detectDeviceType)
 
   return device
 }
