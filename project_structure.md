@@ -267,7 +267,7 @@ frontend/
   - 차트, 호가, 체결, 주문 사전검증, ML 신호 카드
   - TOSS 주식 상세 헤더의 종목 유의사항 배지 연동
 - `assetDetailModel.js`
-  - `AssetDetail.jsx`와 `MobileAssetDetail.jsx`가 공유하는 주문 상태 라벨, 조건감시 라벨, 심볼 판별, 종목 유의사항 배지 tone 순수 유틸
+  - `AssetDetail.jsx`와 `MobileAssetDetail.jsx`가 공유하는 주문 상태 라벨, 조건감시 라벨, 심볼 판별, 가격 자릿수/차트 price format, 종목 유의사항 배지 tone 순수 유틸
 - `assetDetailModel.test.mjs`
   - `assetDetailModel.js`의 순수 함수 Node test
 - `AssetsTab.jsx`
