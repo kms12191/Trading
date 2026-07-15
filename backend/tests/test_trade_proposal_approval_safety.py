@@ -586,6 +586,68 @@ def test_same_manual_order_idempotency_key_is_sent_to_exchange_only_once(monkeyp
     assert order_client.place_order_calls == 1
 
 
+@pytest.mark.parametrize("side", ["BUY", "SELL"])
+def test_manual_order_source_is_preserved_after_order_receipt_update(monkeypatch, side):
+    order_client = FakeOrderClient(status="OPEN")
+    patched_payloads = []
+    manual_proposal = {
+        "id": MANUAL_ORDER_KEY,
+        "status": "PENDING",
+        "exchange": "COINONE",
+        "symbol": "XRP",
+        "side": side,
+        "ord_type": "LIMIT",
+        "price": 800,
+        "volume": 10,
+        "broker_env": "MOCK",
+        "raw_order_payload": {
+            "source": "MANUAL_ORDER",
+            "idempotency_fingerprint": "fingerprint-1",
+        },
+    }
+
+    monkeypatch.setattr(trade, "get_user_id_from_header", lambda auth_header: ("user-1", "token"))
+    monkeypatch.setattr(trade, "_load_user_exchange_record", lambda *args: ({}, "access", "secret"))
+    monkeypatch.setattr(trade, "_build_precheck_payload", lambda **kwargs: _safe_precheck())
+    monkeypatch.setattr(trade, "_build_exchange_client", lambda *args: order_client)
+    monkeypatch.setattr(
+        trade,
+        "_create_or_load_manual_order_proposal",
+        lambda *args, **kwargs: (dict(manual_proposal), True),
+    )
+    monkeypatch.setattr(
+        trade,
+        "_claim_trade_proposal_for_execution",
+        lambda *args: {**manual_proposal, "status": "APPROVED"},
+    )
+    monkeypatch.setattr(
+        trade,
+        "_patch_trade_proposal_returning",
+        lambda auth_header, user_id, proposal_id, payload: patched_payloads.append(payload)
+        or {"id": proposal_id},
+    )
+
+    response = app.test_client().post(
+        "/api/trade/order",
+        headers={"Authorization": "Bearer test"},
+        json={
+            "idempotency_key": MANUAL_ORDER_KEY,
+            "exchange": "COINONE",
+            "symbol": "XRP",
+            "action": side,
+            "order_type": "LIMIT",
+            "price": 800,
+            "quantity": 10,
+            "broker_env": "MOCK",
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(patched_payloads) >= 2
+    for payload in patched_payloads:
+        assert payload["raw_order_payload"]["source"] == "MANUAL_ORDER"
+
+
 def test_mock_precheck_keeps_cash_and_holding_safety_gates(monkeypatch):
     order_client = BalanceOrderClient(available_cash=1000.0, holding_qty=2.0)
     monkeypatch.setattr(trade, "_build_exchange_client", lambda *args: order_client)

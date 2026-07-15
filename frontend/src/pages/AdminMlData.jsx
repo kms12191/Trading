@@ -3,6 +3,7 @@ import Header from '../components/Header.jsx'
 import { supabase } from '../supabaseClient'
 import AdminInquiries from './AdminInquiries.jsx'
 import AdminUsers from './AdminUsers.jsx'
+import AdminSymbolReconciliation from './AdminSymbolReconciliation.jsx'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
@@ -2787,6 +2788,17 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
           >
             유저 관리
           </button>
+          <button
+            type="button"
+            onClick={() => setAdminTab('symbols')}
+            className={`shrink-0 px-4 py-3 text-sm font-bold border-b-2 transition sm:px-6 ${
+              adminTab === 'symbols'
+                ? 'border-ai-cyan text-white bg-ai-cyan/5'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            종목 정리
+          </button>
         </div>
 
         {adminTab === 'ml' && (
@@ -3366,6 +3378,10 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
             handleLogout={handleLogout}
             hideHeader
           />
+        )}
+
+        {adminTab === 'symbols' && (
+          <AdminSymbolReconciliation />
         )}
       </main>
 

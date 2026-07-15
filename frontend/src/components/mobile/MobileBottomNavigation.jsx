@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../../supabaseClient'
 import { DASHBOARD_ROUTE, DASHBOARD_TABS } from '../../dashboardConstants.js'
 import SymbolSearch from '../SymbolSearch.jsx'
+import MobileMemberOnlySheet from './MobileMemberOnlySheet.jsx'
 
 function Icon({ name, className = 'h-6 w-6' }) {
   const icons = {
@@ -102,7 +103,6 @@ function DashboardSheet({ isLoggedIn, onClose }) {
 
   useEffect(() => {
     if (!isLoggedIn) {
-      setRole('USER')
       return
     }
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -202,16 +202,22 @@ export default function MobileBottomNavigation({ isLoggedIn }) {
       label: '뉴스',
       icon: 'news',
       active: location.pathname === '/news',
-      onClick: () => navigate(preserveDeviceParam('/news', location.search)),
+      onClick: () => {
+        if (!isLoggedIn) {
+          setActiveSheet('memberOnly')
+          return
+        }
+        navigate(preserveDeviceParam('/news', location.search))
+      },
     },
     {
       key: 'dashboard',
       label: '대시보드',
       icon: 'dashboard',
       active: activeSheet === 'dashboard' || location.pathname === DASHBOARD_ROUTE || location.pathname.startsWith('/inquiry'),
-      onClick: () => setActiveSheet('dashboard'),
+      onClick: () => setActiveSheet(isLoggedIn ? 'dashboard' : 'memberOnly'),
     },
-  ], [activeSheet, location.pathname, location.search, navigate])
+  ], [activeSheet, isLoggedIn, location.pathname, location.search, navigate])
 
   return (
     <>
@@ -239,6 +245,9 @@ export default function MobileBottomNavigation({ isLoggedIn }) {
       {activeSheet === 'search' ? <SearchSheet onClose={() => setActiveSheet('')} /> : null}
       {activeSheet === 'dashboard' ? (
         <DashboardSheet isLoggedIn={isLoggedIn} onClose={() => setActiveSheet('')} />
+      ) : null}
+      {activeSheet === 'memberOnly' ? (
+        <MobileMemberOnlySheet onClose={() => setActiveSheet('')} Sheet={MobileSheet} />
       ) : null}
     </>
   )

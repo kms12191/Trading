@@ -23,7 +23,7 @@ export function getAssetLogoUrl(symbol, assetType) {
  * 이미지 로드에 실패할 경우, 기존의 2글자 텍스트 그라디언트 배지(Fallback)를 표시합니다.
  */
 export default function AssetLogo({ symbol, assetType, name, size = "h-9 w-9", className = "" }) {
-  const [isError, setIsError] = useState(false);
+  const [failedUrl, setFailedUrl] = useState("");
   const logoUrl = getAssetLogoUrl(symbol, assetType);
   const displayName = name || symbol || "?";
   
@@ -35,15 +35,15 @@ export default function AssetLogo({ symbol, assetType, name, size = "h-9 w-9", c
 
   // symbol 이 변경될 경우 에러 상태 초기화
   useEffect(() => {
-    setIsError(false);
-  }, [symbol]);
+    setFailedUrl("");
+  }, [logoUrl]);
 
-  if (logoUrl && !isError) {
+  if (logoUrl && failedUrl !== logoUrl) {
     return (
       <img
         src={logoUrl}
         alt={displayName}
-        onError={() => setIsError(true)}
+        onError={() => setFailedUrl(logoUrl)}
         className={`${size} shrink-0 rounded-full object-cover transition-opacity duration-200 ${className}`}
       />
     );

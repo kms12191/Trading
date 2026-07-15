@@ -84,6 +84,18 @@ FUNCTION_SCHEMAS = [
         },
     },
     {
+        "name": "get_asset_krw_conversion",
+        "description": "해외주식 USD 현재가를 USD/KRW 환율로 원화 환산합니다. '애플 원화로 얼마야', 'AAPL 2주 한화로 계산해줘' 같은 요청에 사용합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "종목명 또는 티커. 예: 애플, AAPL, 테슬라"},
+                "quantity": {"type": "number", "description": "환산할 주식 수. 기본값은 1"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "get_market_calendar",
         "description": "한국장 또는 미국장의 개장, 휴장, 정규장 운영 여부를 Toss 캘린더 API와 Supabase 캘린더 DB 기준으로 조회합니다. OpenAI 일반 지식으로 휴장 여부를 추측하지 않습니다.",
         "parameters": {
@@ -131,6 +143,20 @@ FUNCTION_SCHEMAS = [
                 "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
                 "interval": {"type": "string", "description": "1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, 1M"},
                 "count": {"type": "number", "description": "조회할 최근 캔들 개수"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_crypto_market_context",
+        "description": "특정 코인의 현재가, 호가, 최근 캔들 흐름, ML 활성 신호, 거래소별 주의사항을 통합 조회합니다. 코인 분석, 단타, 진입 타이밍 질문에 우선 사용합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "코인명 또는 심볼. 예: 리플, XRP, 비트코인, BTC"},
+                "exchange": {"type": "string", "description": "COINONE, BINANCE 등"},
+                "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
+                "interval": {"type": "string", "description": "1m, 5m, 15m, 30m, 1h, 4h, 1d"},
             },
             "required": ["query"],
         },

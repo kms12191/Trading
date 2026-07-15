@@ -28,6 +28,9 @@ COMPANY_QUERY_ALIASES = {
     "삼상전자": "삼성전자",
     "하닉": "SK하이닉스",
     "하이닉스": "SK하이닉스",
+    "이노스페이스": "이노스페이스 462350",
+    "도지코인": "도지코인 DOGE",
+    "도지": "도지코인 DOGE",
 }
 
 
@@ -874,12 +877,21 @@ class ChatbotWebFallbackSearchService:
         target_key = re.sub(r"\s+", "", target).upper()
         if not target_key:
             return rows
-        return [
-            row
-            for row in rows
-            if target_key in re.sub(r"\s+", "", str(row.get("corp_name") or "")).upper()
-            or target_key == re.sub(r"\s+", "", str(row.get("stock_code") or "")).upper()
+        target_tokens = [
+            token.upper()
+            for token in re.split(r"\s+", target)
+            if len(token.strip()) >= 2
         ]
+        filtered_rows = []
+        for row in rows:
+            corp_key = re.sub(r"\s+", "", str(row.get("corp_name") or "")).upper()
+            stock_code = re.sub(r"\s+", "", str(row.get("stock_code") or "")).upper()
+            if target_key in corp_key or target_key == stock_code:
+                filtered_rows.append(row)
+                continue
+            if any(token in corp_key or token == stock_code for token in target_tokens):
+                filtered_rows.append(row)
+        return filtered_rows
 
     @classmethod
     def _is_relevant_company_news(cls, query: str, article: dict[str, Any]) -> bool:
@@ -894,7 +906,14 @@ class ChatbotWebFallbackSearchService:
             for field in ("title", "summary", "company_name", "symbol")
         )
         haystack_key = re.sub(r"\s+", "", haystack).upper()
-        return target_key in haystack_key
+        if target_key in haystack_key:
+            return True
+        target_tokens = [
+            token.upper()
+            for token in re.split(r"\s+", target)
+            if len(token.strip()) >= 2
+        ]
+        return any(token in haystack_key for token in target_tokens)
 
     @staticmethod
     def _normalize_disclosure_query(query: str) -> str:

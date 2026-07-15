@@ -15,6 +15,7 @@ import MobileChatbot from '../pages/mobile/MobileChatbot.jsx'
 import { INQUIRY_ROUTES } from '../dashboardConstants.js'
 import MobileBottomNavigation from '../components/mobile/MobileBottomNavigation.jsx'
 import MobileHeader from '../components/mobile/MobileHeader.jsx'
+import MemberOnlyNotice from '../components/MemberOnlyNotice.jsx'
 
 function AdminProtectedRoute({ isLoggedIn, userProfile, children }) {
   const hasAccess = isLoggedIn && userProfile?.role === 'ADMIN'
@@ -42,6 +43,7 @@ function AdminProtectedRoute({ isLoggedIn, userProfile, children }) {
 
 export default function MobileRoutes({
   isLoggedIn,
+  authReady = true,
   userEmail,
   handleLogout,
   userProfile,
@@ -50,7 +52,11 @@ export default function MobileRoutes({
   const location = useLocation()
   const isChatbotRoute = location.pathname === '/chatbot'
 
-  const protectedInquiryElement = isLoggedIn ? (
+  const protectedInquiryElement = !authReady ? (
+    <div className="min-h-screen bg-obsidian-bg flex items-center justify-center text-xs font-bold text-slate-400">
+      인증 상태 확인 중...
+    </div>
+  ) : isLoggedIn ? (
     <div className="min-h-screen bg-obsidian-bg px-3 py-4 font-inter text-[#e2e2ec]">
       <MobileHeader isLoggedIn={isLoggedIn} handleLogout={handleLogout} />
       <MobileInquiry
@@ -63,6 +69,14 @@ export default function MobileRoutes({
     </div>
   ) : (
     <Navigate to="/login" replace />
+  )
+  const memberOnlyNoticeElement = (
+    <MemberOnlyNotice
+      isLoggedIn={isLoggedIn}
+      userEmail={userEmail}
+      handleLogout={handleLogout}
+      mobileLayout
+    />
   )
 
   return (
@@ -89,7 +103,7 @@ export default function MobileRoutes({
           />
           <Route
             path="/dashboard"
-            element={(
+            element={isLoggedIn ? (
               <MobileDashboard
                 isLoggedIn={isLoggedIn}
                 userEmail={userEmail}
@@ -97,7 +111,7 @@ export default function MobileRoutes({
                 userProfile={userProfile}
                 setUserProfile={setUserProfile}
               />
-            )}
+            ) : memberOnlyNoticeElement}
           />
           <Route
             path="/market-rankings"
@@ -111,13 +125,13 @@ export default function MobileRoutes({
           />
           <Route
             path="/news"
-            element={(
+            element={isLoggedIn ? (
               <MobileNews
                 isLoggedIn={isLoggedIn}
                 userEmail={userEmail}
                 handleLogout={handleLogout}
               />
-            )}
+            ) : memberOnlyNoticeElement}
           />
           {Object.values(INQUIRY_ROUTES).map((path) => (
             <Route key={path} path={path} element={protectedInquiryElement} />

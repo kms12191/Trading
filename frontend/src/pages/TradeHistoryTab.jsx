@@ -74,7 +74,14 @@ const TRADE_EXCHANGE_LABELS = {
 }
 const TRADE_SIDE_OPTIONS = ['ALL', '매수', '매도', '출금', '입금']
 const TRADE_STATUS_OPTIONS = ['ALL', '승인대기', '주문접수', '미체결', '부분체결', '정정접수', '체결완료', '취소완료', '주문실패', '전송중', '출금완료', '입금완료', '출금실패']
+const DELETABLE_TRADE_STATUSES = new Set(['주문실패', '취소완료', '출금실패'])
+const DELETABLE_SOURCE_TYPES = new Set(['APP', 'TRANSFER'])
 const symbolDisplayNameCache = new Map()
+
+const isDeletableTradeHistoryItem = (trade) => (
+  DELETABLE_SOURCE_TYPES.has(trade?.sourceType)
+  && DELETABLE_TRADE_STATUSES.has(trade?.status)
+)
 
 const normalizeOrderIdentityPart = (value) => String(value || '').trim()
 
@@ -252,6 +259,7 @@ const mapProposalToTrade = (proposal, brokerOrderLookup) => {
 
   return {
     id: proposal.id,
+    deleteTargetId: proposal.id,
     sourceType: 'APP',
     sourceLabel: 'AE 거래',
     sourceDescription: hasLinkedBrokerOrder
@@ -352,6 +360,7 @@ const mapTransferToTrades = (transfer) => {
   const rows = [
     {
       id: `transfer-withdraw-${transfer.id}`,
+      deleteTargetId: transfer.id,
       sourceType: 'TRANSFER',
       sourceLabel: 'AE 자산이동',
       sourceDescription: 'AE에서 요청한 자산 이동',
@@ -382,6 +391,7 @@ const mapTransferToTrades = (transfer) => {
   if (String(transfer.status || '').toUpperCase() === 'COMPLETED' && receivedAmount > 0) {
     rows.push({
       id: `transfer-deposit-${transfer.id}`,
+      deleteTargetId: transfer.id,
       sourceType: 'TRANSFER',
       sourceLabel: 'AE 자산이동',
       sourceDescription: 'AE에서 요청한 자산 이동',
@@ -782,6 +792,53 @@ export default function TradeHistoryTab() {
     }
   }
 
+  const handleDeleteTradeHistory = async (trade) => {
+    if (!isDeletableTradeHistoryItem(trade)) return
+
+    const confirmed = window.confirm(`${trade.symbolName} ${trade.status} 내역을 삭제할까요?`)
+    if (!confirmed) return
+
+    setActionLoadingId(`delete-${trade.id}`)
+    setActionNotice('')
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !session?.user?.id) {
+        throw new Error('로그인 세션을 확인할 수 없습니다.')
+      }
+
+      const deleteTargetId = trade.deleteTargetId || trade.id
+      const tableName = trade.sourceType === 'TRANSFER' ? 'asset_transfer_proposals' : 'trade_proposals'
+      let query = supabase
+        .from(tableName)
+        .delete()
+        .eq('id', deleteTargetId)
+        .eq('user_id', session.user.id)
+
+      if (trade.sourceType === 'TRANSFER') {
+        query = query.in('status', ['FAILED', 'NEEDS_REVIEW', 'REJECTED'])
+      } else {
+        query = query.in('status', ['FAILED', 'REJECTED', 'EXPIRED', 'CANCELED', 'CANCELLED'])
+      }
+
+      const { error } = await query
+      if (error) throw error
+
+      setActionNotice('거래내역이 삭제되었습니다.')
+      setTradeHistory((items) => items.filter((item) => (
+        item.sourceType !== trade.sourceType
+        || String(item.deleteTargetId || item.id) !== String(deleteTargetId)
+      )))
+      if (selectedTrade?.id === trade.id) {
+        setSelectedTrade(null)
+      }
+      await refreshTradeHistory()
+    } catch (error) {
+      setActionNotice(error.message || '거래내역 삭제에 실패했습니다.')
+    } finally {
+      setActionLoadingId('')
+    }
+  }
+
   const handleSubmitModify = async () => {
     if (!selectedTrade) return
     const price = String(modifyDraft.price).trim()
@@ -1038,6 +1095,19 @@ export default function TradeHistoryTab() {
                           </button>
                         </div>
                       ) : null}
+                      {isDeletableTradeHistoryItem(trade) ? (
+                        <button
+                          className="rounded border border-slate-600 px-2.5 py-1 text-xs font-bold text-slate-300 transition hover:border-rose-400/60 hover:bg-rose-400/10 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          type="button"
+                          disabled={Boolean(actionLoadingId)}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            handleDeleteTradeHistory(trade)
+                          }}
+                        >
+                          {actionLoadingId === `delete-${trade.id}` ? '삭제 중' : '삭제'}
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -1199,6 +1269,17 @@ export default function TradeHistoryTab() {
                     </div>
                   ) : null}
                 </div>
+              ) : null}
+
+              {isDeletableTradeHistoryItem(selectedTrade) ? (
+                <button
+                  className="h-11 w-full rounded border border-slate-600 bg-[#0f172a] text-sm font-extrabold text-slate-300 transition hover:border-rose-400/60 hover:bg-rose-400/10 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                  disabled={Boolean(actionLoadingId)}
+                  onClick={() => handleDeleteTradeHistory(selectedTrade)}
+                >
+                  {actionLoadingId === `delete-${selectedTrade.id}` ? '삭제 중' : '삭제'}
+                </button>
               ) : null}
 
               <dl className="space-y-2 border-t border-slate-800 pt-4 text-xs text-slate-500">

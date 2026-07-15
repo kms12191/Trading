@@ -58,6 +58,7 @@ backend/
 │   │   ├── function_calling.py
 │   │   ├── llm_client.py
 │   │   ├── memory_service.py
+│   │   ├── order_form_policy.py
 │   │   ├── order_parser.py
 │   │   ├── portfolio_summary_service.py
 │   │   ├── prompt_registry.py
@@ -89,6 +90,7 @@ backend/
 │   ├── news_query_planner.py
 │   ├── news_repository.py
 │   ├── news_summary_service.py
+│   ├── order_entry_service.py
 │   ├── supabase_client.py
 │   ├── symbol_metadata.py
 │   ├── token_cache_service.py
@@ -126,6 +128,9 @@ backend/
   - `chatbot/portfolio_summary_service.py`는 거래소별 KRW·USD·USDT 잔고를 원화로 환산하고 REAL/MOCK 계좌 합계를 분리
   - `chatbot/llm_client.py`는 OpenAI Chat Completions 스트림의 텍스트 delta를 전달하고 분할된 tool-call과 usage를 누적
   - `chatbot/qa_event_repository.py`는 챗봇 QA 분석용 자동 이벤트를 `chatbot_qa_events`에 service role로 저장하며, 민감한 거래소 raw payload 대신 trace·도구·지연시간 요약만 남깁니다.
+  - `order_entry_service.py`는 구조화 주문 필수값, 주식·현물·선물 거래 목적, One-way/Hedge 주문 변환, 서비스 레버리지 상한, 주문 해시와 HMAC 사전검증 토큰을 담당합니다.
+  - `chatbot/order_form_policy.py`는 일반 채팅의 자연어 주문 의도를 주문 제안 생성 전에 차단하고 상단 `매매 요청` 버튼을 이용하라는 안내만 반환합니다. 종목·수량·가격·거래소를 추출하거나 저장하지 않습니다.
+  - `chatbot/tool_registry.py`는 `get_crypto_market_context`를 통해 코인 현재가, 호가, 캔들, ML 활성 신호, 보유 스냅샷, 스프레드·슬리피지, Coinone/Binance 김치프리미엄과 주의사항을 통합한 읽기 전용 분석 도구를 제공합니다.
   - `obsidian_service.py`는 Markdown frontmatter/title/hash 정규화를 담당
   - `knowledge_chunk_service.py`는 저장된 노트 본문을 RAG/embedding 대상 chunk로 분할
   - `knowledge_repository.py`는 `user_knowledge_notes`, `user_memory_facts` Supabase 저장/조회 래퍼를 담당
@@ -177,6 +182,12 @@ frontend/
     ├── lib/
     │   ├── apiError.js
     │   └── supabaseClient.js
+    ├── features/
+    │   └── chatbot/
+    │       ├── ChatbotWidget.jsx
+    │       ├── OrderEntryFlow.jsx
+    │       ├── chatbotApi.js
+    │       └── orderEntryModel.js
     └── pages/
         ├── AdminInquiryPanel.jsx
         ├── AdminMlData.jsx
@@ -196,6 +207,13 @@ frontend/
 ```
 
 ### frontend 역할 구분
+
+- `features/chatbot/OrderEntryFlow.jsx`
+  - 챗봇 상단 버튼에서 빈 상태로 시작하는 데스크톱 3단계 매매 요청 UI
+  - 연결 계좌와 거래 목적, 검색 결과 또는 서버 보유 목록, 주문 조건, 사전검증 결과를 순서대로 확인
+  - 검증 토큰이 유효한 경우에만 구조화 챗봇 요청으로 `PENDING` 제안을 생성
+- `features/chatbot/orderEntryModel.js`
+  - 입력 변경 시 사전검증 무효화, 단계 이동 가능 여부, 자산별 수량·통화·거래 목적 용어, API 요청 DTO를 관리
 
 - `Dashboard.jsx`
   - 메인 대시보드

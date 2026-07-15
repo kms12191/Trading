@@ -118,6 +118,11 @@ export default function SymbolSearch({ className = '' }) {
                     <span className="truncate font-mono text-[9px] text-slate-500">
                       {item.symbol}{getMarketLabel(item) ? ` · ${getMarketLabel(item)}` : ''}
                     </span>
+                    {item.symbol_badge ? (
+                      <span className="mt-1 w-fit rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-200">
+                        {item.symbol_badge}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
                 <span className="ml-2 shrink-0 rounded border border-cyan-900/60 bg-cyan-950/60 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-cyan-400">

@@ -1595,77 +1595,96 @@ export default function MobileDashboardPage({
                       </button>
                     </div>
                   </div>
-                  <div className="overflow-x-auto rounded-lg border border-slate-800/70 bg-[#0f172a]">
-                    <table className="min-w-[620px] w-full table-fixed border-collapse text-xs">
-                      <thead className="block border-b border-slate-800 bg-[#0c0e15]/100 text-slate-400 [&>tr]:table [&>tr]:w-full [&>tr]:table-fixed">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-bold w-[32%]">종목명</th>
-                          <th className="px-3 py-2 text-left font-bold w-[13%]">시장</th>
-                          <th className="px-3 py-2 text-right font-bold w-[18%]">저장 당시 가격</th>
-                          <th className="px-3 py-2 text-right font-bold w-[18%]">현재가</th>
-                          <th className="px-3 py-2 text-right font-bold w-[19%]">현재가 변동</th>
-                        </tr>
-                      </thead>
-                      <tbody className="block max-h-[136px] overflow-y-auto divide-y divide-slate-800/40 [&>tr]:table [&>tr]:w-full [&>tr]:table-fixed">
-                        {dashboardWatchlist.map((item) => {
-                          const stockCurrency = getDashboardWatchlistCurrency(item)
-                          const savedPrice = parsePriceNumber(item.latestPrice ?? item.average)
-                          const currentPrice = getWatchlistCurrentPrice(item) ?? savedPrice
-                          const hasSavedPrice = Number.isFinite(savedPrice) && savedPrice > 0
-                          const hasCurrentPrice = Number.isFinite(currentPrice)
-                          const priceDelta = hasSavedPrice && hasCurrentPrice ? currentPrice - savedPrice : 0
-                          const priceDeltaRate = hasSavedPrice ? (priceDelta / savedPrice) * 100 : 0
-                          const priceDeltaTone = priceDelta > 0 ? 'text-red-400' : priceDelta < 0 ? 'text-blue-400' : 'text-white'
-                          const assetType = getDashboardWatchlistAssetType(item)
-                          const currentDisplayCurrency = resolveWatchlistDisplayCurrency({
-                            assetType,
-                            selectedCurrency: stockCurrency,
-                            cryptoChartMode: displayCurrency,
-                          })
-                          const signedDeltaAmount = `${priceDelta > 0 ? '+' : priceDelta < 0 ? '-' : ''}${formatUnitCurrency(Math.abs(priceDelta), stockCurrency, currentDisplayCurrency, balance?.exchange_rate || 1380)}`
-                          const signedDeltaRate = `${priceDeltaRate > 0 ? '+' : ''}${priceDeltaRate.toFixed(2)}%`
-                          const exchangeRate = balance?.exchange_rate || 1380
-                          const isRemoving = removingWatchlistIds.has(item.id)
-                          return (
-                            <tr key={item.id} className="hover:bg-slate-800/20 transition-colors">
-                              <td className="px-3 py-2.5 font-bold text-white w-[32%]">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <button
-                                    type="button"
-                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-rose-400 transition-all hover:bg-rose-500/10 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
-                                    aria-label={`${item.name} 관심 종목 해제`}
-                                    title="관심 종목 해제"
-                                    disabled={isRemoving}
-                                    onClick={() => handleRemoveDashboardWatchlistItem(item)}
-                                  >
-                                    <HeartIcon className="h-4 w-4" filled={!isRemoving} />
-                                  </button>
-                                  <AssetLogo symbol={item.symbol} assetType={item.assetType || item.asset_type} name={item.name} size="h-6 w-6" />
-                                  <span className="truncate min-w-0 block">{item.name}</span>
-                                </div>
-                              </td>
-                              <td className="px-3 py-2.5 text-slate-400 w-[13%] truncate">{item.market}</td>
-                              <td className="px-3 py-2.5 text-right font-mono text-slate-300 w-[18%]">
-                                {hasSavedPrice ? formatUnitCurrency(savedPrice, stockCurrency, currentDisplayCurrency, exchangeRate) : '-'}
-                              </td>
-                              <td className="px-3 py-2.5 text-right font-mono text-slate-300 w-[18%]">
-                                {hasCurrentPrice ? formatUnitCurrency(currentPrice, stockCurrency, currentDisplayCurrency, exchangeRate) : '-'}
-                              </td>
-                              <td className={`px-3 py-2.5 text-right font-mono font-bold w-[19%] ${priceDeltaTone}`}>
-                                {hasSavedPrice && hasCurrentPrice ? `${signedDeltaAmount} (${signedDeltaRate})` : '-'}
-                              </td>
-                            </tr>
+                  <div className="overflow-hidden rounded-lg border border-slate-800/70 bg-[#0f172a]">
+                    <div className="grid max-h-[360px] grid-cols-1 gap-3 overflow-y-auto overflow-x-hidden p-3">
+                      {dashboardWatchlist.map((item) => {
+                        const sourcePayload = item.sourcePayload || {}
+                        const stockCurrency = getDashboardWatchlistCurrency(item)
+                        const savedPrice = parsePriceNumber(
+                          item.latestPrice
+                          ?? item.average
+                          ?? item.averagePrice
+                          ?? item.average_price
+                          ?? sourcePayload.latest_price
+                          ?? sourcePayload.average_price
+                          ?? sourcePayload.current_price
+                          ?? sourcePayload.price,
+                        )
+                        const currentPrice = getWatchlistCurrentPrice(item)
+                          ?? parsePriceNumber(
+                            item.current_price
+                            ?? item.livePrice
+                            ?? item.live_price
+                            ?? sourcePayload.current_price
+                            ?? sourcePayload.live_price
+                            ?? sourcePayload.price,
                           )
-                        })}
-                        {!watchlistLoading && dashboardWatchlist.length === 0 ? (
-                          <tr>
-                            <td className="px-3 py-8 text-center text-slate-500" colSpan={5}>
-                              관심종목이 없습니다. 하트를 눌러 관심 종목을 추가해주세요.
-                            </td>
-                          </tr>
-                        ) : null}
-                      </tbody>
-                    </table>
+                          ?? savedPrice
+                        const hasSavedPrice = Number.isFinite(savedPrice) && savedPrice > 0
+                        const hasCurrentPrice = Number.isFinite(currentPrice)
+                        const priceDelta = hasSavedPrice && hasCurrentPrice ? currentPrice - savedPrice : 0
+                        const priceDeltaRate = hasSavedPrice ? (priceDelta / savedPrice) * 100 : 0
+                        const priceDeltaTone = priceDelta > 0 ? 'text-red-400' : priceDelta < 0 ? 'text-blue-400' : 'text-slate-200'
+                        const assetType = getDashboardWatchlistAssetType(item)
+                        const currentDisplayCurrency = resolveWatchlistDisplayCurrency({
+                          assetType,
+                          selectedCurrency: stockCurrency,
+                          cryptoChartMode: displayCurrency,
+                        })
+                        const signedDeltaRate = `${priceDeltaRate > 0 ? '+' : ''}${priceDeltaRate.toFixed(2)}%`
+                        const exchangeRate = balance?.exchange_rate || 1380
+                        const isRemoving = removingWatchlistIds.has(item.id)
+                        return (
+                          <div
+                            key={item.id}
+                            className="min-w-0 rounded-lg border border-slate-800/70 bg-[#0b1020] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors hover:border-slate-700/90 hover:bg-slate-900/80"
+                          >
+                            <div className="mb-2.5 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5">
+                              <AssetLogo symbol={item.symbol} assetType={item.assetType || item.asset_type} name={item.name} size="h-8 w-8" />
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-bold text-white">{item.name}</p>
+                                <p className="mt-0.5 truncate font-mono text-[10px] font-bold text-slate-500">{item.symbol || item.id || '-'}</p>
+                              </div>
+                              <button
+                                type="button"
+                                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-rose-400 transition-all hover:bg-rose-500/10 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label={`${item.name} 관심 종목 해제`}
+                                title="관심 종목 해제"
+                                disabled={isRemoving}
+                                onClick={() => handleRemoveDashboardWatchlistItem(item)}
+                              >
+                                <HeartIcon className="h-3.5 w-3.5" filled={!isRemoving} />
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1.5 rounded-md bg-[#070b16] px-2.5 py-2">
+                              <div className="min-w-0 border-r border-slate-800/70 pr-1.5">
+                                <p className="text-[9px] font-bold text-slate-500">지정 당시 가격</p>
+                                <p className="mt-1 break-words font-mono text-[11px] font-bold leading-4 text-slate-100">
+                                  {hasSavedPrice ? formatUnitCurrency(savedPrice, stockCurrency, currentDisplayCurrency, exchangeRate) : '-'}
+                                </p>
+                              </div>
+                              <div className="min-w-0 border-r border-slate-800/70 px-1.5">
+                                <p className="text-[9px] font-bold text-slate-500">현재가</p>
+                                <p className="mt-1 break-words font-mono text-[11px] font-bold leading-4 text-slate-100">
+                                  {hasCurrentPrice ? formatUnitCurrency(currentPrice, stockCurrency, currentDisplayCurrency, exchangeRate) : '-'}
+                                </p>
+                              </div>
+                              <div className="min-w-0 pl-1.5">
+                                <p className="text-[9px] font-bold text-slate-500">등락률</p>
+                                <p className={`mt-1 break-words font-mono text-[11px] font-black leading-4 ${priceDeltaTone}`}>
+                                  {hasSavedPrice && hasCurrentPrice ? signedDeltaRate : '-'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                      {!watchlistLoading && dashboardWatchlist.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-slate-800 px-3 py-8 text-center text-xs text-slate-500">
+                          관심종목이 없습니다. 하트를 눌러 관심 종목을 추가해주세요.
+                        </div>
+                      ) : null}
+                    </div>
                     {watchlistError ? <p className="mt-2 whitespace-pre-line text-xs text-red-300">{watchlistError}</p> : null}
                   </div>
                 </div>
@@ -1744,21 +1763,21 @@ export default function MobileDashboardPage({
 
                             <div className="mt-3 grid grid-cols-2 gap-2">
                               <div className="rounded-md bg-slate-950/50 px-2.5 py-2">
-                                <p className="text-[10px] font-bold text-slate-500">AVG</p>
+                                <p className="text-[10px] font-bold text-slate-500">매수단가</p>
                                 <p className="mt-1 truncate font-mono text-xs font-bold text-slate-200">
                                   {formatUnitCurrency(stock.avg_price, stockCurrency, currentDisplayCurrency, exchangeRate)}
                                 </p>
                               </div>
                               <div className="rounded-md bg-slate-950/50 px-2.5 py-2">
-                                <p className="text-[10px] font-bold text-slate-500">NOW</p>
+                                <p className="text-[10px] font-bold text-slate-500">현재가</p>
                                 <p className="mt-1 truncate font-mono text-xs font-bold text-slate-100">
                                   {formatUnitCurrency(stock.current_price, stockCurrency, currentDisplayCurrency, exchangeRate)}
                                 </p>
                               </div>
                               <div className="col-span-2 rounded-md bg-slate-950/50 px-2.5 py-2">
-                                <p className="text-[10px] font-bold text-slate-500">PNL</p>
+                                <p className="text-[10px] font-bold text-slate-500">수익률</p>
                                 <p className={`mt-1 truncate font-mono text-sm font-bold ${profitTone}`}>
-                                  {stock.profit > 0 ? '+' : ''}{formatCurrency(stock.profit, stockCurrency, currentDisplayCurrency, exchangeRate)}
+                                  {profitRateValue}
                                 </p>
                               </div>
                             </div>

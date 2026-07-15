@@ -4,6 +4,7 @@ import { createChart, CandlestickSeries } from 'lightweight-charts'
 import { supabase, deleteUserWatchlistItem, ensureNewsSummaries, fetchUserWatchlist, normalizeWatchlistItem, upsertUserWatchlistItem } from '../../supabaseClient'
 import Header from '../../components/Header.jsx'
 import AssetLogo from '../../components/AssetLogo.jsx'
+import MemberOnlyModal from '../../components/MemberOnlyModal.jsx'
 import { getApiErrorMessage } from '../../lib/apiError.js'
 import {
   MobileAssetChartSection,
@@ -284,6 +285,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const [newsSyncMessage, setNewsSyncMessage] = useState({ text: '', isError: false })
   const [selectedNewsId, setSelectedNewsId] = useState('')
   const [summaryLoadingId, setSummaryLoadingId] = useState('')
+  const [memberOnlyMessage, setMemberOnlyMessage] = useState('')
   const [disclosureList, setDisclosureList] = useState([])
   const [loadingDisclosures, setLoadingDisclosures] = useState(false)
   const [selectedDisclosureId, setSelectedDisclosureId] = useState('')
@@ -1082,6 +1084,11 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     const articleId = item?.id
     if (!articleId) return
 
+    if (!isLoggedIn) {
+      setMemberOnlyMessage('뉴스 요약은 회원만 이용할 수 있습니다.')
+      return
+    }
+
     if (selectedNewsId === articleId) {
       setSelectedNewsId('')
       return
@@ -1231,6 +1238,11 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     const disclosureId = item?.id || ''
     const rceptNo = item?.rcept_no || ''
     if (!disclosureId || !rceptNo) return
+
+    if (!isLoggedIn) {
+      setMemberOnlyMessage('공시 요약은 회원만 이용할 수 있습니다.')
+      return
+    }
 
     if (selectedDisclosureId === disclosureId && disclosureAnalyses[rceptNo]) {
       setSelectedDisclosureId('')
@@ -2829,6 +2841,11 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         {!hideHeader ? (
           <Header isLoggedIn={isLoggedIn} userEmail={userEmail} handleLogout={handleLogout} userProfile={userProfile} />
         ) : null}
+        <MemberOnlyModal
+          message={memberOnlyMessage}
+          loginTo={preserveMobileDeviceParam('/login')}
+          onClose={() => setMemberOnlyMessage('')}
+        />
 
         {/* 뒤로가기 버튼 */}
         <div className="mt-2 mb-4">

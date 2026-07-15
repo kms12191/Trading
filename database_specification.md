@@ -614,3 +614,56 @@ erDiagram
 * `embedding` uses `vector(1536)` and `embedding_status` tracks `PENDING`, `EMBEDDED`, or `FAILED`.
 * `match_knowledge_chunks(...)` is the vector search RPC used by the backend retrieval service.
 * The vector index is created only for `embedding_status = 'EMBEDDED'` rows to keep retrieval focused on ready chunks.
+## 관리자 종목 마스터 정리 테이블
+
+### admin_symbol_reconciliation_runs
+
+관리자가 종목 마스터 정리 스캔을 실행한 단위 이력을 저장합니다. `SKHYV`처럼 정식 상장 전 사용되던 임시 해외주식 심볼이 검색 후보나 랭킹 캐시에 남아 있는지 점검할 때 사용합니다.
+
+- `id` (UUID, PK)
+- `started_at` (TIMESTAMPTZ)
+- `finished_at` (TIMESTAMPTZ)
+- `status` (TEXT): `RUNNING`, `COMPLETED`, `FAILED`
+- `checked_count` (INTEGER)
+- `normal_count` (INTEGER)
+- `suspicious_count` (INTEGER)
+- `deactivation_candidate_count` (INTEGER)
+- `deletable_count` (INTEGER)
+- `raw_summary` (JSONB)
+- `created_by` (UUID)
+- `created_at` (TIMESTAMPTZ)
+
+### admin_symbol_reconciliation_items
+
+종목 마스터 정리 스캔 결과의 개별 심볼 판정 결과를 저장합니다.
+
+- `id` (UUID, PK)
+- `run_id` (UUID, FK)
+- `symbol` (TEXT)
+- `name` (TEXT)
+- `source_table` (TEXT): `kis_stock_master`, `kis_stock_turnover_latest`
+- `market_country` (TEXT)
+- `market_segment` (TEXT)
+- `status` (TEXT): `NORMAL`, `SUSPICIOUS`, `DEACTIVATION_CANDIDATE`, `INACTIVE`, `DELETABLE`
+- `reason` (TEXT)
+- `suggested_action` (TEXT): `NONE`, `REVIEW`, `DEACTIVATE`, `DELETE_CACHE`, `DELETE_MASTER`, `RESTORE`
+- `broker_check_result` (JSONB)
+- `reference_count` (INTEGER)
+- `last_seen_at` (TIMESTAMPTZ)
+- `created_at` (TIMESTAMPTZ)
+
+### symbol_aliases
+
+임시코드, 폐기코드, 종목명 변경 등으로 인해 사용자 검색 결과에서 정식 심볼로 연결하거나 배지를 표시해야 하는 심볼 매핑을 저장합니다.
+
+- `id` (UUID, PK)
+- `alias_symbol` (TEXT, UNIQUE): 임시 또는 별칭 심볼
+- `canonical_symbol` (TEXT): 정식 심볼
+- `alias_type` (TEXT): `TEMPORARY`, `RENAMED`, `DELISTED`, `MANUAL`
+- `label` (TEXT): 화면 표시 배지. 예: `임시코드`
+- `reason` (TEXT)
+- `market_country` (TEXT)
+- `source` (TEXT)
+- `is_active` (BOOLEAN)
+- `created_at` (TIMESTAMPTZ)
+- `updated_at` (TIMESTAMPTZ)

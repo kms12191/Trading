@@ -25,9 +25,15 @@ const APPROVAL_BLOCKER_FIELDS = [
 ]
 
 export function isChatbotApprovalProposal(proposal) {
+  const payload = proposal?.raw_order_payload || {}
+  const precheck = payload.precheck || null
   return (
     String(proposal?.status || '').toUpperCase() === 'PENDING'
-    && proposal?.raw_order_payload?.source !== 'MANUAL_ORDER'
+    && payload.source !== 'MANUAL_ORDER'
+    && !payload.idempotency_fingerprint
+    && payload.precheck_status === 'OK'
+    && precheck
+    && typeof precheck === 'object'
   )
 }
 

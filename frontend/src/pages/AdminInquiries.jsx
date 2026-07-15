@@ -23,6 +23,14 @@ const inquiryTypeLabels = {
   etc: '기타',
 }
 
+const getInquiryStatusVisual = (status = '') => {
+  const normalizedStatus = String(status).toUpperCase()
+  if (normalizedStatus === 'COMPLETED') {
+    return { icon: 'check', tone: 'text-emerald-400' }
+  }
+  return { icon: 'clock', tone: 'text-amber-300' }
+}
+
 const formatDate = (value) => {
   const date = value ? new Date(value) : null
   if (!date || Number.isNaN(date.getTime())) return '-'
@@ -181,7 +189,9 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
       const rows = payload.data || []
       setInquiries(rows)
       setCanReply(Boolean(payload.canReply))
-      setExpandedInquiryId((currentId) => currentId || rows[0]?.id || null)
+      setExpandedInquiryId((currentId) => (
+        rows.some((item) => item.id === currentId) ? currentId : null
+      ))
     } catch (error) {
       setInquiries([])
       setCanReply(false)
@@ -292,6 +302,7 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
               <EmptyInquiryState />
             ) : sortedInquiries.map((item) => {
               const isExpanded = expandedInquiryId === item.id
+              const statusVisual = getInquiryStatusVisual(item.status)
               return (
                 <div key={item.id} className="border-t border-slate-800 first:border-t-0">
                   <button
@@ -303,7 +314,10 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
                     <span className="min-w-0 font-bold text-white sm:col-span-2 lg:col-span-1 lg:px-4 lg:py-3">{item.title}</span>
                     <span className="text-xs text-slate-400 lg:px-4 lg:py-3 lg:text-sm lg:text-slate-300">{inquiryTypeLabels[item.inquiryType] || '-'}</span>
                     <span className="min-w-0 truncate text-xs text-slate-400 lg:px-4 lg:py-3 lg:text-sm lg:text-slate-300">{item.userEmail}</span>
-                    <span className="text-xs font-bold text-slate-200 lg:px-4 lg:py-3 lg:text-sm lg:font-normal lg:text-slate-300">{inquiryStatusLabels[item.status] || item.status}</span>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-200 lg:px-4 lg:py-3 lg:text-sm lg:font-normal lg:text-slate-300">
+                      <Icon name={statusVisual.icon} className={`h-3.5 w-3.5 shrink-0 ${statusVisual.tone}`} />
+                      <span>{inquiryStatusLabels[item.status] || item.status}</span>
+                    </span>
                     <span className="text-xs text-slate-500 sm:text-right lg:px-4 lg:py-3 lg:text-left lg:text-sm lg:text-slate-300">{formatDate(item.createdAt)}</span>
                   </button>
 

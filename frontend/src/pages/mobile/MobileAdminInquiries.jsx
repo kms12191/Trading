@@ -23,6 +23,14 @@ const inquiryTypeLabels = {
   etc: '기타',
 }
 
+const getInquiryStatusVisual = (status = '') => {
+  const normalizedStatus = String(status).toUpperCase()
+  if (normalizedStatus === 'COMPLETED') {
+    return { icon: 'check', tone: 'text-emerald-400' }
+  }
+  return { icon: 'clock', tone: 'text-amber-300' }
+}
+
 const formatDate = (value) => {
   const date = value ? new Date(value) : null
   if (!date || Number.isNaN(date.getTime())) return '-'
@@ -78,12 +86,13 @@ function SummaryCard({ label, value, icon, tone }) {
   )
 }
 
-function InquiryMeta({ label, value, emphasized = false }) {
+function InquiryMeta({ label, value, emphasized = false, icon = '', iconTone = 'text-ai-cyan' }) {
   return (
     <div className="min-w-0 rounded-lg border border-slate-800 bg-[#0b1223] px-3 py-2">
       <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className={`mt-1 min-w-0 break-words text-xs leading-5 ${emphasized ? 'font-bold text-ai-cyan' : 'text-slate-300'}`}>
-        {value || '-'}
+      <p className={`mt-1 flex min-w-0 items-center gap-1.5 text-xs leading-5 ${emphasized ? 'font-bold text-ai-cyan' : 'text-slate-300'}`}>
+        {icon ? <Icon name={icon} className={`h-3.5 w-3.5 shrink-0 ${iconTone}`} /> : null}
+        <span className="min-w-0 break-words">{value || '-'}</span>
       </p>
     </div>
   )
@@ -192,7 +201,9 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
       const rows = payload.data || []
       setInquiries(rows)
       setCanReply(Boolean(payload.canReply))
-      setExpandedInquiryId((currentId) => currentId || rows[0]?.id || null)
+      setExpandedInquiryId((currentId) => (
+        rows.some((item) => item.id === currentId) ? currentId : null
+      ))
     } catch (error) {
       setInquiries([])
       setCanReply(false)
@@ -295,6 +306,7 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
               <EmptyInquiryState />
             ) : sortedInquiries.map((item) => {
               const isExpanded = expandedInquiryId === item.id
+              const statusVisual = getInquiryStatusVisual(item.status)
               return (
                 <div key={item.id} className="border-t border-slate-800 first:border-t-0">
                   <button
@@ -310,7 +322,7 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
                     <div className="grid gap-2">
                       <InquiryMeta label="유형" value={inquiryTypeLabels[item.inquiryType] || '-'} />
                       <InquiryMeta label="작성자" value={item.userEmail} />
-                      <InquiryMeta label="상태" value={inquiryStatusLabels[item.status] || item.status} emphasized />
+                      <InquiryMeta label="상태" value={inquiryStatusLabels[item.status] || item.status} icon={statusVisual.icon} iconTone={statusVisual.tone} emphasized />
                       <InquiryMeta label="작성일" value={formatDate(item.createdAt)} />
                     </div>
                   </button>

@@ -6,7 +6,9 @@ Scalar = str | int | float | None
 
 PREDICTIVE_OUTLOOK_KEYWORDS = (
     "\uc624\ub97c\uae4c",
+    "\uc62c\ub77c",
     "\ub0b4\ub9b4\uae4c",
+    "\uc804\ub9dd",
     "\uc0c1\uc2b9",
     "\ud558\ub77d",
     "\uc0b4\uae4c",
@@ -87,11 +89,9 @@ def _missing_prediction_result(
 ) -> dict:
     reply = "\n".join(
         [
-            f"{display_name}({symbol}) \uc885\ubaa9\uc758 \ud65c\uc131 ML \uc608\uce21 \uacb0\uacfc\ub97c \uc544\uc9c1 \ucc3e\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.",
-            "\ubc30\ud3ec \ud658\uacbd\uc5d0\ub294 \ubaa8\ub378/\uc608\uce21 \ud14c\uc774\ube14\uc774 \uc900\ube44\ub418\uc5b4 \uc788\uc744 \uc218 \uc788\uc9c0\ub9cc, "
-            "\ud604\uc7ac \uc2e4\ud589 \ud658\uacbd\uc5d0\uc11c\ub294 \ud574\ub2f9 \uc885\ubaa9\uc758 \ucd5c\uc2e0 \uc608\uce21\uac12\uc774 \uc5c6\uc2b5\ub2c8\ub2e4.",
-            "\ud655\uc778 \ud544\uc694: ML \uc2a4\ucf00\uc904\ub7ec \uc2e4\ud589 \uc5ec\ubd80, active prediction \uc800\uc7a5 \uc5ec\ubd80, "
-            "\ubaa8\ub378 \ub808\uc9c0\uc2a4\ud2b8\ub9ac \uc0c1\ud0dc\ub97c \ud655\uc778\ud574 \uc8fc\uc138\uc694.",
+            f"{display_name}({symbol}) 종목은 현재 ML 예측 데이터가 없어 오를지 내릴지 판단하기 어렵습니다.",
+            "현재 기준으로는 매수/매도 판단을 단정할 수 없습니다.",
+            "모델 예측 데이터가 준비된 뒤 다시 확인해 주세요.",
         ]
     )
     return {

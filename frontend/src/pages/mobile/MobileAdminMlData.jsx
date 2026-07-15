@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import Header from '../../components/Header.jsx'
 import { supabase } from '../../supabaseClient'
 import MobileAdminInquiries from './MobileAdminInquiries.jsx'
+import AdminSymbolReconciliation from '../AdminSymbolReconciliation.jsx'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
@@ -2734,7 +2735,7 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
 
       <main className="mx-auto flex max-w-7xl flex-col gap-4">
         {/* 관리자 내부 탭 */}
-        <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-800 bg-[#0f172a] p-1">
+        <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-800 bg-[#0f172a] p-1">
           <button
             type="button"
             onClick={() => setAdminTab('ml')}
@@ -2756,6 +2757,17 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
             }`}
           >
             사용자 문의 관리
+          </button>
+          <button
+            type="button"
+            onClick={() => setAdminTab('symbols')}
+            className={`rounded-md px-3 py-2 text-xs font-bold transition ${
+              adminTab === 'symbols'
+                ? 'bg-ai-cyan text-slate-950'
+                : 'text-slate-400 hover:bg-slate-800/70 hover:text-white'
+            }`}
+          >
+            종목 정리
           </button>
         </div>
 
@@ -3327,6 +3339,10 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
             handleLogout={handleLogout}
             hideHeader
           />
+        )}
+
+        {adminTab === 'symbols' && (
+          <AdminSymbolReconciliation />
         )}
       </main>
 

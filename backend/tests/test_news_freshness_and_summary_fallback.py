@@ -237,8 +237,8 @@ def test_crypto_news_tavily_filters_knowledge_in_sources():
 def test_subject_news_query_removes_related_modifier_for_search():
     service = object.__new__(ChatbotWebFallbackSearchService)
 
-    assert service._normalize_news_query("이노스페이스 관련 뉴스 요약해줘") == "이노스페이스"
-    assert service._normalize_news_query("도지코인 관련 뉴스 요약해줘") == "도지코인"
+    assert service._normalize_news_query("이노스페이스 관련 뉴스 요약해줘") == "이노스페이스 462350"
+    assert service._normalize_news_query("도지코인 관련 뉴스 요약해줘") == "도지코인 DOGE"
 
 
 def test_dogecoin_news_query_uses_crypto_news_priority(monkeypatch):

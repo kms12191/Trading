@@ -1,6 +1,7 @@
 from flask import Flask
 
 from backend.routes import trade
+from backend.services.symbol_reconciliation_service import filter_symbol_results
 
 
 def test_lookup_symbol_falls_back_to_turnover_latest_name(monkeypatch):
@@ -47,3 +48,28 @@ def test_lookup_symbol_falls_back_to_turnover_latest_name(monkeypatch):
         "asset_type": "STOCK",
         "market": "US",
     }
+
+
+def test_filter_symbol_results_hides_temporary_symbol_when_canonical_exists():
+    rows = filter_symbol_results([
+        {"symbol": "SKHYV", "display_name": "SK하이닉스(ADR)", "asset_type": "STOCK", "market": "US"},
+        {"symbol": "SKHY", "display_name": "SK하이닉스(ADR)", "asset_type": "STOCK", "market": "US"},
+    ])
+
+    assert [row["symbol"] for row in rows] == ["SKHY"]
+
+
+def test_filter_symbol_results_marks_temporary_symbol_when_canonical_missing():
+    rows = filter_symbol_results([
+        {"symbol": "SKHYV", "display_name": "SK하이닉스(ADR)", "asset_type": "STOCK", "market": "US"},
+    ])
+
+    assert rows == [{
+        "symbol": "SKHYV",
+        "display_name": "SK하이닉스(ADR)",
+        "asset_type": "STOCK",
+        "market": "US",
+        "is_temporary_symbol": True,
+        "canonical_symbol": "SKHY",
+        "symbol_badge": "임시코드",
+    }]

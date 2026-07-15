@@ -31,6 +31,12 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
   
 
   // Toss 폼 상태
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+  }, [])
+
   const [tossForm, setTossForm] = useState({
     client_id: '',
     client_secret: '',
@@ -485,6 +491,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
   }
 
   const sectionClass = `ai-glass rounded-lg ${mobileLayout ? 'p-4' : 'p-6'} flex flex-col ${mobileLayout ? 'gap-4' : 'gap-6'}`
+  const statusSectionClass = `ai-glass rounded-lg ${mobileLayout ? 'p-3' : 'p-6'} flex flex-col ${mobileLayout ? 'gap-3' : 'gap-6'}`
   const sectionTitleClass = `flex items-center gap-2 border-b border-slate-800 ${mobileLayout ? 'pb-2' : 'pb-3'} text-lg font-bold uppercase tracking-wider text-white`
   const inputClass = 'w-full rounded border border-slate-700 bg-[#0F172A] px-3 py-2 text-sm text-white focus:outline-none focus:border-ai-cyan'
   const primaryButtonClass = 'w-full rounded bg-gradient-to-r from-blue-700 to-cyan-400 px-3 py-2.5 text-xs font-bold text-white transition-all disabled:opacity-50'
@@ -495,7 +502,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
       {/* 공통 상단 네비게이션 헤더 */}
       {!hideHeader && <Header isLoggedIn={isLoggedIn} userEmail={userEmail} handleLogout={handleLogout} userProfile={userProfile} />}
 
-      <main className={`max-w-4xl mx-auto flex flex-col ${mobileLayout ? 'mt-3 gap-5' : 'mt-6 gap-8'}`}>
+      <main className={`max-w-4xl mx-auto flex flex-col ${mobileLayout ? 'mt-1 gap-5' : 'mt-6 gap-8'}`}>
 
         {/* 프로필 설정 */}
         <section className="hidden ai-glass rounded-lg p-6 flex-col gap-4">
@@ -544,11 +551,7 @@ export default function Settings({ isLoggedIn, userEmail, handleLogout, userProf
         </section>
 
         {/* 브로커 API 연동 현황판 */}
-        <section className={sectionClass}>
-          <h2 className={sectionTitleClass}>
-            <span className="w-2.5 h-2.5 rounded-full bg-ai-cyan" />
-            API Key Connection Status (브로커 인증 연동 현황)
-          </h2>
+        <section className={statusSectionClass}>
           <div className={`grid grid-cols-1 gap-3 ${mobileLayout ? '' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
 
             {/* Toss 현황 */}

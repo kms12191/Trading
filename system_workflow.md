@@ -109,39 +109,57 @@ graph TD
 
 운영 문서에서는 "스케줄러는 app.py에서 항상 돈다"라고 적으면 사실과 다릅니다.
 
-## 3. 주문 및 상세 페이지 흐름
+## 3. 상단 단일 진입 매매 요청과 승인 흐름
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User as 사용자
-    participant FE as AssetDetail.jsx
+    participant FE as Chatbot OrderEntryFlow
+    participant Chat as Chatbot Service
     participant API as Flask trade routes
     participant SB as Supabase
     participant EX as Exchange API
 
-    User->>FE: 종목 상세 진입
-    FE->>API: GET /api/chart/candles
-    FE->>API: GET /api/chart/orderbook
-    FE->>API: GET /api/chart/trades
-    API->>EX: 거래소 시세/호가/체결 조회
-    EX-->>API: 응답
-    API-->>FE: 차트/호가/체결 + meta.source
+    User->>FE: 상단 매매 요청 버튼 선택
+    FE->>API: GET /api/trade/order-entry/accounts
+    API->>SB: 연결 API 키 조회
+    API->>EX: 잔액 및 거래 권한 조회
+    API-->>FE: 비밀 키를 제외한 계좌 카드
 
-    User->>FE: 주문 값 입력
+    User->>FE: 계좌와 거래 목적 선택
+    FE->>API: GET /api/trade/order-entry/symbols 또는 holdings
+    User->>FE: 검색 결과 또는 보유 목록에서 종목 선택
+    FE->>API: GET /api/trade/order-entry/context
+    API->>EX: 현재가, 종목 필터, 포지션 모드, 레버리지 상한 조회
+
+    User->>FE: 수량과 주문 조건 입력
     FE->>API: POST /api/trade/precheck
     API->>SB: user_api_keys 조회
-    API->>EX: 예수금/보유수량/기준가 조회
-    API-->>FE: 사전검증 결과
+    API->>EX: 최신 시세/잔고/보유량/포지션/권한 조회
+    API-->>FE: 주문 요약, 위험 정보, 서명된 단기 precheck_token
 
-    User->>FE: 주문 실행
-    FE->>API: POST /api/trade/order
-    API->>SB: trade_proposals 기록
+    User->>FE: 매매 제안 만들기
+    FE->>Chat: 구조화 주문 + precheck_token
+    Chat->>Chat: 사용자·만료·주문 해시 검증
+    Chat->>SB: trade_proposals PENDING 멱등 생성
+    SB-->>FE: Realtime 승인 카드
+
+    User->>API: 승인 카드에서 실행 승인
+    API->>EX: 시세/잔고/포지션/권한 재검증
     API->>EX: 실제 주문 요청
     EX-->>API: 주문 결과
     API->>SB: trade_proposals 상태 갱신
     API-->>FE: 실행 결과 반환
 ```
+
+현재 구현 기준 사실:
+
+- 일반 채팅의 자연어 주문 요청은 종목·수량·가격을 추출하거나 폼을 열지 않고 상단 `매매 요청` 안내만 반환합니다.
+- 매도와 선물 청산은 서버가 조회한 보유 종목·포지션 목록에서만 선택합니다.
+- `POST /api/trade/precheck`는 제안을 생성하지 않으며 입력값이 바뀌면 프론트의 기존 토큰을 즉시 폐기합니다.
+- 바이낸스 USD-M 선물은 One-way/Hedge 모드를 조회해 신규 롱·숏·롱 청산·숏 청산 필드를 서버에서 변환합니다.
+- 승인 시 제안에 저장된 서버 검증 필드로 최신 공통 사전검증을 다시 실행하고, 상태 변화가 있으면 외부 주문 전에 차단합니다.
 
 ### 조건감시 자동/반자동 매도 흐름
 

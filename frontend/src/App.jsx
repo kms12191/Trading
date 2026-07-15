@@ -13,6 +13,7 @@ import AdminMlData from './pages/AdminMlData'
 import AssetDetail from './pages/AssetDetail'
 import SearchNotFound from './pages/SearchNotFound'
 import InvestmentSurveyModal from './components/InvestmentSurveyModal'
+import MemberOnlyNotice from './components/MemberOnlyNotice.jsx'
 import { INQUIRY_ROUTES } from './dashboardConstants.js'
 import ChatbotWidget from './features/chatbot/ChatbotWidget.jsx'
 import useDeviceType from './hooks/useDeviceType.js'
@@ -44,6 +45,7 @@ function AdminProtectedRoute({ isLoggedIn, userProfile, children }) {
 
 function AppShell({
   isLoggedIn,
+  authReady,
   userEmail,
   userId,
   userProfile,
@@ -105,7 +107,11 @@ function AppShell({
     }
   }
 
-  const protectedInquiryElement = isLoggedIn ? (
+  const protectedInquiryElement = !authReady ? (
+    <div className="min-h-screen bg-obsidian-bg flex items-center justify-center text-xs font-bold text-slate-400">
+      인증 상태 확인 중...
+    </div>
+  ) : isLoggedIn ? (
     <Inquiry
       isLoggedIn={isLoggedIn}
       userEmail={userEmail}
@@ -113,6 +119,13 @@ function AppShell({
     />
   ) : (
     <Navigate to="/login" replace />
+  )
+  const memberOnlyNoticeElement = (
+    <MemberOnlyNotice
+      isLoggedIn={isLoggedIn}
+      userEmail={userEmail}
+      handleLogout={handleLogout}
+    />
   )
 
   return (
@@ -201,6 +214,7 @@ function AppShell({
       {isMobileDevice ? (
         <MobileRoutes
           isLoggedIn={isLoggedIn}
+          authReady={authReady}
           userEmail={userEmail}
           handleLogout={handleLogout}
           userProfile={userProfile}
@@ -221,7 +235,7 @@ function AppShell({
           />
           <Route
             path="/dashboard"
-            element={(
+            element={isLoggedIn ? (
               <Dashboard
                 isLoggedIn={isLoggedIn}
                 userEmail={userEmail}
@@ -229,7 +243,7 @@ function AppShell({
                 userProfile={userProfile}
                 setUserProfile={setUserProfile}
               />
-            )}
+            ) : memberOnlyNoticeElement}
           />
           <Route
             path="/market-rankings"
@@ -243,13 +257,13 @@ function AppShell({
           />
           <Route
             path="/news"
-            element={(
+            element={isLoggedIn ? (
               <News
                 isLoggedIn={isLoggedIn}
                 userEmail={userEmail}
                 handleLogout={handleLogout}
               />
-            )}
+            ) : memberOnlyNoticeElement}
           />
           {Object.values(INQUIRY_ROUTES).map((path) => (
             <Route key={path} path={path} element={protectedInquiryElement} />
@@ -323,6 +337,7 @@ function AppShell({
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [authReady, setAuthReady] = useState(false)
   const [userEmail, setUserEmail] = useState('')
   const [userId, setUserId] = useState('')
   const [userProfile, setUserProfile] = useState(null)
@@ -394,14 +409,16 @@ export default function App() {
       }
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      checkUserSession(session)
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      await checkUserSession(session)
+      setAuthReady(true)
     })
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      checkUserSession(session)
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      await checkUserSession(session)
+      setAuthReady(true)
     })
 
     return () => {
@@ -428,6 +445,7 @@ export default function App() {
     <Router>
       <AppShell
         isLoggedIn={isLoggedIn}
+        authReady={authReady}
         userEmail={userEmail}
         userId={userId}
         userProfile={userProfile}

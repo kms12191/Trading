@@ -192,8 +192,33 @@ def _extract_note_query(text: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _remove_note_instruction_sections(content: str) -> str:
+    blocked_heading_keywords = [
+        "AI에게 바라는 답변 방식",
+        "ai에게 바라는 답변 방식",
+        "답변 방식",
+        "말투",
+        "프롬프트",
+    ]
+    lines = []
+    skip_section = False
+    for line in str(content or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            heading = stripped.lstrip("#").strip()
+            if any(keyword in heading for keyword in blocked_heading_keywords):
+                skip_section = True
+                continue
+            if skip_section:
+                skip_section = False
+        if not skip_section:
+            lines.append(line)
+    return "\n".join(lines)
+
+
 def _compact_note_content(content: str, limit: int = 220) -> str:
-    value = re.sub(r"\s+", " ", str(content or "")).strip()
+    sanitized = _remove_note_instruction_sections(content)
+    value = re.sub(r"\s+", " ", sanitized).strip()
     if len(value) <= limit:
         return value
     return f"{value[:limit].rstrip()}..."

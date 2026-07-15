@@ -1,14 +1,16 @@
 import { Link, useLocation } from 'react-router-dom'
+import { useState } from 'react'
 import SymbolSearch from './SymbolSearch'
 
 // 공통 상단 네비게이션 헤더 컴포넌트
 // - 관리자 탭은 대시보드 사이드바로 이동됨
 export default function Header({ isLoggedIn, userEmail, handleLogout }) {
   const { pathname } = useLocation()
+  const [guestNotice, setGuestNotice] = useState('')
 
   const navLinks = [
-    { to: '/dashboard', label: '대시보드' },
-    { to: '/news', label: '뉴스' }
+    { to: '/dashboard', label: '대시보드', memberOnly: true },
+    { to: '/news', label: '뉴스', memberOnly: true }
   ]
 
   return (
@@ -34,21 +36,39 @@ export default function Header({ isLoggedIn, userEmail, handleLogout }) {
       {/* 우측 액션 영역 */}
       <div className="flex items-center gap-4">
         {/* 페이지 네비게이션 */}
-        <nav className="flex gap-2">
-          {navLinks.map(({ to, label }) => (
-            <Link
-              key={to}
-              to={to}
-              className={`px-3 py-1.5 rounded text-xs font-semibold border transition-all ${
-                pathname === to
-                  ? 'bg-blue-600 text-black border-blue-600'
-                  : 'text-slate-300 border-slate-700 hover:border-slate-500'
-              }`}
-            >
-              {label}
-            </Link>
-          ))}
-        </nav>
+        <div className="relative flex flex-col gap-1">
+          <nav className="flex gap-2">
+            {navLinks.map(({ to, label, memberOnly }) => {
+              const isActive = pathname === to
+              const isLocked = memberOnly && !isLoggedIn
+
+              return isLocked ? (
+                <button
+                  key={to}
+                  type="button"
+                  aria-disabled="true"
+                  title="회원만 이용할 수 있는 서비스입니다."
+                  onClick={() => setGuestNotice('회원만 이용할 수 있는 서비스입니다.')}
+                  className="rounded border border-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-500 transition-all hover:border-ai-cyan/40 hover:text-ai-cyan"
+                >
+                  {label}
+                </button>
+              ) : (
+                <Link
+                  key={to}
+                  to={to}
+                  className={`px-3 py-1.5 rounded text-xs font-semibold border transition-all ${
+                    isActive
+                      ? 'bg-blue-600 text-black border-blue-600'
+                      : 'text-slate-300 border-slate-700 hover:border-slate-500'
+                  }`}
+                >
+                  {label}
+                </Link>
+              )
+            })}
+          </nav>
+        </div>
 
         {/* 종목 퀵 검색 (md 이상에서만 표시) */}
         <div className="hidden md:flex">
@@ -77,6 +97,36 @@ export default function Header({ isLoggedIn, userEmail, handleLogout }) {
           )}
         </div>
       </div>
+      {guestNotice && !isLoggedIn ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#07080c]/70 px-4 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="member-only-title"
+            className="w-full max-w-sm rounded-lg border border-ai-cyan/45 bg-[#061321] p-6 text-center shadow-[0_22px_70px_rgba(0,0,0,0.55)]"
+          >
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-ai-cyan">Member Only</p>
+            <h2 id="member-only-title" className="mt-3 break-keep text-xl font-extrabold leading-7 text-white">
+              {guestNotice}
+            </h2>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setGuestNotice('')}
+                className="h-10 rounded border border-slate-700 text-sm font-bold text-slate-300 transition hover:border-ai-cyan hover:text-ai-cyan"
+              >
+                닫기
+              </button>
+              <Link
+                to="/login"
+                className="grid h-10 place-items-center rounded bg-blue-600 text-sm font-bold text-white transition hover:bg-blue-700 active:scale-[0.99]"
+              >
+                로그인
+              </Link>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </header>
   )
 }

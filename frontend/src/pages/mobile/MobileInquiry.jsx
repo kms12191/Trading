@@ -39,35 +39,35 @@ const summaryItems = [
 
 const faqItems = [
   {
-    question: '어떤 증권사와 거래소를 지원하나요?',
+    question: '현재 연동할 수 있는 증권사와 거래소는 어디인가요?',
     answer: '현재 지원하는 증권사와 거래소만 연동할 수 있습니다. 지원 목록은 계좌 연동 화면에서 확인할 수 있습니다.',
   },
   {
-    question: 'API 키는 안전하게 보관되나요?',
-    answer: 'API 키는 암호화하여 저장되며, 서비스 운영에 필요한 인증 목적으로만 사용됩니다.',
+    question: 'API 키가 필요한 이유와 발급·등록 방법은 무엇인가요?',
+    answer: '왜 필요한가요?\nAPI 키는 계좌 잔고, 보유 종목, 시세, 주문 가능 여부를 증권사·거래소와 안전하게 연동하기 위해 필요합니다.\n\n발급·등록 방법\n1. 이용 중인 증권사 또는 거래소의 Open API/개발자 센터에 접속합니다.\n2. API 사용 신청 또는 앱 등록을 진행합니다.\n3. 발급된 API Key, Secret Key, 계좌번호 등 필요한 값을 확인합니다.\n4. ANTRY 설정 > API Key 입력 화면에서 해당 거래소/증권사를 선택하고 값을 입력합니다.\n5. 연결 테스트를 실행해 정상 연결 여부를 확인한 뒤 저장합니다.\n\n권한 주의\n조회 권한은 필수이고, 실거래/주문 권한은 필요한 경우에만 켜 주세요. 출금 권한은 사용하지 않는 것을 권장합니다.',
   },
   {
-    question: '평가금액 또는 수익률이 실제와 다른 것 같습니다.',
+    question: '평가금액이나 수익률이 실제 계좌와 다르게 보일 때는 왜 그런가요?',
     answer: '실시간 시세 반영 시점이나 환율 적용 시점에 따라 일시적인 차이가 발생할 수 있습니다. 새로고침 후에도 문제가 지속되면 문의해 주세요.',
   },
   {
-    question: '주문이 실패하는 이유는 무엇인가요?',
+    question: '매수·매도 주문이 실패할 때 확인해야 할 원인은 무엇인가요?',
     answer: '잔고 부족, API 인증 만료, 거래 가능 시간 종료 또는 증권사·거래소 서버 문제 등 다양한 원인이 있을 수 있습니다.',
   },
   {
-    question: '시세는 실시간으로 제공되나요?',
+    question: '주식·코인 시세는 실시간으로 반영되나요?',
     answer: '가능한 범위 내에서 실시간 데이터를 제공합니다. 일부 데이터는 API 정책에 따라 지연될 수 있습니다.',
   },
   {
-    question: '첨부파일은 어떤 형식을 지원하며 용량 제한이 있나요?',
+    question: '1:1 문의에 첨부할 수 있는 파일 형식과 용량 제한은 어떻게 되나요?',
     answer: '이미지(JPG, PNG) 및 문서(PDF 등)를 첨부할 수 있으며, 파일당 최대 5MB까지 업로드할 수 있습니다.',
   },
   {
-    question: '개인정보와 API 키는 어떻게 보호되나요?',
+    question: '개인정보와 API 키는 서비스에서 어떻게 보호하나요?',
     answer: '개인정보와 API 키는 보안 정책에 따라 안전하게 관리되며, 외부에 노출되지 않도록 보호됩니다.',
   },
   {
-    question: '문의 답변은 얼마나 걸리나요?',
+    question: '1:1 문의를 남기면 답변까지 보통 얼마나 걸리나요?',
     answer: '영업일 기준 1~3일 이내 답변을 드리는 것을 목표로 합니다.',
   },
 ]
@@ -815,7 +815,7 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout, hideHeade
                 <span className="shrink-0 text-lg font-bold text-slate-500">{isExpanded ? '-' : '+'}</span>
               </button>
               {isExpanded ? (
-                <div className="border-t border-slate-800 px-16 pb-4 pt-3 text-sm leading-6 text-slate-400">
+                <div className="whitespace-pre-line border-t border-slate-800 px-16 pb-4 pt-3 text-sm leading-6 text-slate-400">
                   {item.answer}
                 </div>
               ) : null}

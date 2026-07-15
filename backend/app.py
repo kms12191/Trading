@@ -42,6 +42,7 @@ from backend.routes.trade import trade_bp
 from backend.routes.transfer import transfer_bp
 from backend.routes.admin_inquiries import admin_inquiries_bp
 from backend.routes.admin_users import admin_users_bp
+from backend.routes.admin_symbols import admin_symbols_bp
 from backend.routes.chatbot import chatbot_bp
 from backend.routes.knowledge import knowledge_bp
 
@@ -138,6 +139,7 @@ app.register_blueprint(trade_bp)
 app.register_blueprint(transfer_bp)
 app.register_blueprint(admin_inquiries_bp)
 app.register_blueprint(admin_users_bp)
+app.register_blueprint(admin_symbols_bp)
 app.register_blueprint(chatbot_bp)
 app.register_blueprint(knowledge_bp)
 
