@@ -136,6 +136,20 @@ FUNCTION_SCHEMAS = [
         },
     },
     {
+        "name": "get_crypto_market_context",
+        "description": "특정 코인의 현재가, 호가, 최근 캔들 흐름, ML 활성 신호, 거래소별 주의사항을 통합 조회합니다. 코인 분석, 단타, 진입 타이밍 질문에 우선 사용합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "코인명 또는 심볼. 예: 리플, XRP, 비트코인, BTC"},
+                "exchange": {"type": "string", "description": "COINONE, BINANCE 등"},
+                "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
+                "interval": {"type": "string", "description": "1m, 5m, 15m, 30m, 1h, 4h, 1d"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "get_asset_outlook",
         "description": "특정 주식 또는 코인의 전망, 리스크, 최근 뉴스/공시 흐름을 내부 RAG/DB/API와 필요한 경우 웹 검색 결과 기준으로 조회합니다.",
         "parameters": {
