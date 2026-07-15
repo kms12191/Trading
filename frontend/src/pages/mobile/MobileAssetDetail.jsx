@@ -15,6 +15,10 @@ import {
 import { preserveMobileDeviceParam } from './mobileRouteUtils.js'
 import {
   ACTIONABLE_ORDER_STATUSES,
+  getAssetChartPriceFormat,
+  getAssetCurrencyDigits,
+  getAssetCurrencySign,
+  getAssetPriceDigits,
   getAutoExecutionModeLabel,
   getAutoRuleStatusLabel,
   getAutoTriggerLabel,
@@ -68,38 +72,15 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   };
 
   const getCurrencySign = () => {
-    if (exchange === 'COINONE') return '₩';
-    if (exchange === 'BINANCE' || exchange === 'BINANCE_UM_FUTURES') return '$';
-    if (resolvedAssetType === 'STOCK') {
-      return isResolvedUsStock ? '$' : '₩';
-    }
-    return '$';
+    return getAssetCurrencySign({ exchange, assetType: resolvedAssetType, isUsStock: isResolvedUsStock })
   };
 
   const getCurrencyDigits = () => {
-    if (exchange === 'COINONE') return 0;
-    if (exchange === 'BINANCE' || exchange === 'BINANCE_UM_FUTURES') return 6;
-    if (resolvedAssetType === 'STOCK') {
-      return isResolvedUsStock ? 4 : 0;
-    }
-    return 4;
+    return getAssetCurrencyDigits({ exchange, assetType: resolvedAssetType, isUsStock: isResolvedUsStock })
   };
 
   const getPriceDigitsForValue = (value) => {
-    const numeric = Math.abs(Number(value))
-    if (!Number.isFinite(numeric)) return getCurrencyDigits()
-    if (exchange === 'COINONE') return 0
-    if (exchange === 'BINANCE' || exchange === 'BINANCE_UM_FUTURES') {
-      if (numeric > 0 && numeric < 0.01) return 8
-      if (numeric > 0 && numeric < 1) return 6
-      if (numeric < 100) return 4
-      return 2
-    }
-    if (isResolvedUsStock) {
-      if (numeric > 0 && numeric < 1) return 6
-      return 4
-    }
-    return getCurrencyDigits()
+    return getAssetPriceDigits(value, { exchange, assetType: resolvedAssetType, isUsStock: isResolvedUsStock })
   }
 
   const formatUnitPrice = (value) => {
@@ -110,12 +91,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   }
 
   const getChartPriceFormat = (value) => {
-    const digits = getPriceDigitsForValue(value || currentPrice)
-    return {
-      type: 'price',
-      precision: digits,
-      minMove: 1 / (10 ** digits),
-    }
+    return getAssetChartPriceFormat(value, { exchange, assetType: resolvedAssetType, isUsStock: isResolvedUsStock, currentPrice })
   }
 
   // 1. 거래소 기본값 세팅 (주식은 TOSS 실거래를 기본값으로, 코인은 COINONE. 단, USDT 마켓 코인은 BINANCE)
@@ -2189,40 +2165,109 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     fetchMlSignal()
   })
 
-  useEffect(() => {
+  const fetchSymbolMetadataEvent = useEffectEvent(() => {
     fetchSymbolMetadata()
+  })
+
+  const loadBrokerAvailabilityEvent = useEffectEvent(() => {
     loadBrokerAvailability()
+  })
+
+  const loadTradeHoldingContextEvent = useEffectEvent(() => {
     loadTradeHoldingContext()
+  })
+
+  const fetchStockWarningsEvent = useEffectEvent(() => {
+    fetchStockWarnings()
+  })
+
+  const fetchCandlesEvent = useEffectEvent((options) => {
+    fetchCandles(options)
+  })
+
+  const fetchQuoteEvent = useEffectEvent(() => {
+    fetchQuote()
+  })
+
+  const fetchUserBalanceEvent = useEffectEvent(() => {
+    fetchUserBalance()
+  })
+
+  const loadOpenOrdersEvent = useEffectEvent(() => {
+    loadOpenOrders()
+  })
+
+  const loadAutoTradingRulesEvent = useEffectEvent(() => {
+    loadAutoTradingRules()
+  })
+
+  const fetchNewsListEvent = useEffectEvent(() => {
+    fetchNewsList()
+  })
+
+  const fetchDisclosureListEvent = useEffectEvent(() => {
+    fetchDisclosureList()
+  })
+
+  const fetchCommunityPostsEvent = useEffectEvent(() => {
+    fetchCommunityPosts()
+  })
+
+  const loadFavoriteStatusEvent = useEffectEvent(() => {
+    loadFavoriteStatus()
+  })
+
+  const fetchOrderbookAndTradesEvent = useEffectEvent(() => {
+    fetchOrderbookAndTrades()
+  })
+
+  const fetchOrderPrecheckEvent = useEffectEvent(() => {
+    fetchOrderPrecheck()
+  })
+
+  const getChartSetupSnapshot = useEffectEvent(() => ({
+    candleData,
+    currentPrice,
+  }))
+
+  const formatChartTickEvent = useEffectEvent((time) => formatChartTick(time))
+
+  const getChartPriceFormatEvent = useEffectEvent((value) => getChartPriceFormat(value))
+
+  useEffect(() => {
+    fetchSymbolMetadataEvent()
+    loadBrokerAvailabilityEvent()
+    loadTradeHoldingContextEvent()
   }, [symbol, normalizedRouteAssetType])
 
   useEffect(() => {
     if (!symbolLookupReady) return
 
     setNewsSyncMessage({ text: '', isError: false })
-    fetchStockWarnings()
-    fetchCandles()
-    fetchQuote()
-    fetchUserBalance()
-    loadTradeHoldingContext()
-    loadOpenOrders()
-    loadAutoTradingRules()
-    fetchNewsList()
-    fetchDisclosureList()
-    fetchCommunityPosts()
+    fetchStockWarningsEvent()
+    fetchCandlesEvent()
+    fetchQuoteEvent()
+    fetchUserBalanceEvent()
+    loadTradeHoldingContextEvent()
+    loadOpenOrdersEvent()
+    loadAutoTradingRulesEvent()
+    fetchNewsListEvent()
+    fetchDisclosureListEvent()
+    fetchCommunityPostsEvent()
   }, [exchange, symbol, resolvedSymbol, chartInterval, brokerEnv, symbolLookupReady, resolvedAssetType])
 
   // 전일대비 독립 폴링 (30초)
   useEffect(() => {
     const quoteIntervalId = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
-        fetchQuote()
+        fetchQuoteEvent()
       }
     }, 30000)
     return () => window.clearInterval(quoteIntervalId)
   }, [exchange, symbol, resolvedSymbol, brokerEnv])
 
   useEffect(() => {
-    loadFavoriteStatus()
+    loadFavoriteStatusEvent()
   }, [isLoggedIn, symbol, resolvedAssetType, exchange])
 
   useEffect(() => {
@@ -2239,7 +2284,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
           filter: `symbol=eq.${String(symbol).trim().toUpperCase()}`,
         },
         () => {
-          fetchCommunityPosts()
+          fetchCommunityPostsEvent()
         },
       )
       .subscribe()
@@ -2314,7 +2359,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   useEffect(() => {
     const intervalId = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
-        fetchCandles({ silent: true })
+        fetchCandlesEvent({ silent: true })
       }
     }, chartPollMs)
 
@@ -2331,12 +2376,12 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
       return
     }
     const timeoutId = window.setTimeout(() => {
-      fetchOrderbookAndTrades()
+      fetchOrderbookAndTradesEvent()
     }, isStockAsset ? 1200 : 0)
-    const intervalId = window.setInterval(fetchOrderbookAndTrades, level2PollMs)
+    const intervalId = window.setInterval(fetchOrderbookAndTradesEvent, level2PollMs)
     const visibilityHandler = () => {
       if (document.visibilityState === 'visible') {
-        fetchOrderbookAndTrades()
+        fetchOrderbookAndTradesEvent()
       }
     }
     document.addEventListener('visibilitychange', visibilityHandler)
@@ -2355,7 +2400,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      fetchOrderPrecheck()
+      fetchOrderPrecheckEvent()
     }, isStockAsset ? 800 : 250)
 
     return () => window.clearTimeout(timeoutId)
@@ -2401,7 +2446,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
           borderColor: '#1f2945',
           timeVisible: true,
           secondsVisible: false,
-          tickMarkFormatter: (time) => formatChartTick(time),
+          tickMarkFormatter: (time) => formatChartTickEvent(time),
         },
         width: containerWidth,
         height: 300,
@@ -2413,16 +2458,17 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
         borderVisible: false,
         wickUpColor: '#ef4444',
         wickDownColor: '#3b82f6',
-        priceFormat: getChartPriceFormat(currentPrice),
+        priceFormat: getChartPriceFormatEvent(getChartSetupSnapshot().currentPrice),
       })
 
       chartRef.current = chart
       candleSeriesRef.current = candleSeries
 
       // 차트 생성 시점에 이미 로드된 캔들 데이터가 있다면 즉시 주입하여 비동기 완료 순서로 인한 차트 누락(검은 화면) 방지
-      if (candleData && candleData.length > 0) {
+      const chartSetupSnapshot = getChartSetupSnapshot()
+      if (chartSetupSnapshot.candleData && chartSetupSnapshot.candleData.length > 0) {
         try {
-          candleSeries.setData(candleData)
+          candleSeries.setData(chartSetupSnapshot.candleData)
           chart.timeScale().fitContent()
           hasAppliedInitialFitRef.current = true
         } catch (err) {
@@ -2494,7 +2540,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   useEffect(() => {
     if (!candleSeriesRef.current) return
     candleSeriesRef.current.applyOptions({
-      priceFormat: getChartPriceFormat(currentPrice),
+      priceFormat: getChartPriceFormatEvent(currentPrice),
     })
   }, [currentPrice, exchange, resolvedAssetType, symbol])
 

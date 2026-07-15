@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import {
+  getAssetChartPriceFormat,
+  getAssetCurrencyDigits,
+  getAssetCurrencySign,
+  getAssetPriceDigits,
   getAutoExecutionModeLabel,
   getAutoRuleStatusLabel,
   getAutoTriggerLabel,
@@ -58,6 +62,22 @@ describe('assetDetailModel', () => {
     assert.equal(
       getStockWarningBadgeTone('UNKNOWN_WARNING'),
       'border-slate-600 bg-slate-800/70 text-slate-200',
+    )
+  })
+
+  it('calculates asset price display digits and chart price format', () => {
+    assert.equal(getAssetCurrencySign({ exchange: 'COINONE', assetType: 'CRYPTO', isUsStock: false }), '₩')
+    assert.equal(getAssetCurrencySign({ exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), '$')
+    assert.equal(getAssetCurrencySign({ exchange: 'TOSS', assetType: 'STOCK', isUsStock: true }), '$')
+    assert.equal(getAssetCurrencyDigits({ exchange: 'COINONE', assetType: 'CRYPTO', isUsStock: false }), 0)
+    assert.equal(getAssetCurrencyDigits({ exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), 6)
+    assert.equal(getAssetPriceDigits(0.0004, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), 8)
+    assert.equal(getAssetPriceDigits(0.5, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), 6)
+    assert.equal(getAssetPriceDigits(50, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), 4)
+    assert.equal(getAssetPriceDigits(500, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), 2)
+    assert.deepEqual(
+      getAssetChartPriceFormat(0.0004, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false, currentPrice: 1 }),
+      { type: 'price', precision: 8, minMove: 0.00000001 },
     )
   })
 })

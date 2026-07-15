@@ -48,6 +48,54 @@ export const isUsStockSymbol = (value, market = '') => {
   return !isDomesticStockSymbol(value)
 }
 
+export const getAssetCurrencySign = ({ exchange = '', assetType = '', isUsStock = false } = {}) => {
+  const normalizedExchange = String(exchange || '').toUpperCase()
+  const normalizedAssetType = String(assetType || '').toUpperCase()
+
+  if (normalizedExchange === 'COINONE') return '₩'
+  if (normalizedExchange === 'BINANCE' || normalizedExchange === 'BINANCE_UM_FUTURES') return '$'
+  if (normalizedAssetType === 'STOCK') return isUsStock ? '$' : '₩'
+  return '$'
+}
+
+export const getAssetCurrencyDigits = ({ exchange = '', assetType = '', isUsStock = false } = {}) => {
+  const normalizedExchange = String(exchange || '').toUpperCase()
+  const normalizedAssetType = String(assetType || '').toUpperCase()
+
+  if (normalizedExchange === 'COINONE') return 0
+  if (normalizedExchange === 'BINANCE' || normalizedExchange === 'BINANCE_UM_FUTURES') return 6
+  if (normalizedAssetType === 'STOCK') return isUsStock ? 4 : 0
+  return 4
+}
+
+export const getAssetPriceDigits = (value, context = {}) => {
+  const numeric = Math.abs(Number(value))
+  if (!Number.isFinite(numeric)) return getAssetCurrencyDigits(context)
+
+  const normalizedExchange = String(context.exchange || '').toUpperCase()
+  if (normalizedExchange === 'COINONE') return 0
+  if (normalizedExchange === 'BINANCE' || normalizedExchange === 'BINANCE_UM_FUTURES') {
+    if (numeric > 0 && numeric < 0.01) return 8
+    if (numeric > 0 && numeric < 1) return 6
+    if (numeric < 100) return 4
+    return 2
+  }
+  if (context.isUsStock) {
+    if (numeric > 0 && numeric < 1) return 6
+    return 4
+  }
+  return getAssetCurrencyDigits(context)
+}
+
+export const getAssetChartPriceFormat = (value, context = {}) => {
+  const digits = getAssetPriceDigits(value || context.currentPrice, context)
+  return {
+    type: 'price',
+    precision: digits,
+    minMove: 1 / (10 ** digits),
+  }
+}
+
 export const isActionableOrderStatus = (status) => (
   ACTIONABLE_ORDER_STATUSES.includes(String(status || '').toUpperCase())
 )
