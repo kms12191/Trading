@@ -9,6 +9,20 @@ import { getApiErrorMessage } from '../lib/apiError.js'
 import { buildManualOrderFingerprint, resolveManualOrderIdempotency, shouldResetManualOrderIdempotency } from '../lib/manualOrderIdempotency.js'
 import {
   ACTIONABLE_ORDER_STATUSES,
+  buildCandleSignature,
+  formatDecimalMetric,
+  formatDisclosureDate,
+  formatMetric,
+  formatNewsSource,
+  formatPercent,
+  formatProbability,
+  formatRatio,
+  formatRelativeTime as formatTime,
+  formatReturnPercent,
+  formatSignalScore,
+  formatSignedPercentValue,
+  formatStaleness,
+  formatTimestamp,
   getAssetChartPriceFormat,
   getAssetCurrencyDigits,
   getAssetCurrencySign,
@@ -16,12 +30,18 @@ import {
   getAutoExecutionModeLabel,
   getAutoRuleStatusLabel,
   getAutoTriggerLabel,
+  getDisclosureToneClass,
   getOrderSideLabel,
   getOrderStatusLabel,
+  getPolicyReasonLabels,
+  getProbabilityLevel,
+  getSignalGradeLabel,
+  getSignalGradeTone,
   getStockWarningBadgeTone,
   isActionableOrderStatus,
   isCancelReplaceExchange,
   isUsStockSymbol,
+  normalizeCandleTime,
   normalizeStockSymbol,
 } from './assetDetailModel.js'
 
@@ -1507,98 +1527,6 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     }
   }
 
-  // 시간 표시 포맷 헬퍼
-  const formatTime = (isoString) => {
-    if (!isoString) return '';
-    try {
-      const date = new Date(isoString);
-      const now = new Date();
-      const diffMs = now - date;
-      const diffMins = Math.floor(diffMs / 60000);
-      if (diffMins < 1) return '방금 전';
-      if (diffMins < 60) return `${diffMins}분 전`;
-      const diffHours = Math.floor(diffMins / 60);
-      if (diffHours < 24) return `${diffHours}시간 전`;
-      return date.toLocaleDateString();
-    } catch {
-      return '';
-    }
-  }
-
-  const formatNewsSource = (source) => {
-    const normalized = String(source || '').trim().toUpperCase()
-    if (normalized === 'NAVER') return '네이버'
-    if (normalized === 'FINNHUB') return 'Finnhub'
-    return source || 'NEWS'
-  }
-
-  const formatDisclosureDate = (value) => {
-    const text = String(value || '').trim()
-    if (/^\d{8}$/.test(text)) {
-      return `${text.slice(0, 4)}.${text.slice(4, 6)}.${text.slice(6, 8)}`
-    }
-    return text || '-'
-  }
-
-  const getDisclosureToneClass = (sentiment) => {
-    if (sentiment === 'positive') return 'border-emerald-400/35 bg-emerald-500/10 text-emerald-200'
-    if (sentiment === 'negative') return 'border-rose-400/35 bg-rose-500/10 text-rose-200'
-    if (sentiment === 'caution') return 'border-amber-400/35 bg-amber-500/10 text-amber-200'
-    return 'border-cyan-400/25 bg-cyan-500/10 text-cyan-100'
-  }
-
-  const formatTimestamp = (value) => {
-    if (!value) return '-'
-    const date = typeof value === 'number'
-      ? new Date(value > 1_000_000_000_000 ? value : value * 1000)
-      : new Date(value)
-    if (Number.isNaN(date.getTime())) return '-'
-    return date.toLocaleString('ko-KR', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    })
-  }
-
-  const formatProbability = (value) => {
-    if (value === null || value === undefined || value === '') return '-'
-    const numberValue = Number(value)
-    if (Number.isNaN(numberValue)) return '-'
-    return `${(numberValue * 100).toFixed(1)}%`
-  }
-
-  const formatSignalScore = (value) => {
-    if (value === null || value === undefined || value === '') return '-'
-    const numberValue = Number(value)
-    if (Number.isNaN(numberValue)) return '-'
-    return numberValue.toFixed(2)
-  }
-
-  const formatStaleness = (minutes) => {
-    if (minutes === null || minutes === undefined || Number.isNaN(Number(minutes))) return '-'
-    const numericMinutes = Number(minutes)
-    if (numericMinutes < 60) return `${numericMinutes}분 전`
-    if (numericMinutes < 1440) return `${Math.floor(numericMinutes / 60)}시간 전`
-    return `${Math.floor(numericMinutes / 1440)}일 전`
-  }
-
-  const getProbabilityLevel = (value, type = 'up') => {
-    const numberValue = Number(value)
-    if (Number.isNaN(numberValue)) return { label: '확인 전', tone: 'text-slate-300', detail: '아직 판단할 수 있는 신호가 없습니다.' }
-    if (type === 'risk') {
-      if (numberValue >= 0.6) return { label: '높음', tone: 'text-rose-300', detail: '하락 위험을 먼저 확인해야 합니다.' }
-      if (numberValue >= 0.4) return { label: '보통', tone: 'text-amber-300', detail: '손실 가능성을 함께 봐야 합니다.' }
-      return { label: '낮음', tone: 'text-emerald-300', detail: '급락 위험 신호는 크지 않습니다.' }
-    }
-    if (numberValue >= 0.65) return { label: '강함', tone: 'text-emerald-300', detail: '상승 쪽 신호가 비교적 뚜렷합니다.' }
-    if (numberValue >= 0.55) return { label: '우세', tone: 'text-cyan-300', detail: '상승 쪽 신호가 약간 우세합니다.' }
-    if (numberValue >= 0.45) return { label: '중립', tone: 'text-slate-300', detail: '방향성이 뚜렷하지 않습니다.' }
-    return { label: '약함', tone: 'text-amber-300', detail: '상승 신호가 약합니다.' }
-  }
-
   const buildMlSignalInterpretation = (signal) => {
     if (!signal) return null
     const up = getProbabilityLevel(signal.up_probability, 'up')
@@ -1631,124 +1559,6 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
           ? '해외주식 모델'
           : '국내주식 모델',
     }
-  }
-
-  const getSignalGradeLabel = (grade) => {
-    if (grade === 'STRONG_BUY_CANDIDATE') return '강한 후보'
-    if (grade === 'WATCH') return '관찰'
-    if (grade === 'RISKY') return '위험'
-    if (grade === 'NO_SIGNAL') return '신호 없음'
-    return grade || '미분류'
-  }
-
-  const getSignalGradeTone = (grade) => {
-    if (grade === 'STRONG_BUY_CANDIDATE') return 'border-emerald-500/50 bg-emerald-950/40 text-emerald-300'
-    if (grade === 'WATCH') return 'border-cyan-500/50 bg-cyan-950/30 text-cyan-300'
-    if (grade === 'RISKY') return 'border-rose-500/50 bg-rose-950/40 text-rose-300'
-    return 'border-slate-700 bg-slate-900/70 text-slate-400'
-  }
-
-  const getPolicyReasonLabel = (reason) => {
-    const labels = {
-      market_breadth: '시장 폭 부족',
-      sector_breadth: '섹터 폭 부족',
-      sector_strength: '섹터 강도 부족',
-      market_regime: '시장 국면 보수적',
-      market_drawdown: '시장 낙폭 부담',
-      hard_market_drawdown: '시장 급락 차단',
-      news_stress: '뉴스 스트레스',
-      exception_entry: '예외 진입',
-      relative_risk_override: '상대 위험 완화',
-      override: '정책 예외',
-    }
-    return labels[reason] || reason
-  }
-
-  const getPolicyReasonLabels = (signal) => {
-    if (!signal) return []
-    if (Array.isArray(signal.policy_block_reason_labels) && signal.policy_block_reason_labels.length > 0) {
-      return signal.policy_block_reason_labels
-    }
-    return String(signal.policy_block_reason || '')
-      .split('|')
-      .map(item => item.trim())
-      .filter(Boolean)
-      .map(getPolicyReasonLabel)
-  }
-
-  const formatDecimalMetric = (value, digits = 2) => {
-    if (value === null || value === undefined || value === '') return '-'
-    const numberValue = Number(value)
-    if (Number.isNaN(numberValue)) return '-'
-    return numberValue.toFixed(digits)
-  }
-
-  const formatRatio = (value) => {
-    if (value === null || value === undefined || value === '') return '-'
-    const numberValue = Number(value)
-    if (Number.isNaN(numberValue)) return '-'
-    return `${numberValue.toFixed(2)}x`
-  }
-
-  const formatMetric = (value, digits = 4) => {
-    if (value === null || value === undefined || value === '') return '-'
-    const numberValue = Number(value)
-    if (Number.isNaN(numberValue)) return '-'
-    return numberValue.toFixed(digits)
-  }
-
-  const formatPercent = (value, digits = 1) => {
-    if (value === null || value === undefined || value === '') return '-'
-    const numberValue = Number(value)
-    if (Number.isNaN(numberValue)) return '-'
-    return `${(numberValue * 100).toFixed(digits)}%`
-  }
-
-  const formatReturnPercent = (value, digits = 2) => {
-    if (value === null || value === undefined || value === '') return '-'
-    const numberValue = Number(value)
-    if (Number.isNaN(numberValue)) return '-'
-    return `${(numberValue * 100).toFixed(digits)}%`
-  }
-
-  const formatSignedPercentValue = (value, digits = 2) => {
-    if (value === null || value === undefined || value === '') return '-'
-    const numberValue = Number(value)
-    if (Number.isNaN(numberValue)) return '-'
-    const sign = numberValue > 0 ? '+' : ''
-    return `${sign}${numberValue.toFixed(digits)}%`
-  }
-
-  const normalizeCandleTime = (rawTime) => {
-    if (typeof rawTime === 'number' && !Number.isNaN(rawTime)) {
-      return rawTime
-    }
-
-    if (typeof rawTime !== 'string' || !rawTime.trim()) {
-      return null
-    }
-
-    const value = rawTime.trim()
-    if (/^\d+$/.test(value)) {
-      return Number.parseInt(value, 10)
-    }
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      return value
-    }
-
-    const parsed = new Date(value.replace(' ', 'T'))
-    if (!Number.isNaN(parsed.getTime())) {
-      return Math.floor(parsed.getTime() / 1000)
-    }
-
-    return null
-  }
-
-  const buildCandleSignature = (items) => {
-    if (!items.length) return ''
-    const lastItem = items[items.length - 1]
-    return `${items.length}:${lastItem.time}:${lastItem.close}:${lastItem.volume}`
   }
 
   const normalizeHoldingSymbol = (value) => {

@@ -9,13 +9,34 @@ import {
   getAutoExecutionModeLabel,
   getAutoRuleStatusLabel,
   getAutoTriggerLabel,
+  buildCandleSignature,
+  formatDecimalMetric,
+  formatDisclosureDate,
+  formatMetric,
+  formatNewsSource,
+  formatPercent,
+  formatProbability,
+  formatRatio,
+  formatRelativeTime,
+  formatReturnPercent,
+  formatSignalScore,
+  formatSignedPercentValue,
+  formatStaleness,
+  formatTimestamp,
+  getDisclosureToneClass,
   getOrderSideLabel,
   getOrderStatusLabel,
+  getPolicyReasonLabel,
+  getPolicyReasonLabels,
+  getProbabilityLevel,
+  getSignalGradeLabel,
+  getSignalGradeTone,
   getStockWarningBadgeTone,
   isActionableOrderStatus,
   isCancelReplaceExchange,
   isDomesticStockSymbol,
   isUsStockSymbol,
+  normalizeCandleTime,
   normalizeStockSymbol,
 } from './assetDetailModel.js'
 
@@ -78,6 +99,62 @@ describe('assetDetailModel', () => {
     assert.deepEqual(
       getAssetChartPriceFormat(0.0004, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false, currentPrice: 1 }),
       { type: 'price', precision: 8, minMove: 0.00000001 },
+    )
+  })
+
+  it('formats news, disclosure, timestamp and ML metric values', () => {
+    const now = new Date('2026-07-15T12:00:00+09:00')
+    assert.equal(formatRelativeTime('2026-07-15T11:59:30+09:00', now), '방금 전')
+    assert.equal(formatRelativeTime('2026-07-15T11:40:00+09:00', now), '20분 전')
+    assert.equal(formatRelativeTime('2026-07-15T09:00:00+09:00', now), '3시간 전')
+    assert.equal(formatNewsSource('NAVER'), '네이버')
+    assert.equal(formatNewsSource('finnhub'), 'Finnhub')
+    assert.equal(formatDisclosureDate('20260715'), '2026.07.15')
+    assert.match(getDisclosureToneClass('positive'), /emerald/)
+    assert.equal(formatTimestamp(1_783_820_000), '07. 12. 10:33:20')
+    assert.equal(formatProbability(0.456), '45.6%')
+    assert.equal(formatSignalScore(1.234), '1.23')
+    assert.equal(formatStaleness(90), '1시간 전')
+    assert.equal(formatDecimalMetric(0.12345, 3), '0.123')
+    assert.equal(formatRatio(1.234), '1.23x')
+    assert.equal(formatMetric(0.98765, 4), '0.9877')
+    assert.equal(formatPercent(0.1234, 1), '12.3%')
+    assert.equal(formatReturnPercent(-0.1234, 2), '-12.34%')
+    assert.equal(formatSignedPercentValue(3.45, 2), '+3.45%')
+  })
+
+  it('labels ML probability, grade and policy reasons', () => {
+    assert.deepEqual(
+      getProbabilityLevel(0.7, 'up'),
+      { label: '강함', tone: 'text-emerald-300', detail: '상승 쪽 신호가 비교적 뚜렷합니다.' },
+    )
+    assert.deepEqual(
+      getProbabilityLevel(0.7, 'risk'),
+      { label: '높음', tone: 'text-rose-300', detail: '하락 위험을 먼저 확인해야 합니다.' },
+    )
+    assert.equal(getSignalGradeLabel('STRONG_BUY_CANDIDATE'), '강한 후보')
+    assert.match(getSignalGradeTone('RISKY'), /rose/)
+    assert.equal(getPolicyReasonLabel('market_breadth'), '시장 폭 부족')
+    assert.deepEqual(
+      getPolicyReasonLabels({ policy_block_reason: 'market_breadth|sector_strength' }),
+      ['시장 폭 부족', '섹터 강도 부족'],
+    )
+    assert.deepEqual(
+      getPolicyReasonLabels({ policy_block_reason_labels: ['직접 라벨'] }),
+      ['직접 라벨'],
+    )
+  })
+
+  it('normalizes candle time and builds candle signatures', () => {
+    assert.equal(normalizeCandleTime(123), 123)
+    assert.equal(normalizeCandleTime('123'), 123)
+    assert.equal(normalizeCandleTime('2026-07-15'), '2026-07-15')
+    assert.equal(normalizeCandleTime('2026-07-15 12:00:00'), 1784084400)
+    assert.equal(normalizeCandleTime(''), null)
+    assert.equal(buildCandleSignature([]), '')
+    assert.equal(
+      buildCandleSignature([{ time: 1, close: 10, volume: 100 }, { time: 2, close: 20, volume: 200 }]),
+      '2:2:20:200',
     )
   })
 })
