@@ -3,10 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { createChart, CandlestickSeries } from 'lightweight-charts'
 import { supabase, deleteUserWatchlistItem, ensureNewsSummaries, fetchUserWatchlist, normalizeWatchlistItem, upsertUserWatchlistItem } from '../supabaseClient'
 import Header from '../components/Header.jsx'
-import AssetLogo from '../components/AssetLogo.jsx'
 import MemberOnlyModal from '../components/MemberOnlyModal.jsx'
 import { getApiErrorMessage } from '../lib/apiError.js'
 import { buildManualOrderFingerprint, resolveManualOrderIdempotency, shouldResetManualOrderIdempotency } from '../lib/manualOrderIdempotency.js'
+import AssetDetailChartPanel from './assetDetailChartPanel.jsx'
+import AssetDetailHeader from './assetDetailHeader.jsx'
 import {
   ACTIONABLE_ORDER_STATUSES,
   buildCandleSignature,
@@ -22,7 +23,6 @@ import {
   formatSignalScore,
   formatSignedPercentValue,
   formatStaleness,
-  formatTimestamp,
   getAssetChartPriceFormat,
   getAssetCurrencyDigits,
   getAssetCurrencySign,
@@ -37,7 +37,6 @@ import {
   getProbabilityLevel,
   getSignalGradeLabel,
   getSignalGradeTone,
-  getStockWarningBadgeTone,
   isActionableOrderStatus,
   isCancelReplaceExchange,
   isUsStockSymbol,
@@ -2700,90 +2699,24 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
           </button>
         </div>
 
-        {/* 1. 상단 토스 WTS 스타일 메타 정보 헤더 바 */}
-        <div className="bg-[#0e1529]/90 border border-[#1f2945] rounded-xl p-5 mb-5 backdrop-blur-md flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] font-bold text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-900/60 uppercase tracking-widest font-mono">
-                {resolvedAssetType} · {exchange} ({brokerEnv})
-              </span>
-              <span className={`text-[9px] font-bold px-2 py-0.5 rounded border uppercase tracking-widest font-mono ${overallFeedStatus.tone}`}>
-                {overallFeedStatus.label}
-              </span>
-            </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-3">
-              <AssetLogo symbol={symbol} assetType={resolvedAssetType} name={displayName} size="h-10 w-10" />
-              <h1 className="text-xl font-bold font-mono text-white flex items-center gap-2 min-w-0">
-                <span className="break-all">
-                  {displayName !== symbol ? `${displayName} (${symbol})` : symbol}
-                </span>
-                <span className="text-xs text-slate-400 font-normal shrink-0">
-                  ({resolvedAssetType === 'STOCK' ? '주식' : '가상자산'})
-                </span>
-              </h1>
-              {isResolvedUsStock && (
-                <span className="text-[10px] font-bold text-orange-400 bg-orange-950/40 border border-orange-900/60 px-2 py-1 rounded shrink-0">
-                  해외주식은 toss api만 지원합니다
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={handleToggleFavorite}
-                className={`text-[22px] leading-none transition cursor-pointer focus:outline-none ${
-                  isFavorite ? 'text-red-400 hover:text-red-300' : 'text-slate-400 hover:text-cyan-400'
-                }`}
-                aria-label="즐겨찾기"
-                aria-pressed={isFavorite}
-              >
-                {isFavorite ? '♥' : '♡'}
-              </button>
-              {stockWarnings.slice(0, 3).map((warning) => (
-                <span
-                  key={`${warning.warning_type}-${warning.start_date || 'active'}`}
-                  className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold leading-none ${getStockWarningBadgeTone(warning.warning_type)}`}
-                  title={warning.label}
-                >
-                  {warning.label}
-                </span>
-              ))}
-              {stockWarnings.length > 3 ? (
-                <span className="inline-flex items-center rounded-full border border-slate-600 bg-slate-800/70 px-2.5 py-1 text-[11px] font-bold leading-none text-slate-200">
-                  +{stockWarnings.length - 3}
-                </span>
-              ) : null}
-            </div>
-            <p className="mt-2 text-[10px] text-slate-500 font-mono">
-              {showLevel2Panel
-                ? `차트 ${marketFeeds.candles.source} · 호가 ${marketFeeds.orderbook.source} · 체결 ${marketFeeds.trades.source}`
-                : `차트 ${marketFeeds.candles.source} · 호가/체결 비활성화`}
-            </p>
-            {feedReasonSummary ? (
-              <p className="mt-1 text-[10px] text-amber-300/80 font-mono">
-                원인 {feedReasonSummary}
-              </p>
-            ) : null}
-          </div>
-          
-          <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
-            {/* 현재가 */}
-            <div className="flex flex-col">
-              <span className="text-[10px] text-slate-400 font-bold">현재가</span>
-              <span className="text-lg font-bold font-mono text-white mt-0.5">
-                {formatUnitPrice(currentPrice)}
-              </span>
-            </div>
-
-            {/* 등락률 */}
-            <div className="flex flex-col">
-              <span className="text-[10px] text-slate-400 font-bold">전일대비</span>
-              <span className={`text-sm font-bold font-mono mt-0.5 flex items-center ${priceChangeRate >= 0 ? 'text-[#ef4444]' : 'text-[#3b82f6]'}`}>
-                {priceChangeRate >= 0 ? '▲' : '▼'} {Math.abs(priceChangeRate).toFixed(2)}%
-              </span>
-            </div>
-
-
-          </div>
-        </div>
+        <AssetDetailHeader
+          assetType={resolvedAssetType}
+          exchange={exchange}
+          brokerEnv={brokerEnv}
+          overallFeedStatus={overallFeedStatus}
+          symbol={symbol}
+          displayName={displayName}
+          isUsStock={isResolvedUsStock}
+          isFavorite={isFavorite}
+          stockWarnings={stockWarnings}
+          showLevel2Panel={showLevel2Panel}
+          marketFeeds={marketFeeds}
+          feedReasonSummary={feedReasonSummary}
+          currentPrice={currentPrice}
+          priceChangeRate={priceChangeRate}
+          formatUnitPrice={formatUnitPrice}
+          onToggleFavorite={handleToggleFavorite}
+        />
 
         {/* 2. 메인 3열(3-column) WTS 레이아웃 */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -2791,93 +2724,19 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
           {/* [1열: 좌측 - 컴팩트 차트 및 저비용 정보 패널] */}
           <div className={`${showLevel2Panel ? 'lg:col-span-6' : 'lg:col-span-8'} flex flex-col gap-5`}>
             
-            {/* 차트 카드 */}
-            {isChartExpanded && (
-              <button
-                type="button"
-                aria-label="차트 크게보기 닫기"
-                onClick={() => setIsChartExpanded(false)}
-                className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-              />
-            )}
-            <div className={chartCardClassName}>
-              <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-3 bg-cyan-400 rounded-full" />
-                    <span className="text-xs font-bold text-white">{isChartExpanded ? '실시간 통합 차트 크게보기' : '컴팩트 차트'}</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-mono">
-                    마지막 차트 확인 {formatTimestamp(marketFeeds.candles.checkedAt)}
-                  </p>
-                </div>
-                
-                {/* 캔들 주기 변경 탭 */}
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <div className="flex flex-wrap gap-1 bg-[#1b253b] p-0.5 rounded border border-[#2b395b] justify-end">
-                    {resolvedAssetType === 'STOCK' ? (
-                      <>
-                        {[
-                          { label: '1분', val: '1m' },
-                          { label: '5분', val: '5m' },
-                          { label: '15분', val: '15m' },
-                          { label: '30분', val: '30m' },
-                          { label: '1시간', val: '1h' },
-                          { label: '일봉', val: '1d' },
-                          { label: '주봉', val: '1w' },
-                          { label: '월봉', val: '1M' }
-                        ].map((item) => (
-                          <button
-                            key={item.val}
-                            onClick={() => setChartInterval(item.val)}
-                            className={`text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2.5 py-0.5 rounded transition-all cursor-pointer ${chartInterval === item.val ? 'bg-cyan-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'}`}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
-                      </>
-                    ) : (
-                      <>
-                        {[
-                          { label: '1분', val: '1m' },
-                          { label: '5분', val: '5m' },
-                          { label: '15분', val: '15m' },
-                          { label: '30분', val: '30m' },
-                          { label: '1시간', val: '1h' },
-                          { label: '4시간', val: '4h' },
-                          { label: '일봉', val: '1d' },
-                          { label: '주봉', val: '1w' },
-                          { label: '월봉', val: '1M' }
-                        ].map((item) => (
-                          <button
-                            key={item.val}
-                            onClick={() => setChartInterval(item.val)}
-                            className={`text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2.5 py-0.5 rounded transition-all cursor-pointer ${chartInterval === item.val ? 'bg-cyan-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'}`}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsChartExpanded((prev) => !prev)}
-                    className="rounded border border-cyan-500/30 px-3 py-1 text-[10px] font-black text-cyan-300 transition hover:bg-cyan-950/40"
-                  >
-                    {isChartExpanded ? '닫기' : '크게보기'}
-                  </button>
-                </div>
-              </div>
-
-              {/* 차트 영역 */}
-              <div className={chartPanelClassName}>
-                <div className={`absolute inset-0 flex items-center justify-center bg-[#0e1529]/95 z-10 rounded transition-opacity duration-200 ${loadingChart ? 'opacity-100' : 'opacity-0 pointer-events-none hidden'}`}>
-                  <span className="text-xs text-cyan-400 font-mono animate-pulse">시세 차트 로드 중...</span>
-                </div>
-                <div ref={chartContainerRef} className="h-full w-full" />
-              </div>
-            </div>
+            <AssetDetailChartPanel
+              assetType={resolvedAssetType}
+              chartInterval={chartInterval}
+              chartCardClassName={chartCardClassName}
+              chartPanelClassName={chartPanelClassName}
+              chartContainerRef={chartContainerRef}
+              isChartExpanded={isChartExpanded}
+              loadingChart={loadingChart}
+              marketFeeds={marketFeeds}
+              onIntervalChange={setChartInterval}
+              onToggleExpanded={() => setIsChartExpanded((prev) => !prev)}
+              onCloseExpanded={() => setIsChartExpanded(false)}
+            />
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="rounded-xl border border-[#1f2945] bg-[#0e1529]/90 p-4 backdrop-blur-md">
