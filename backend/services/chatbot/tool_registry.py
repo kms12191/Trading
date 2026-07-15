@@ -2579,6 +2579,9 @@ def get_asset_outlook(auth_header: str, message: str) -> dict:
     asset_type = str(symbol_data.get("asset_type") or "").upper()
     market = str(symbol_data.get("market") or "").strip()
     lookup_label = f"{display_name}({symbol})" if display_name and display_name.upper() != symbol else symbol
+    if _is_general_price_outlook_request(message):
+        return _build_price_based_outlook(auth_header, message, symbol, display_name)
+
     ml_result = build_single_asset_ml_outlook(auth_header, message, symbol_data)
     if ml_result:
         return ml_result
@@ -2608,6 +2611,51 @@ def get_asset_outlook(auth_header: str, message: str) -> dict:
     if result.get("reply"):
         result["reply"] = f"{lookup_label} 기준으로 확인한 전망 참고자료입니다.\n" + result["reply"]
     return result
+
+
+def _is_general_price_outlook_request(text: str) -> bool:
+    value = str(text or "")
+    if any(keyword in value for keyword in ["오를까", "내릴까", "살까", "팔까", "매수", "매도", "진입", "타이밍"]):
+        return False
+    return "전망" in value and any(keyword in value for keyword in ["어때", "어떨", "어떤", "알려줘"])
+
+
+def _build_price_based_outlook(auth_header: str, message: str, symbol: str, display_name: str) -> dict:
+    price_result = get_asset_price(auth_header, message)
+    price_data = price_result.get("data") if isinstance(price_result.get("data"), dict) else {}
+    if price_data.get("reason"):
+        return price_result
+
+    current_price = _to_float(price_data.get("current_price"))
+    change_rate = _to_float(price_data.get("change_rate"))
+    currency = str(price_data.get("currency") or "KRW").upper()
+    label = f"{display_name}({symbol})" if display_name and display_name.upper() != symbol else symbol
+    if current_price <= 0:
+        return price_result
+
+    reply = (
+        f"{label}의 현재가는 {_format_money(current_price, currency)}이며, 오늘 등락률은 {change_rate:+.2f}%입니다.\n"
+        f"{_price_outlook_sentence(change_rate)}\n"
+        "손실 가능성도 항상 존재하니 분산 투자와 손절 기준 설정을 권장합니다."
+    )
+    return {
+        "reply": reply,
+        "actions": price_result.get("actions") or [],
+        "data": {
+            **price_data,
+            "source": "ASSET_PRICE_OUTLOOK",
+            "symbol": symbol,
+            "display_name": display_name,
+        },
+    }
+
+
+def _price_outlook_sentence(change_rate: float) -> str:
+    if change_rate > 0:
+        return "위 상승률은 단기적으로 긍정적 신호이나, 투자 결정 시 추가적인 재무 정보와 시장 상황을 함께 고려하시기 바랍니다."
+    if change_rate < 0:
+        return "위 하락률은 단기적으로 부담 신호일 수 있으나, 투자 결정 시 추가적인 재무 정보와 시장 상황을 함께 고려하시기 바랍니다."
+    return "현재 등락률만으로 방향성을 단정하기는 어려우며, 투자 결정 시 추가적인 재무 정보와 시장 상황을 함께 고려하시기 바랍니다."
 
 
 def get_recommendation_candidates(auth_header: str, message: str) -> dict:

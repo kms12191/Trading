@@ -1,5 +1,6 @@
 from backend.services.chatbot.conversation_repository import ChatbotConversationRepository
 from backend.services.chatbot.chat_service import ChatbotService
+from backend.services.chatbot.market_context_followup import is_market_context_followup
 import backend.services.chatbot.chat_service as chat_service_module
 
 
@@ -213,6 +214,13 @@ def test_reply_answers_news_followup_from_previous_news_context(monkeypatch):
     assert "확인" in second["reply"]
     assert third["meta"]["source"] == "MARKET_CONTEXT_FOLLOWUP"
     assert third["meta"]["tool_result"]["source"] == "MARKET_CONTEXT_FOLLOWUP"
+
+
+def test_market_context_followup_accepts_natural_followup_phrases():
+    assert is_market_context_followup("이거 보고 들어가도 돼?")
+    assert is_market_context_followup("방금 공시면 위험해?")
+    assert is_market_context_followup("그 내용 괜찮을까?")
+    assert not is_market_context_followup("삼성전자 뉴스 보여줘")
 
 
 class FakeConversationSupabaseBoundary:

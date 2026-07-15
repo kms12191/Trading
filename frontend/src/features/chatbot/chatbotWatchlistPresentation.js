@@ -20,7 +20,7 @@ export function buildWatchlistPresentation(toolResult) {
 
   return {
     shouldRender: items.length > 0,
-    title: '관심종목',
+    title: '\uad00\uc2ec\uc885\ubaa9',
     count: items.length,
     items,
   }

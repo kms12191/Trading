@@ -17,22 +17,50 @@ class UserLookupContext:
 
 def is_favorite_memory_query(text: str) -> bool:
     value = str(text or "").replace(" ", "")
-    if "관심종목" not in value:
+    if "\uad00\uc2ec\uc885\ubaa9" not in value:
         return False
-    return any(keyword in value for keyword in ["뭐였", "전에", "기억", "알려줘", "보여줘", "조회", "정리", "목록"])
+    return any(
+        keyword in value
+        for keyword in [
+            "\ubb50\uc600",
+            "\uc804\uc5d0",
+            "\uae30\uc5b5",
+            "\uc54c\ub824\uc918",
+            "\ubcf4\uc5ec\uc918",
+            "\uc870\ud68c",
+            "\uc815\ub9ac",
+            "\ubaa9\ub85d",
+        ]
+    )
 
 
 def is_watchlist_focus_request(text: str) -> bool:
     value = str(text or "").replace(" ", "")
-    if "관심종목" not in value:
+    if "\uad00\uc2ec\uc885\ubaa9" not in value:
         return False
-    return any(keyword in value for keyword in ["오늘", "볼것", "중심", "기준", "체크", "챙겨"])
+    return any(
+        keyword in value
+        for keyword in ["\uc624\ub298", "\ubcfc\uac83", "\uc911\uc2ec", "\uae30\uc900", "\uccb4\ud06c", "\ucc59\uaca8"]
+    )
 
 
 def is_user_note_query(text: str) -> bool:
     value = str(text or "")
-    has_note_keyword = any(keyword in value for keyword in ["Obsidian", "옵시디언", "투자노트", "투자 노트", "메모", "노트"])
-    has_lookup_keyword = any(keyword in value for keyword in ["찾아", "보여", "요약", "기준", "정리", "뭐"])
+    has_note_keyword = any(
+        keyword in value
+        for keyword in [
+            "Obsidian",
+            "\uc635\uc2dc\ub514\uc5b8",
+            "\ud22c\uc790\ub178\ud2b8",
+            "\ud22c\uc790 \ub178\ud2b8",
+            "\uba54\ubaa8",
+            "\ub178\ud2b8",
+        ]
+    )
+    has_lookup_keyword = any(
+        keyword in value
+        for keyword in ["\ucc3e\uc544", "\ubcf4\uc5ec", "\uc694\uc57d", "\uae30\uc900", "\uc815\ub9ac", "\ubb50"]
+    )
     return has_note_keyword and has_lookup_keyword
 
 
@@ -72,14 +100,26 @@ def build_favorite_memory_result(context: UserLookupContext) -> dict[str, Any] |
         "items": items,
     }
     if not items:
-        reply = "아직 하트 관심종목이나 자동메모리에 저장된 관심종목이 없습니다. 관심종목을 먼저 추가하면 이후 대화에서 기준으로 삼을게요."
+        reply = (
+            "\uc544\uc9c1 \ud558\ud2b8 \uad00\uc2ec\uc885\ubaa9\uc774\ub098 \uc790\ub3d9\uba54\ubaa8\ub9ac\uc5d0 "
+            "\uc800\uc7a5\ub41c \uad00\uc2ec\uc885\ubaa9\uc774 \uc5c6\uc2b5\ub2c8\ub2e4. "
+            "\uad00\uc2ec\uc885\ubaa9\uc744 \uba3c\uc800 \ucd94\uac00\ud558\uba74 \uc774\ud6c4 \ub300\ud654\uc5d0\uc11c "
+            "\uae30\uc900\uc73c\ub85c \uc0bc\uc744\uac8c\uc694."
+        )
         return {"reply": reply, "actions": [], "data": data}
 
     if is_watchlist_focus_request(context.text):
         reply = _build_watchlist_focus_reply(items)
+    elif source == "USER_WATCHLIST":
+        reply = "\uad00\uc2ec\uc885\ubaa9\uc744 \ud45c\ub85c \uc815\ub9ac\ud588\uc2b5\ub2c8\ub2e4."
     else:
         lines = [f"{index}. {_format_favorite_item(item)}" for index, item in enumerate(items, start=1)]
-        reply = "관심종목을 표로 정리했습니다." if source == "USER_WATCHLIST" else "\n".join(["전에 말한 관심종목은 아래처럼 기억하고 있습니다.", *lines])
+        reply = "\n".join(
+            [
+                "\uc804\uc5d0 \ub9d0\ud55c \uad00\uc2ec\uc885\ubaa9\uc740 \uc544\ub798\ucc98\ub7fc \uae30\uc5b5\ud558\uace0 \uc788\uc2b5\ub2c8\ub2e4.",
+                *lines,
+            ]
+        )
     return {"reply": reply, "actions": [], "data": data}
 
 
@@ -95,7 +135,7 @@ def build_user_note_result(context: UserLookupContext) -> dict[str, Any] | None:
     )
     items = [
         {
-            "title": str(row.get("title") or "제목 없는 노트").strip(),
+            "title": str(row.get("title") or "\uc81c\ubaa9 \uc5c6\ub294 \ub178\ud2b8").strip(),
             "file_path": str(row.get("file_path") or "").strip(),
             "content": _compact_note_content(str(row.get("content") or "")),
             "source": str(row.get("source") or "note").strip(),
@@ -109,10 +149,13 @@ def build_user_note_result(context: UserLookupContext) -> dict[str, Any] | None:
     }
     if not items:
         target = f" '{query}'" if query else ""
-        reply = f"저장된 투자노트/Obsidian 메모에서{target} 관련 내용을 찾지 못했습니다."
+        reply = (
+            f"\uc800\uc7a5\ub41c \ud22c\uc790\ub178\ud2b8/Obsidian \uba54\ubaa8\uc5d0\uc11c{target} "
+            "\uad00\ub828 \ub0b4\uc6a9\uc744 \ucc3e\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4."
+        )
         return {"reply": reply, "actions": [], "data": data}
 
-    lines = ["저장된 투자노트/Obsidian 메모에서 찾은 내용입니다."]
+    lines = ["\uc800\uc7a5\ub41c \ud22c\uc790\ub178\ud2b8/Obsidian \uba54\ubaa8\uc5d0\uc11c \ucc3e\uc740 \ub0b4\uc6a9\uc785\ub2c8\ub2e4."]
     for index, item in enumerate(items, start=1):
         path = f" ({item['file_path']})" if item["file_path"] else ""
         lines.append(f"{index}. {item['title']}{path}")
@@ -124,25 +167,25 @@ def build_user_note_result(context: UserLookupContext) -> dict[str, Any] | None:
 def _extract_note_query(text: str) -> str:
     value = str(text or "").strip()
     removals = [
-        "Obsidian에 적은",
+        "Obsidian\uc5d0 \uc801\uc740",
         "Obsidian",
-        "옵시디언에 적은",
-        "옵시디언",
-        "투자 노트",
-        "투자노트",
-        "메모",
-        "노트",
-        "찾아줘",
-        "찾아",
-        "보여줘",
-        "보여",
-        "요약해줘",
-        "요약",
-        "정리해줘",
-        "정리",
-        "기준으로",
-        "기준",
-        "에 적은",
+        "\uc635\uc2dc\ub514\uc5b8\uc5d0 \uc801\uc740",
+        "\uc635\uc2dc\ub514\uc5b8",
+        "\ud22c\uc790 \ub178\ud2b8",
+        "\ud22c\uc790\ub178\ud2b8",
+        "\uba54\ubaa8",
+        "\ub178\ud2b8",
+        "\ucc3e\uc544\uc918",
+        "\ucc3e\uc544",
+        "\ubcf4\uc5ec\uc918",
+        "\ubcf4\uc5ec",
+        "\uc694\uc57d\ud574\uc918",
+        "\uc694\uc57d",
+        "\uc815\ub9ac\ud574\uc918",
+        "\uc815\ub9ac",
+        "\uae30\uc900\uc73c\ub85c",
+        "\uae30\uc900",
+        "\uc5d0 \uc801\uc740",
     ]
     for removal in removals:
         value = value.replace(removal, " ")
@@ -163,7 +206,7 @@ def _normalize_watchlist_item(row: dict[str, Any]) -> dict[str, str]:
     exchange = str(row.get("exchange") or "").strip().upper()
     label = f"{name}({symbol})" if symbol and symbol != name else name or symbol
     return {
-        "content": f"하트 관심종목: {label}",
+        "content": f"\ud558\ud2b8 \uad00\uc2ec\uc885\ubaa9 {label}",
         "symbol": symbol,
         "name": name,
         "asset_type": asset_type,
@@ -192,7 +235,7 @@ def _format_favorite_item(item: dict[str, str]) -> str:
         exchange = str(item.get("exchange") or "").strip()
         suffix = " / ".join(part for part in [asset_type, exchange] if part)
         label = f"{name}({symbol})" if symbol and name and symbol != name else name or symbol
-        return f"{label} - 하트 관심종목{f' ({suffix})' if suffix else ''}"
+        return f"{label} - \ud558\ud2b8 \uad00\uc2ec\uc885\ubaa9{f' ({suffix})' if suffix else ''}"
     return str(item.get("content") or "").strip()
 
 
@@ -202,13 +245,17 @@ def _build_watchlist_focus_reply(items: list[dict[str, str]]) -> str:
         group = _infer_watchlist_group(item)
         groups.setdefault(group, []).append(_format_focus_label(item))
 
-    blocks = ["관심종목 기준으로 오늘 볼 것을 분야별로 묶으면 이렇게 정리됩니다."]
+    blocks = ["\uad00\uc2ec\uc885\ubaa9 \uae30\uc900\uc73c\ub85c \uc624\ub298 \ubcfc \uac83\uc744 \ubd84\uc57c\ubcc4\ub85c \ubb36\uc73c\uba74 \uc774\ub807\uac8c \uc815\ub9ac\ub429\ub2c8\ub2e4."]
     for index, (group, labels) in enumerate(groups.items(), start=1):
-        blocks.append("\n".join([
-            f"{index}. {group}: {', '.join(labels)}",
-            f"   - 오늘 볼 것: {_focus_check_for_group(group)}",
-            f"   - 같이 볼 후보: {_sector_candidates_for_group(group)}",
-        ]))
+        blocks.append(
+            "\n".join(
+                [
+                    f"{index}. {group}: {', '.join(labels)}",
+                    f"   - \uc624\ub298 \ubcfc \uac83: {_focus_check_for_group(group)}",
+                    f"   - \uac19\uc774 \ubcfc \ud6c4\ubcf4: {_sector_candidates_for_group(group)}",
+                ]
+            )
+        )
     return "\n\n".join(blocks)
 
 
@@ -230,31 +277,31 @@ def _infer_watchlist_group(item: dict[str, str]) -> str:
     symbol = str(item.get("symbol") or "").upper()
     asset_type = str(item.get("asset_type") or "").upper()
     if asset_type == "CRYPTO" or symbol in {"BTC", "ETH", "XRP", "DOGE", "SOL"}:
-        return "가상자산"
-    if any(keyword in name for keyword in ["삼성전자", "하이닉스", "반도체", "SK하이닉스"]) or symbol in {"005930", "000660"}:
-        return "반도체·AI 인프라"
-    if any(keyword in name for keyword in ["스페이스", "우주", "항공"]) or symbol in {"462350"}:
-        return "우주항공"
-    if asset_type == "STOCK":
-        return "주식 기타"
-    return "기타"
+        return "\uac00\uc0c1\uc790\uc0b0"
+    if any(keyword in name for keyword in ["\uc0bc\uc131\uc804\uc790", "\ud558\uc774\ub2c9\uc2a4", "\ubc18\ub3c4\uccb4", "SK\ud558\uc774\ub2c9\uc2a4"]) or symbol in {"005930", "000660"}:
+        return "\ubc18\ub3c4\uccb4\u00b7AI \uc778\ud504\ub77c"
+    if any(keyword in name for keyword in ["\uc2a4\ud398\uc774\uc2a4", "\uc6b0\uc8fc", "\ud56d\uacf5"]) or symbol in {"462350"}:
+        return "\uc6b0\uc8fc\ud56d\uacf5"
+    if asset_type.startswith("STOCK"):
+        return "\uc8fc\uc2dd \uae30\ud0c0"
+    return "\uae30\ud0c0"
 
 
 def _focus_check_for_group(group: str) -> str:
     checks = {
-        "반도체·AI 인프라": "메모리 가격, AI 서버 수요, 미국 기술주 흐름, 관련 공시를 우선 확인",
-        "우주항공": "수주·발사 일정, 정부 정책, 기술 인증·공시 여부를 우선 확인",
-        "가상자산": "BTC 방향성, 거래량 급증, 규제 뉴스, 급등락 리스크를 우선 확인",
-        "주식 기타": "해당 종목의 최신 뉴스, 공시, 거래량 변화를 우선 확인",
+        "\ubc18\ub3c4\uccb4\u00b7AI \uc778\ud504\ub77c": "\uba54\ubaa8\ub9ac \uac00\uaca9, AI \uc11c\ubc84 \uc218\uc694, \ubbf8\uad6d \uae30\uc220\uc8fc \ud750\ub984, \uad00\ub828 \uacf5\uc2dc\ub97c \uc6b0\uc120 \ud655\uc778",
+        "\uc6b0\uc8fc\ud56d\uacf5": "\uc218\uc8fc\u00b7\ubc1c\uc0ac \uc77c\uc815, \uc815\ubd80 \uc815\ucc45, \uae30\uc220 \uc778\uc99d\u00b7\uacf5\uc2dc \uc5ec\ubd80\ub97c \uc6b0\uc120 \ud655\uc778",
+        "\uac00\uc0c1\uc790\uc0b0": "BTC \ubc29\ud5a5\uc131, \uac70\ub798\ub7c9 \uae09\uc99d, \uaddc\uc81c \ub274\uc2a4, \uae09\ub4f1\ub77d \ub9ac\uc2a4\ud06c\ub97c \uc6b0\uc120 \ud655\uc778",
+        "\uc8fc\uc2dd \uae30\ud0c0": "\ud574\ub2f9 \uc885\ubaa9\uc758 \ucd5c\uc2e0 \ub274\uc2a4, \uacf5\uc2dc, \uac70\ub798\ub7c9 \ubcc0\ud654\ub97c \uc6b0\uc120 \ud655\uc778",
     }
-    return checks.get(group, "최신 뉴스, 공시, 가격·거래량 변화를 우선 확인")
+    return checks.get(group, "\ucd5c\uc2e0 \ub274\uc2a4, \uacf5\uc2dc, \uac00\uaca9\u00b7\uac70\ub798\ub7c9 \ubcc0\ud654\ub97c \uc6b0\uc120 \ud655\uc778")
 
 
 def _sector_candidates_for_group(group: str) -> str:
     candidates = {
-        "반도체·AI 인프라": "한미반도체, HPSP, 리노공업 - HBM·AI 서버·반도체 장비/부품 연관",
-        "우주항공": "한화에어로스페이스, 쎄트렉아이 - 발사체·위성·방산 우주 정책 연관",
-        "가상자산": "BTC, ETH, SOL - 시장 방향성과 위험선호를 확인하기 좋은 대장/주요 코인",
-        "주식 기타": "같은 업종 내 거래대금 상위 종목 - 뉴스·공시가 동반되는지 확인",
+        "\ubc18\ub3c4\uccb4\u00b7AI \uc778\ud504\ub77c": "\ud55c\ubbf8\ubc18\ub3c4\uccb4, HPSP, \ub9ac\ub178\uacf5\uc5c5 - HBM\u00b7AI \uc11c\ubc84\u00b7\ubc18\ub3c4\uccb4 \uc7a5\ube44/\ubd80\ud488 \uc5f0\uad00",
+        "\uc6b0\uc8fc\ud56d\uacf5": "\ud55c\ud654\uc5d0\uc5b4\ub85c\uc2a4\ud398\uc774\uc2a4, \ucee8\ud14d, AP\uc704\uc131 - \ubc1c\uc0ac\uccb4\u00b7\uc704\uc131\u00b7\ubc29\uc0b0/\uc6b0\uc8fc \uc815\ucc45 \uc5f0\uad00",
+        "\uac00\uc0c1\uc790\uc0b0": "BTC, ETH, SOL - \uc2dc\uc7a5 \ubc29\ud5a5\uc131\uacfc \uc704\ud5d8\uc2e0\ud638\ub97c \ud655\uc778\ud558\uae30 \uc88b\uc740 \ub300\ud45c \uc8fc\uc694 \ucf54\uc778",
+        "\uc8fc\uc2dd \uae30\ud0c0": "\uac19\uc740 \uc5c5\uc885 \ub0b4 \uac70\ub798\ub300\uae08 \uc0c1\uc704 \uc885\ubaa9 - \ub274\uc2a4\u00b7\uacf5\uc2dc\uac00 \ub3d9\ubc18\ub418\ub294\uc9c0 \ud655\uc778",
     }
-    return candidates.get(group, "같은 업종의 거래대금 상위 종목 - 뉴스·공시 근거가 있을 때만 확인")
+    return candidates.get(group, "\uac19\uc740 \uc5c5\uc885\uc758 \uac70\ub798\ub300\uae08 \uc0c1\uc704 \uc885\ubaa9 - \ub274\uc2a4\u00b7\uacf5\uc2dc \uadfc\uac70\uac00 \uc788\uc744 \ub54c\ub9cc \ud655\uc778")

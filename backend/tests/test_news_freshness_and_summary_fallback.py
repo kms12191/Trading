@@ -76,6 +76,35 @@ def test_market_news_query_uses_news_pipeline_not_vector_db(monkeypatch):
     assert calls == ["api"]
 
 
+def test_crypto_news_query_does_not_fallback_to_disclosure_vector_db(monkeypatch):
+    service = object.__new__(ChatbotWebFallbackSearchService)
+    service.max_results = 5
+    calls: list[str] = []
+
+    monkeypatch.setattr(service, "_search_existing_open_apis", lambda query, limit: calls.append("api") or None)
+    monkeypatch.setattr(service, "_search_tavily", lambda query, limit: calls.append("tavily") or None)
+    monkeypatch.setattr(service, "_search_internal_db", lambda query, limit: calls.append("db") or None)
+    monkeypatch.setattr(
+        service,
+        "_search_rag",
+        lambda auth_header, user_id, query, limit: calls.append("rag")
+        or {
+            "reply": "저장된 벡터 DB 요약본에서 먼저 찾은 내용입니다.",
+            "data": {
+                "source": "VECTOR_DB",
+                "items": [{"source_type": "DISCLOSURE", "chunk_text": "NAVER 공시 청크"}],
+            },
+        },
+    )
+
+    result = service.search("Bearer token", "user-1", "비트코인 관련 뉴스 요약해줘", limit=5)
+
+    assert result["data"]["source"] == "NO_RESULT"
+    assert "뉴스 결과를 찾지 못했습니다" in result["reply"]
+    assert "공시" not in result["reply"]
+    assert calls == ["tavily", "api", "tavily", "db"]
+
+
 def test_market_news_reply_explains_search_criteria():
     service = object.__new__(ChatbotWebFallbackSearchService)
 
@@ -203,6 +232,33 @@ def test_crypto_news_tavily_filters_knowledge_in_sources():
     assert "조회 기준:" in result["reply"]
     assert "kin.naver.com" not in result["reply"]
     assert all("지식" not in str(item.get("title") or "") for item in result["data"]["items"])
+
+
+def test_subject_news_query_removes_related_modifier_for_search():
+    service = object.__new__(ChatbotWebFallbackSearchService)
+
+    assert service._normalize_news_query("이노스페이스 관련 뉴스 요약해줘") == "이노스페이스"
+    assert service._normalize_news_query("도지코인 관련 뉴스 요약해줘") == "도지코인"
+
+
+def test_dogecoin_news_query_uses_crypto_news_priority(monkeypatch):
+    service = object.__new__(ChatbotWebFallbackSearchService)
+    service.max_results = 5
+    calls: list[str] = []
+
+    def fake_tavily(query, limit):
+        calls.append(f"tavily:{query}")
+        return {"reply": "dogecoin news", "data": {"source": "TAVILY_FALLBACK", "query": "도지코인"}}
+
+    monkeypatch.setattr(service, "_search_tavily", fake_tavily)
+    monkeypatch.setattr(service, "_search_existing_open_apis", lambda query, limit: calls.append("api") or None)
+    monkeypatch.setattr(service, "_search_internal_db", lambda query, limit: calls.append("db") or None)
+    monkeypatch.setattr(service, "_search_rag", lambda auth_header, user_id, query, limit: calls.append("rag") or None)
+
+    result = service.search("Bearer token", "user-1", "도지코인 관련 뉴스 요약해줘", limit=5)
+
+    assert result["data"]["source"] == "TAVILY_FALLBACK"
+    assert calls == ["tavily:도지코인 관련 뉴스 요약해줘"]
 
 
 def test_combined_news_and_disclosure_query_returns_both_sections(monkeypatch):

@@ -1,9 +1,12 @@
 import os
 import json
+import logging
 import requests
 from pathlib import Path
 from dotenv import load_dotenv
 from backend.services.auth_service import get_user_id_from_header
+
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -326,4 +329,10 @@ def safe_query_supabase_as_service_role(endpoint: str, method: str = "GET", json
     try:
         return query_supabase_as_service_role(endpoint, method=method, json_data=json_data, params=params)
     except Exception:
+        logger.warning(
+            "Supabase service_role 요청 실패: endpoint=%s method=%s",
+            endpoint,
+            method,
+            exc_info=True,
+        )
         return None

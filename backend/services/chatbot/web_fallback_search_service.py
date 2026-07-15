@@ -87,7 +87,7 @@ class ChatbotWebFallbackSearchService:
                 return self._news_limit_exceeded_reply(text, requested_count)
             max_results = requested_count or 1
 
-        if self._is_freshness_query(text):
+        if self._is_freshness_query(text) or is_news_query:
             if self._is_crypto_query(text) and not is_disclosure_query:
                 tavily_result = self._search_tavily(text, max_results)
                 if tavily_result:
@@ -106,9 +106,10 @@ class ChatbotWebFallbackSearchService:
             if db_result:
                 return db_result
 
-            rag_result = self._search_rag(auth_header, user_id, text, max_results)
-            if rag_result:
-                return rag_result
+            if not is_news_query:
+                rag_result = self._search_rag(auth_header, user_id, text, max_results)
+                if rag_result:
+                    return rag_result
 
             if is_disclosure_query:
                 return {
@@ -116,9 +117,16 @@ class ChatbotWebFallbackSearchService:
                     "data": {"source": "NO_RESULT", "query": text},
                 }
 
-            tavily_result = self._search_tavily(text, max_results)
-            if tavily_result:
-                return tavily_result
+            if not is_news_query:
+                tavily_result = self._search_tavily(text, max_results)
+                if tavily_result:
+                    return tavily_result
+
+            if is_news_query:
+                return {
+                    "reply": "조건에 맞는 뉴스 결과를 찾지 못했습니다.",
+                    "data": {"source": "NO_RESULT", "query": text},
+                }
 
             return {
                 "reply": "조건에 맞는 뉴스/공시/웹 검색 결과를 찾지 못했습니다.",
@@ -1076,11 +1084,15 @@ class ChatbotWebFallbackSearchService:
             "보여줘",
             "찾아줘",
             "알려줘",
+            "해줘",
             "요약",
             "최신",
             "최근",
             "오늘",
             "이번 주",
+            "관련된",
+            "관련해서",
+            "관련",
         ]
         for keyword in keywords:
             text = text.replace(keyword, " ")

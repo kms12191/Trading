@@ -540,6 +540,44 @@ def test_asset_outlook_explains_missing_ml_prediction_without_news_fallback(monk
     assert "배포 환경" in result["reply"]
 
 
+def test_asset_outlook_uses_price_based_reply_for_general_outlook_question(monkeypatch):
+    monkeypatch.setattr(
+        tool_registry,
+        "_resolve_symbol",
+        lambda auth_header, query: {
+            "symbol": "005930",
+            "display_name": "삼성전자",
+            "asset_type": "STOCK",
+            "market": "KR",
+        },
+    )
+
+    def fake_get_internal(path, auth_header, params=None):
+        assert path == "/api/chart/quote"
+        return {
+            "data": {
+                "current_price": 279000,
+                "change_rate": 6.08,
+                "currency": "KRW",
+            }
+        }
+
+    monkeypatch.setattr(tool_registry, "_get_internal", fake_get_internal)
+    monkeypatch.setattr(
+        tool_registry.ChatbotWebFallbackSearchService,
+        "search",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("일반 전망 질문은 뉴스/공시 검색으로 보내면 안 됩니다.")),
+    )
+
+    result = tool_registry.get_asset_outlook("Bearer test", "삼성전자 전망 어때")
+
+    assert result["data"]["source"] == "ASSET_PRICE_OUTLOOK"
+    assert result["data"]["symbol"] == "005930"
+    assert "삼성전자(005930)의 현재가는 279,000원" in result["reply"]
+    assert "오늘 등락률은 +6.08%" in result["reply"]
+    assert "분산 투자와 손절 기준 설정" in result["reply"]
+
+
 def test_extract_symbol_query_uses_ml_training_universe_symbols():
     assert tool_registry._extract_symbol_query("XRPUSDT 관심종목 추가") == "XRP"
     assert tool_registry._extract_symbol_query("SUIUSDT 뉴스 보여줘") == "SUI"

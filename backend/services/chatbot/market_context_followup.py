@@ -14,6 +14,36 @@ MARKET_CONTEXT_SOURCES = {
     "NEWS_DISCLOSURE_COMBINED",
 }
 
+FOLLOWUP_POINTER_KEYWORDS = (
+    "\uc774 \ub274\uc2a4",
+    "\uc774 \uae30\uc0ac",
+    "\uc774 \uacf5\uc2dc",
+    "\ubc29\uae08",
+    "\uc774 \ub0b4\uc6a9",
+    "\uc704 \ub0b4\uc6a9",
+    "\uc774\uac70",
+    "\uc774\uac78",
+    "\uadf8\uac70",
+    "\uadf8 \ub0b4\uc6a9",
+    "\ubc29\uae08 \ubcf8",
+)
+FOLLOWUP_DECISION_KEYWORDS = (
+    "\uc0ac\uc57c",
+    "\uc0b4\uae4c",
+    "\ub9e4\uc218",
+    "\ud314\uc544",
+    "\ub9e4\ub3c4",
+    "\uc9c4\uc785",
+    "\ub4e4\uc5b4\uac00",
+    "\uc0ac\uc790",
+    "\uc88b\uc544",
+    "\uad1c\ucc2e",
+    "\uc704\ud5d8",
+    "\ub9ac\uc2a4\ud06c",
+    "\uad1c\ucc2e\uc744\uae4c",
+    "\uc88b\uc744\uae4c",
+)
+
 
 def is_market_context_data(tool_data: dict | None) -> bool:
     data = tool_data if isinstance(tool_data, dict) else {}
@@ -27,22 +57,8 @@ def is_market_context_followup(text: str) -> bool:
     value = str(text or "").strip()
     if not value:
         return False
-    has_pointer = any(keyword in value for keyword in ["이 뉴스", "이 기사", "이 공시", "방금", "위 내용", "이 내용"])
-    has_decision = any(
-        keyword in value
-        for keyword in [
-            "사야",
-            "살까",
-            "매수",
-            "팔아",
-            "매도",
-            "진입",
-            "들어가",
-            "투자",
-            "좋아",
-            "괜찮",
-        ]
-    )
+    has_pointer = any(keyword in value for keyword in FOLLOWUP_POINTER_KEYWORDS)
+    has_decision = any(keyword in value for keyword in FOLLOWUP_DECISION_KEYWORDS)
     return has_pointer and has_decision
 
 
@@ -64,21 +80,37 @@ def build_market_context_followup_result(payload: dict | None, text: str) -> dic
     title = _primary_title(data)
     summary = _primary_summary(data)
     subject = _primary_subject(data)
-    basis = title or subject or "직전 뉴스/공시"
+    basis = title or subject or "\uc9c1\uc804 \ub274\uc2a4/\uacf5\uc2dc"
     context_source = str(data.get("source") or "MARKET_CONTEXT").upper()
-    summary_line = f"핵심 내용: {summary}" if summary else "핵심 내용: 직전 자료만으로는 가격 반영 여부를 확정하기 어렵습니다."
+    summary_line = (
+        f"\ud575\uc2ec \ub0b4\uc6a9: {summary}"
+        if summary
+        else "\ud575\uc2ec \ub0b4\uc6a9: \uc9c1\uc804 \uc790\ub8cc\ub9cc\uc73c\ub85c\ub294 "
+        "\uac00\uaca9 \ubc18\uc601 \uc5ec\ubd80\ub97c \ud655\uc815\ud558\uae30 \uc5b4\ub835\uc2b5\ub2c8\ub2e4."
+    )
     reply = "\n".join(
         [
-            "잘 모르겠습니다. 지금 바로 매수/매도 여부를 이 뉴스만으로 단정하면 위험합니다.",
-            f"기준 자료: {basis}",
+            "\uc798 \ubaa8\ub974\uaca0\uc2b5\ub2c8\ub2e4. \uc9c0\uae08 \ubc14\ub85c "
+            "\ub9e4\uc218/\ub9e4\ub3c4 \uc5ec\ubd80\ub97c \uc774 \ub274\uc2a4/\uacf5\uc2dc\ub9cc\uc73c\ub85c "
+            "\ub2e8\uc815\ud558\uba74 \uc704\ud5d8\ud569\ub2c8\ub2e4.",
+            f"\uae30\uc900 \uc790\ub8cc: {basis}",
             summary_line,
             "",
-            "확인할 것:",
-            "1. 이미 주가에 반영됐는지: 당일 상승률, 거래량, 장중 고점 대비 위치를 먼저 봐야 합니다.",
-            "2. 실적/공시로 이어지는지: 단순 지수 동반 상승인지, 회사 실적이나 수주 같은 확정 재료인지 구분해야 합니다.",
-            "3. 내 기준과 맞는지: 보유 비중, 손절선, 분할 진입 가능 금액을 정한 뒤 판단하는 게 안전합니다.",
+            "\ud655\uc778\ud560 \uac83",
+            "1. \uc774\ubbf8 \uc8fc\uac00\uc5d0 \ubc18\uc601\ub410\ub294\uc9c0: "
+            "\ub2f9\uc77c \uc0c1\uc2b9\ub960, \uac70\ub798\ub7c9, \uc9c1\uc804 \uace0\uc810 "
+            "\ub300\ube44 \uc704\uce58\ub97c \uba3c\uc800 \ubd10\uc57c \ud569\ub2c8\ub2e4.",
+            "2. \uc2e4\uc801/\uacf5\uc2dc\ub85c \uc774\uc5b4\uc9c0\ub294\uc9c0: "
+            "\ub2e8\uc21c \uae30\ub300\uac10\uc778\uc9c0, \ud68c\uc0ac \uc2e4\uc801\uc774\ub098 "
+            "\uc218\uc8fc \uac19\uc740 \ud655\uc815 \uc7ac\ub8cc\uc778\uc9c0 \uad6c\ubd84\ud574\uc57c \ud569\ub2c8\ub2e4.",
+            "3. \ub0b4 \uae30\uc900\uacfc \ub9de\ub294\uc9c0: \ubcf4\uc720 \ube44\uc911, "
+            "\uc190\uc808\uc120, \ubd84\ud560 \uc9c4\uc785 \uac00\ub2a5 \uae08\uc561\uc744 "
+            "\uc815\ud55c \ub4a4 \ud310\ub2e8\ud558\ub294 \uac8c \uc548\uc804\ud569\ub2c8\ub2e4.",
             "",
-            "결론: 바로 추격 매수보다는 관심종목으로 두고 가격·거래량·관련 공시를 함께 확인한 뒤 분할 접근 여부를 판단하세요.",
+            "\uacb0\ub860: \ubc14\ub85c \ucd94\uaca9 \ub9e4\uc218\ubcf4\ub2e4\ub294 "
+            "\uad00\uc2ec\uc885\ubaa9\uc73c\ub85c \ub450\uace0 \uac00\uaca9\u00b7\uac70\ub798\ub7c9\u00b7"
+            "\uad00\ub828 \uacf5\uc2dc\ub97c \ud568\uaed8 \ud655\uc778\ud55c \ub4a4 "
+            "\ubd84\ud560 \uc811\uadfc \uc5ec\ubd80\ub97c \ud310\ub2e8\ud558\uc138\uc694.",
         ]
     )
     return {

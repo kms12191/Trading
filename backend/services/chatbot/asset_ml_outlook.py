@@ -5,15 +5,15 @@ Scalar = str | int | float | None
 
 
 PREDICTIVE_OUTLOOK_KEYWORDS = (
-    "오를까",
-    "내릴까",
-    "상승",
-    "하락",
-    "살까",
-    "사도",
-    "매수",
-    "매도",
-    "진입",
+    "\uc624\ub97c\uae4c",
+    "\ub0b4\ub9b4\uae4c",
+    "\uc0c1\uc2b9",
+    "\ud558\ub77d",
+    "\uc0b4\uae4c",
+    "\ud314\uae4c",
+    "\ub9e4\uc218",
+    "\ub9e4\ub3c4",
+    "\uc9c4\uc785",
 )
 
 
@@ -52,40 +52,31 @@ def build_single_asset_ml_outlook(
     prediction = rows[0]
     reply = "\n".join(
         [
-            f"{display_name}({symbol})은 ML 활성 예측 기준으로 이렇게 봅니다.",
-            f"- 방향: {_format_position(prediction.get('position'))} / 등급: {prediction.get('signal_grade') or '-'}",
-            f"- 상승 확률: {_format_probability(prediction.get('up_probability'))}",
-            f"- 위험 확률: {_format_probability(prediction.get('risk_probability'))}",
-            f"- 신호 점수: {_format_number(prediction.get('signal_score'))}",
+            f"{display_name}({symbol}) \uc9c8\ubb38\uc740 ML \ud65c\uc131 \uc2e0\ud638 \uae30\uc900\uc73c\ub85c \ubcf4\uba74 \ub2e4\uc74c\uacfc \uac19\uc2b5\ub2c8\ub2e4.",
+            f"- \ubc29\ud5a5: {_format_position(prediction.get('position'))} / \ub4f1\uae09: {prediction.get('signal_grade') or '-'}",
+            f"- \uc0c1\uc2b9 \ud655\ub960: {_format_probability(prediction.get('up_probability'))}",
+            f"- \uc704\ud5d8 \ud655\ub960: {_format_probability(prediction.get('risk_probability'))}",
+            f"- \uc2e0\ud638 \uc810\uc218: {_format_number(prediction.get('signal_score'))}",
+            f"- \ubaa8\ub378: {prediction.get('model_version') or '-'}",
             "",
-            _decision_line(prediction),
-            "단, 이 결과는 매매 실행 지시가 아니라 모델 기반 참고 신호입니다. 실제 매수는 가격, 거래량, 뉴스/공시, 손절 기준을 같이 확인한 뒤 판단하세요.",
+            "\ubaa8\ub378 \uae30\ubc18 \ucc38\uace0 \uc2e0\ud638\uc774\uba70, \ubc14\ub85c \ub9e4\uc218/\ub9e4\ub3c4\ub97c \ub2e8\uc815\ud558\ub294 \ub2f5\uc774 \uc544\ub2d9\ub2c8\ub2e4.",
+            "\uc8fc\uc758: \uc774 \uac12\uc740 \ub9e4\ub9e4 \uc2e4\ud589 \uc2e0\ud638\uac00 \uc544\ub2c8\ub77c \ucc38\uace0\uc6a9 \uc608\uce21\uc785\ub2c8\ub2e4. "
+            "\ub274\uc2a4, \uacf5\uc2dc, \uac00\uaca9/\uac70\ub798\ub7c9, \ubcf4\uc720 \ube44\uc911\uc744 \ud568\uaed8 \ud655\uc778\ud55c \ub4a4 \ud310\ub2e8\ud574\uc57c \ud569\ub2c8\ub2e4.",
         ]
     )
     return {
         "reply": reply,
+        "actions": [],
         "data": {
             "source": "ML_ACTIVE_SIGNAL",
             "mode": "single_asset_outlook",
             "asset_key": asset_key,
             "symbol": symbol,
             "display_name": display_name,
-            "model_version": payload.get("model_version"),
-            "items": [prediction],
-            "performance": payload.get("performance") or {},
+            "model_version": prediction.get("model_version") or payload.get("model_version"),
+            "prediction": prediction,
         },
     }
-
-
-def _asset_key_for_symbol(symbol_data: dict) -> str:
-    asset_type = str(symbol_data.get("asset_type") or "").upper()
-    market = str(symbol_data.get("market") or "").upper()
-    symbol = str(symbol_data.get("symbol") or "").upper()
-    if asset_type == "CRYPTO":
-        return "crypto"
-    if market == "US" or any(char.isalpha() for char in symbol):
-        return "us_stock"
-    return "kr_stock"
 
 
 def _missing_prediction_result(
@@ -94,55 +85,71 @@ def _missing_prediction_result(
     display_name: str,
     payload: dict | None = None,
 ) -> dict:
+    reply = "\n".join(
+        [
+            f"{display_name}({symbol}) \uc885\ubaa9\uc758 \ud65c\uc131 ML \uc608\uce21 \uacb0\uacfc\ub97c \uc544\uc9c1 \ucc3e\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.",
+            "\ubc30\ud3ec \ud658\uacbd\uc5d0\ub294 \ubaa8\ub378/\uc608\uce21 \ud14c\uc774\ube14\uc774 \uc900\ube44\ub418\uc5b4 \uc788\uc744 \uc218 \uc788\uc9c0\ub9cc, "
+            "\ud604\uc7ac \uc2e4\ud589 \ud658\uacbd\uc5d0\uc11c\ub294 \ud574\ub2f9 \uc885\ubaa9\uc758 \ucd5c\uc2e0 \uc608\uce21\uac12\uc774 \uc5c6\uc2b5\ub2c8\ub2e4.",
+            "\ud655\uc778 \ud544\uc694: ML \uc2a4\ucf00\uc904\ub7ec \uc2e4\ud589 \uc5ec\ubd80, active prediction \uc800\uc7a5 \uc5ec\ubd80, "
+            "\ubaa8\ub378 \ub808\uc9c0\uc2a4\ud2b8\ub9ac \uc0c1\ud0dc\ub97c \ud655\uc778\ud574 \uc8fc\uc138\uc694.",
+        ]
+    )
     return {
-        "reply": (
-            f"{display_name}({symbol})의 활성 ML 예측 결과를 아직 찾지 못했습니다.\n"
-            "로컬에는 예측 파일이 없어도, 배포 환경에 serving 모델과 predictions CSV가 있으면 이 질문은 ML 신호로 답변됩니다.\n"
-            "지금은 매수/매도 판단을 단정하지 말고 뉴스·공시·가격 흐름을 같이 확인해 주세요."
-        ),
+        "reply": reply,
+        "actions": [],
         "data": {
             "source": "ML_ACTIVE_SIGNAL",
             "mode": "single_asset_outlook",
             "asset_key": asset_key,
             "symbol": symbol,
             "display_name": display_name,
-            "items": [],
             "reason": "missing_active_predictions",
-            "model_version": (payload or {}).get("model_version"),
-            "performance": (payload or {}).get("performance") or {},
+            "raw_payload": payload or {},
         },
     }
 
 
-def _decision_line(prediction: dict) -> str:
-    grade = str(prediction.get("signal_grade") or "").upper()
-    risk = _to_float(prediction.get("risk_probability"))
-    score = _to_float(prediction.get("signal_score"))
-    if grade == "RISKY" or (risk is not None and risk >= 0.65):
-        return "결론: 위험 신호가 강해서 바로 진입보다는 관망 또는 비중 축소 관점이 더 안전합니다."
-    if score is not None and score >= 10:
-        return "결론: 모델상 관심 후보로 볼 수 있지만, 바로 추격 매수보다는 분할 접근 여부를 확인하는 쪽이 안전합니다."
-    return "결론: 모델 신호가 강하지 않아 바로 매수 판단은 어렵고, 추가 확인이 필요합니다."
+def _asset_key_for_symbol(symbol_data: dict) -> str:
+    asset_type = str(symbol_data.get("asset_type") or "").upper()
+    exchange = str(symbol_data.get("exchange") or "").upper()
+    symbol = str(symbol_data.get("symbol") or "").upper()
+    if asset_type == "CRYPTO" or exchange in {"COINONE", "BINANCE", "UPBIT"}:
+        return "crypto"
+    if asset_type in {"STOCK_US", "US_STOCK"} or symbol.isalpha():
+        return "us_stock"
+    if asset_type in {"STOCK_KR", "KR_STOCK"} or symbol.isdigit():
+        return "kr_stock"
+    return "stock"
 
 
 def _format_position(value: Scalar) -> str:
-    position = str(value or "").upper()
-    labels = {"LONG": "상승 우위", "HOLD": "중립", "SHORT": "하락/위험 우위"}
-    return labels.get(position, position or "-")
+    normalized = str(value or "").strip().upper()
+    mapping = {
+        "BUY": "\ub9e4\uc218 \ud6c4\ubcf4",
+        "LONG": "\ub9e4\uc218 \ud6c4\ubcf4",
+        "SELL": "\ub9e4\ub3c4 \uc8fc\uc758",
+        "SHORT": "\ub9e4\ub3c4 \uc8fc\uc758",
+        "HOLD": "\ubcf4\uc720",
+        "NEUTRAL": "\uc911\ub9bd",
+        "WATCH": "\uad00\ub9dd",
+    }
+    return mapping.get(normalized, str(value or "\uc54c \uc218 \uc5c6\uc74c"))
 
 
 def _format_probability(value: Scalar) -> str:
     number = _to_float(value)
     if number is None:
         return "-"
-    return f"{number * 100:.1f}%"
+    if number <= 1:
+        number *= 100
+    return f"{number:.1f}%"
 
 
 def _format_number(value: Scalar) -> str:
     number = _to_float(value)
     if number is None:
         return "-"
-    return f"{number:.2f}"
+    return f"{number:.3f}"
 
 
 def _to_float(value: Scalar) -> float | None:
