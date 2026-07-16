@@ -81,7 +81,7 @@ export default function MobileRoutes({
 
   return (
     // 전체 모바일 화면의 바깥 배경
-    <div className="min-h-screen bg-obsidian-bg">
+    <div className="mobile-input-zoom-guard min-h-screen bg-obsidian-bg">
       {/*
         실제 모바일 화면 영역
         max-w-[430px] 때문에 PC 브라우저에서도 모바일처럼 좁게 보임

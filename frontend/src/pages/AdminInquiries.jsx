@@ -31,6 +31,20 @@ const getInquiryStatusVisual = (status = '') => {
   return { icon: 'clock', tone: 'text-amber-300' }
 }
 
+const getSummaryStatusFilter = (key) => {
+  if (key === 'waiting') return 'WAITING'
+  if (key === 'completed') return 'COMPLETED'
+  return 'all'
+}
+
+const filterInquiriesByStatus = (inquiries, statusFilter = 'all') => {
+  if (statusFilter === 'all') return inquiries
+  if (statusFilter === 'WAITING') {
+    return inquiries.filter((item) => item.status === 'RECEIVED' || item.status === 'WAITING')
+  }
+  return inquiries.filter((item) => item.status === statusFilter)
+}
+
 const formatDate = (value) => {
   const date = value ? new Date(value) : null
   if (!date || Number.isNaN(date.getTime())) return '-'
@@ -72,9 +86,19 @@ function Icon({ name, className = 'h-5 w-5' }) {
   )
 }
 
-function SummaryCard({ label, value, icon, tone }) {
+function SummaryCard({ label, value, icon, tone, active = false, onClick }) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-[#0f172a] p-4">
+    <button
+      type="button"
+      aria-pressed={active}
+      data-summary-filter={icon === 'clock' ? 'waiting' : icon === 'check' ? 'completed' : 'total'}
+      className={`rounded-lg border p-4 text-left transition ${
+        active
+          ? 'border-institutional-blue bg-institutional-blue/20'
+          : 'border-slate-800 bg-[#0f172a] hover:border-slate-600'
+      }`}
+      onClick={onClick}
+    >
       <div className="flex items-center gap-3">
         <span className={`grid h-10 w-10 place-items-center rounded-full border border-current/30 bg-white/[0.03] ${tone}`}>
           <Icon name={icon} className="h-5 w-5" />
@@ -82,7 +106,7 @@ function SummaryCard({ label, value, icon, tone }) {
         <p className="text-xs font-bold text-slate-400">{label}</p>
       </div>
       <p className="mt-3 font-mono text-2xl font-extrabold text-white">{value}</p>
-    </div>
+    </button>
   )
 }
 
@@ -162,6 +186,7 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [canReply, setCanReply] = useState(false)
+  const [statusFilter, setStatusFilter] = useState('all')
 
   const fetchAdminInquiries = useCallback(async () => {
     setIsLoading(true)
@@ -210,6 +235,10 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
     })
   }, [inquiries, sortOrder])
 
+  const filteredInquiries = useMemo(() => {
+    return filterInquiriesByStatus(sortedInquiries, statusFilter)
+  }, [sortedInquiries, statusFilter])
+
   const summary = useMemo(() => ({
     total: inquiries.length,
     waiting: inquiries.filter((item) => item.status === 'RECEIVED' || item.status === 'WAITING').length,
@@ -247,6 +276,11 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
     }
   }
 
+  const handleSummaryFilterChange = (key) => {
+    setStatusFilter(getSummaryStatusFilter(key))
+    setExpandedInquiryId(null)
+  }
+
   return (
     <div className={hideHeader ? 'font-inter text-[#e2e2ec]' : 'min-h-screen bg-obsidian-bg font-inter text-[#e2e2ec]'}>
       <div className={hideHeader ? 'grid gap-6' : 'mx-auto grid max-w-7xl gap-6 px-6 py-8'}>
@@ -274,10 +308,35 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
             </select>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <SummaryCard label="전체 문의" value={summary.total} icon="document" tone="text-ai-cyan" />
-            <SummaryCard label="답변 대기" value={summary.waiting} icon="clock" tone="text-amber-400" />
-            <SummaryCard label="답변 완료" value={summary.completed} icon="check" tone="text-emerald-400" />
+          <div
+            className="mt-5 grid gap-3 sm:grid-cols-3"
+            onClick={(event) => {
+              const summaryCard = event.target.closest('[data-summary-filter]')
+              if (!summaryCard || !event.currentTarget.contains(summaryCard)) return
+              handleSummaryFilterChange(summaryCard.dataset.summaryFilter)
+            }}
+          >
+            <SummaryCard
+              label="전체 문의"
+              value={summary.total}
+              icon="document"
+              tone="text-ai-cyan"
+              active={statusFilter === 'all'}
+            />
+            <SummaryCard
+              label="답변 대기"
+              value={summary.waiting}
+              icon="clock"
+              tone="text-amber-400"
+              active={statusFilter === 'WAITING'}
+            />
+            <SummaryCard
+              label="답변 완료"
+              value={summary.completed}
+              icon="check"
+              tone="text-emerald-400"
+              active={statusFilter === 'COMPLETED'}
+            />
           </div>
         </section>
 
@@ -295,9 +354,9 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
               <div className="border-t border-slate-800 px-4 py-10 text-center text-sm font-bold text-slate-400">문의 목록을 불러오는 중입니다.</div>
             ) : loadError ? (
               <div className="border-t border-slate-800 px-4 py-10 text-center text-sm font-bold text-rose-400">{loadError}</div>
-            ) : sortedInquiries.length === 0 ? (
+            ) : filteredInquiries.length === 0 ? (
               <EmptyInquiryState />
-            ) : sortedInquiries.map((item) => {
+            ) : filteredInquiries.map((item) => {
               const isExpanded = expandedInquiryId === item.id
               const statusVisual = getInquiryStatusVisual(item.status)
               return (

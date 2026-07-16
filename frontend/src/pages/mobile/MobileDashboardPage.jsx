@@ -948,7 +948,7 @@ export default function MobileDashboardPage({
               </div>
 
               {/* 보유 재산 현황 (실제 holdings 연동 테이블) */}
-              <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-6 flex flex-col gap-4">
+              <div className="bg-slate-surface border border-slate-700/80 rounded-lg p-3.5 sm:p-6 flex flex-col gap-4">
                 <div className="flex justify-between items-center border-b border-slate-800 pb-2">
                   <h2 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-wider">
                     <span />
@@ -992,8 +992,8 @@ export default function MobileDashboardPage({
                             key={`${exchangeName}-${stock.env || 'REAL'}-${stock.symbol}-${index}`}
                             className="rounded-lg border border-slate-800 bg-[#0f172a] p-3.5"
                           >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex min-w-0 items-center gap-2.5">
+                            <div className="flex items-start justify-between gap-2 sm:gap-3">
+                              <div className="flex min-w-0 flex-1 items-center gap-2.5">
                                 <AssetLogo
                                   symbol={stock.symbol}
                                   assetType={stock.asset_type || (['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(normalizedExchange) ? 'CRYPTO' : 'STOCK')}
@@ -1005,7 +1005,9 @@ export default function MobileDashboardPage({
                                   <div className="truncate font-mono text-[10px] text-slate-500">{stock.symbol}</div>
                                 </div>
                               </div>
-                              <Rate value={profitRateValue} />
+                              <div className="shrink-0 max-w-[92px] text-right text-xs leading-tight">
+                                <Rate value={profitRateValue} />
+                              </div>
                             </div>
 
                             <div className="mt-3 flex flex-wrap items-center gap-2">

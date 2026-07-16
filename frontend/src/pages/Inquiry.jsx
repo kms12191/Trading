@@ -10,6 +10,7 @@ import {
   createInquiryFilePath,
   customerCenterItems,
   faqItems,
+  filterInquiriesByStatus,
   filterRecentInquiries,
   getInquirySummaryCounts,
   initialFormState,
@@ -26,6 +27,12 @@ import {
 } from './inquiryModel.js'
 
 const dashboardQueryTabs = new Set(DASHBOARD_QUERY_TABS)
+
+const getSummaryStatusFilter = (key) => {
+  if (key === 'waiting') return 'WAITING'
+  if (key === 'completed') return 'COMPLETED'
+  return 'all'
+}
 
 function Icon({ name, className = 'h-5 w-5' }) {
   const icons = {
@@ -327,17 +334,26 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
     return sortInquiries(inquiries, inquirySortOrder)
   }, [inquiries, inquirySortOrder])
 
-  const historyTotalPages = Math.max(1, Math.ceil(sortedInquiries.length / HISTORY_PAGE_SIZE))
+  const filteredHistoryInquiries = useMemo(() => {
+    return filterInquiriesByStatus(sortedInquiries, statusFilter)
+  }, [sortedInquiries, statusFilter])
+
+  const historyTotalPages = Math.max(1, Math.ceil(filteredHistoryInquiries.length / HISTORY_PAGE_SIZE))
   const currentHistoryPage = Math.min(historyPage, historyTotalPages)
   const paginatedHistoryInquiries = useMemo(() => {
-    return paginateInquiries(sortedInquiries, currentHistoryPage, HISTORY_PAGE_SIZE)
-  }, [currentHistoryPage, sortedInquiries])
+    return paginateInquiries(filteredHistoryInquiries, currentHistoryPage, HISTORY_PAGE_SIZE)
+  }, [currentHistoryPage, filteredHistoryInquiries])
 
   const filteredRecentInquiries = useMemo(() => {
     return filterRecentInquiries(sortedInquiries, statusFilter, 5)
   }, [sortedInquiries, statusFilter])
 
   const summaryCounts = useMemo(() => getInquirySummaryCounts(inquiries), [inquiries])
+
+  const handleSummaryFilterChange = (key) => {
+    setStatusFilter(getSummaryStatusFilter(key))
+    setHistoryPage(1)
+  }
 
   const updateField = (field, value) => {
     setFormState((prev) => ({ ...prev, [field]: value }))
@@ -648,6 +664,21 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
               {isExpanded ? (
                 <div className="whitespace-pre-line border-t border-slate-800 px-16 pb-4 pt-3 text-sm leading-6 text-slate-400">
                   {item.answer}
+                  {item.links?.length ? (
+                    <div className="mt-3 flex flex-wrap gap-2 whitespace-normal">
+                      {item.links.map((link) => (
+                        <a
+                          key={link.href}
+                          href={link.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded border border-ai-cyan/30 bg-ai-cyan/10 px-3 py-1.5 text-xs font-bold text-ai-cyan transition hover:bg-ai-cyan/20"
+                        >
+                          {link.label}
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -726,8 +757,21 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
 
   const renderInquirySummaryPanel = () => (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      {summaryItems.map((item) => (
-        <div key={item.key} className="rounded-lg border border-slate-800 bg-[#0f172a] p-3">
+      {summaryItems.map((item) => {
+        const filterKey = getSummaryStatusFilter(item.key)
+        const isActive = statusFilter === filterKey
+        return (
+        <button
+          key={item.key}
+          type="button"
+          aria-pressed={isActive}
+          className={`rounded-lg border p-3 text-left transition ${
+            isActive
+              ? 'border-institutional-blue bg-institutional-blue/20'
+              : 'border-slate-800 bg-[#0f172a] hover:border-slate-600'
+          }`}
+          onClick={() => handleSummaryFilterChange(item.key)}
+        >
           <div className="flex items-center gap-3">
             <span className={`grid h-9 w-9 place-items-center rounded-full border border-current/30 bg-white/[0.03] ${item.tone}`}>
               <Icon name={item.icon} className="h-4.5 w-4.5" />
@@ -737,8 +781,9 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
           <p className="mt-2 font-mono text-xl font-extrabold text-white">
             {inquiries.length ? summaryCounts[item.key] : '-'}
           </p>
-        </div>
-      ))}
+        </button>
+        )
+      })}
     </div>
   )
 
@@ -782,7 +827,7 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
             <Pagination
               currentPage={currentHistoryPage}
               totalPages={historyTotalPages}
-              totalItems={sortedInquiries.length}
+              totalItems={filteredHistoryInquiries.length}
               pageSize={HISTORY_PAGE_SIZE}
               onPageChange={setHistoryPage}
             />

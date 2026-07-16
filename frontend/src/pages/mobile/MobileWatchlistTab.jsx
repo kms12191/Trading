@@ -7,6 +7,7 @@ import AssetLogo from '../../components/AssetLogo.jsx'
 import { SectionHeader } from '../../components/DashboardComponents.jsx'
 import { formatNewsDate, mergeLatestNews } from '../../dashboardUtils.js'
 import { preserveMobileDeviceParam } from './mobileRouteUtils.js'
+import { resolveWatchlistDisplayCurrency } from '../watchlistDisplay.js'
 import {
   CRYPTO_INTERVALS,
   STOCK_INTERVALS,
@@ -363,9 +364,12 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
   const selectedCurrency = assetType === 'CRYPTO'
     ? (cryptoChartMode === 'KRW' ? 'KRW' : 'USDT')
     : (selectedItem?.currency || (selectedItem?.marketCountry === 'US' ? 'USD' : 'KRW'))
-  const currentDisplayCurrency = assetType === 'CRYPTO'
-    ? (cryptoChartMode === 'KRW' ? 'KRW' : 'USD')
-    : (selectedCurrency === 'USD' || selectedCurrency === 'USDT' ? displayCurrency : 'KRW')
+  const currentDisplayCurrency = resolveWatchlistDisplayCurrency({
+    assetType,
+    selectedCurrency,
+    displayCurrency,
+    cryptoChartMode,
+  })
   const convertCryptoSavedPrice = (value) => {
     const numeric = Number(value)
     if (!Number.isFinite(numeric)) return NaN

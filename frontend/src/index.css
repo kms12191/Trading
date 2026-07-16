@@ -66,3 +66,11 @@ a {
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(0, 224, 255, 0.12);
 }
+
+@media (hover: none) and (pointer: coarse) {
+  .mobile-input-zoom-guard input,
+  .mobile-input-zoom-guard select,
+  .mobile-input-zoom-guard textarea {
+    font-size: 16px;
+  }
+}

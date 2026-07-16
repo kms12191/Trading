@@ -88,7 +88,7 @@ function SearchSheet({ onClose }) {
           종목명이나 코드를 입력하면 상세 화면으로 이동합니다.
         </p>
         <SymbolSearch
-          className="w-full flex-col items-stretch gap-3 [&_button]:h-11 [&_button]:w-full [&_input]:h-11 [&_input]:w-full"
+          className="w-full flex-col items-stretch gap-3 [&_button]:h-11 [&_button]:w-full [&_input]:h-11 [&_input]:w-full [&_input]:text-base"
           onSearchComplete={onClose}
         />
       </div>

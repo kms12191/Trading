@@ -7,7 +7,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050
 // 종목 퀵 검색 공통 컴포넌트
 // - 심볼/종목명 입력 + 자동완성 드롭다운 + 상세 페이지 이동 기능
 // - 검색 대상은 백엔드의 종목 검색 결과에 맡기고, 사용자가 주식/코인을 직접 고르지 않게 한다.
-export default function SymbolSearch({ className = '' }) {
+export default function SymbolSearch({ className = '', onSearchComplete }) {
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -44,6 +44,7 @@ export default function SymbolSearch({ className = '' }) {
     setQuery('')
     setSuggestions([])
     setShowSuggestions(false)
+    onSearchComplete?.()
   }
 
   // 입력 변경 시 실시간 자동완성 후보를 조회한다.
@@ -76,6 +77,7 @@ export default function SymbolSearch({ className = '' }) {
     setQuery('')
     setSuggestions([])
     setShowSuggestions(false)
+    onSearchComplete?.()
   }
 
   const getMarketLabel = (item) => {
