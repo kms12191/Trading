@@ -1,6 +1,6 @@
 export const inquiryTypes = [
   { value: '', label: '문의 유형을 선택해주세요' },
-  { value: 'account', label: '계좌' },
+  { value: 'account', label: 'API연동' },
   { value: 'order', label: '주문/체결' },
   { value: 'transfer', label: '입출금' },
   { value: 'domestic-stock', label: '국내주식' },

@@ -2491,7 +2491,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
     orderPrecheck?.insufficient_holding
   ))
   const pageShellClassName = mobileLayout
-    ? 'min-h-screen bg-[#070b19] text-[#e2e2ec] font-inter'
+    ? 'bg-[#070b19] text-[#e2e2ec] font-inter'
     : 'min-h-screen bg-[#070b19] text-[#e2e2ec] font-inter'
   const pageContentClassName = mobileLayout
     ? 'mx-auto max-w-[430px] px-0 py-0'
@@ -2791,6 +2791,7 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
                   onRequestNewsSync={handleRequestNewsSync}
                   onToggleDisclosureAnalysis={handleToggleDisclosureAnalysis}
                   onRequestDisclosureSync={handleRequestDisclosureSync}
+                  compactEmptyState
                 />
 
               </MobileAssetNewsDisclosureSection>

@@ -356,8 +356,8 @@ export default function AssetsTab({
   const allocationGradient = buildAllocationGradient(allocation)
 
   return (
-    <main className={`max-w-7xl mx-auto flex flex-col ${mobileLayout ? 'gap-3' : 'gap-6'}`}>
-      <div className={`grid grid-cols-1 ${mobileLayout ? 'gap-3' : 'gap-6'}`}>
+    <main className={`max-w-7xl mx-auto flex min-w-0 flex-col ${mobileLayout ? 'max-w-full gap-3 overflow-x-hidden' : 'gap-6'}`}>
+      <div className={`grid min-w-0 grid-cols-1 ${mobileLayout ? 'max-w-full gap-3 overflow-x-hidden' : 'gap-6'}`}>
       <section className={`bg-slate-surface border border-slate-700/80 rounded-lg ${mobileLayout ? 'p-3' : 'p-5'}`}>
         <div className={`${mobileLayout ? 'mb-2 gap-2' : 'mb-4 gap-3'} flex flex-col sm:flex-row sm:items-start sm:justify-between`}>
           <div>
@@ -493,12 +493,12 @@ export default function AssetsTab({
       </section>
       </div>
 
-      <section className="bg-slate-surface border border-slate-700/80 rounded-lg overflow-hidden">
-        <div className="p-5 pb-2">
+      <section className="bg-slate-surface border border-slate-700/80 rounded-lg overflow-hidden min-w-0 max-w-full">
+        <div className={`${mobileLayout ? 'px-3.5 pt-3.5 pb-2' : 'p-5 pb-2'}`}>
           <SectionHeader title="투자종목 보유 현황" />
         </div>
         {mobileLayout ? (
-          <div className="grid gap-2 px-3 pb-3">
+          <div className="grid min-w-0 max-w-full gap-2 overflow-x-hidden px-3 pb-3">
             {balanceLoading ? (
               <div className="rounded-lg border border-slate-800 bg-[#0f172a] px-4 py-8 text-center">
                 <div className="flex flex-col items-center justify-center gap-2 text-slate-400">
@@ -521,23 +521,25 @@ export default function AssetsTab({
               const transferRoute = getTransferRoute(item)
 
               return (
-                <article key={item.rowId || item.id} className="rounded-lg border border-slate-800 bg-[#0f172a] p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
+                <article key={item.rowId || item.id} className="min-w-0 max-w-full rounded-lg border border-slate-800 bg-[#0f172a] p-3">
+                  <div className="flex min-w-0 items-start justify-between gap-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
                       <AssetLogo symbol={item.id} assetType={item.assetType} name={item.name} size="h-9 w-9" />
                       <div className="min-w-0">
                         <Link to={preserveMobileDeviceParam(`/asset/${item.assetType || 'STOCK'}/${item.id}`)} className="block truncate text-sm font-bold text-blue-400 no-underline">
                           {item.name}
                         </Link>
-                        <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5">
                           <span className="truncate font-mono text-[10px] text-slate-500">{item.id}</span>
-                          <span className="rounded border border-slate-700/60 bg-slate-800/60 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-400">
+                          <span className="max-w-full truncate rounded border border-slate-700/60 bg-slate-800/60 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-400">
                             {item.exchange}
                           </span>
                         </div>
                       </div>
                     </div>
-                    <Rate value={item.returnRate} />
+                    <div className="shrink-0 max-w-[92px] text-right text-xs leading-tight">
+                      <Rate value={item.returnRate} />
+                    </div>
                   </div>
 
                   <div className="mt-3 grid grid-cols-1 gap-2">

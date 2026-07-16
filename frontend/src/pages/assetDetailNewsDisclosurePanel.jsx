@@ -25,12 +25,34 @@ export default function AssetDetailNewsDisclosurePanel({
   onRequestNewsSync,
   onToggleDisclosureAnalysis,
   onRequestDisclosureSync,
+  compactEmptyState = false,
 }) {
+  const newsEmpty = !loadingNews && newsList.length === 0
+  const disclosureEmpty = !loadingDisclosures && disclosureList.length === 0
+  const newsScrollClassName = compactEmptyState && newsEmpty
+    ? 'overflow-y-auto pr-1'
+    : 'max-h-[360px] overflow-y-auto pr-1'
+  const disclosureScrollClassName = compactEmptyState && disclosureEmpty
+    ? 'overflow-y-auto pr-1'
+    : 'max-h-[360px] overflow-y-auto pr-1'
+  const newsSectionClassName = compactEmptyState && newsEmpty
+    ? 'rounded-lg border border-[#1f2945]/70 bg-[#07111f]/70 p-4'
+    : 'min-h-[220px] rounded-lg border border-[#1f2945]/70 bg-[#07111f]/70 p-4'
+  const disclosureSectionClassName = compactEmptyState && disclosureEmpty
+    ? 'rounded-lg border border-[#1f2945]/70 bg-[#07111f]/70 p-4'
+    : 'min-h-[220px] rounded-lg border border-[#1f2945]/70 bg-[#07111f]/70 p-4'
+  const loadingClassName = compactEmptyState
+    ? 'py-5 text-center text-xs text-cyan-400/80 font-mono animate-pulse'
+    : 'py-8 text-center text-xs text-cyan-400/80 font-mono animate-pulse'
+  const emptyStateClassName = compactEmptyState
+    ? 'flex flex-col items-center gap-3 py-5 text-center'
+    : 'flex flex-col items-center gap-3 py-8 text-center'
+
   return (
     <>
               {isNewsDisclosureSectionActive && activeTab === 'news' && (
-                <div className="max-h-[360px] overflow-y-auto pr-1">
-                  <section className="min-h-[220px] rounded-lg border border-[#1f2945]/70 bg-[#07111f]/70 p-4">
+                <div className={newsScrollClassName}>
+                  <section className={newsSectionClassName}>
                     <div className="mb-3 flex items-center justify-between gap-3 border-b border-[#1f2945]/50 pb-2">
                       <h3 className="text-sm font-bold text-cyan-200">뉴스</h3>
                       <span className="rounded-full border border-cyan-500/30 bg-cyan-950/30 px-2.5 py-1 text-[11px] font-bold text-cyan-100">
@@ -40,7 +62,7 @@ export default function AssetDetailNewsDisclosurePanel({
 
                     <div className="flex flex-col gap-3">
                       {loadingNews ? (
-                        <div className="py-8 text-center text-xs text-cyan-400/80 font-mono animate-pulse">
+                        <div className={loadingClassName}>
                           뉴스 로드 중...
                         </div>
                       ) : newsList.length > 0 ? (
@@ -93,7 +115,7 @@ export default function AssetDetailNewsDisclosurePanel({
                           ))}
                         </>
                       ) : (
-                        <div className="flex flex-col items-center gap-3 py-8 text-center">
+                        <div className={emptyStateClassName}>
                           <p className="text-xs text-slate-500 font-mono">
                             해당 종목의 저장된 뉴스가 없습니다.
                           </p>
@@ -118,8 +140,8 @@ export default function AssetDetailNewsDisclosurePanel({
               )}
 
               {isNewsDisclosureSectionActive && activeTab === 'disclosure' && (
-                <div className="max-h-[360px] overflow-y-auto pr-1">
-                  <section className="min-h-[220px] rounded-lg border border-[#1f2945]/70 bg-[#07111f]/70 p-4">
+                <div className={disclosureScrollClassName}>
+                  <section className={disclosureSectionClassName}>
                     <div className="mb-3 flex items-center justify-between gap-3 border-b border-[#1f2945]/50 pb-2">
                       <h3 className="text-sm font-bold text-cyan-200">공시</h3>
                       <span className="rounded-full border border-cyan-500/30 bg-cyan-950/30 px-2.5 py-1 text-[11px] font-bold text-cyan-100">
@@ -128,7 +150,7 @@ export default function AssetDetailNewsDisclosurePanel({
                     </div>
                     <div className="flex flex-col gap-3">
                       {loadingDisclosures ? (
-                        <div className="py-8 text-center text-xs text-cyan-400/80 font-mono animate-pulse">
+                        <div className={loadingClassName}>
                           DART 공시 로드 중...
                         </div>
                       ) : disclosureList.length > 0 ? (
@@ -309,7 +331,7 @@ export default function AssetDetailNewsDisclosurePanel({
                           })}
                         </>
                       ) : (
-                        <div className="flex flex-col items-center gap-3 py-8 text-center">
+                        <div className={emptyStateClassName}>
                           <p className="text-xs text-slate-500 font-mono">
                             해당 종목의 저장된 DART 공시가 없습니다.
                           </p>
