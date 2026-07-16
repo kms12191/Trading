@@ -559,8 +559,11 @@ class BinanceSpotClient:
         }
 
         response_json = self._signed_request("POST", "/sapi/v1/asset/transfer", params)
+        tran_id = response_json.get("tranId")
+        if tran_id is None:
+            raise ValueError("바이낸스 응답에 tranId가 누락되었습니다.")
         return {
-            "transaction_id": str(response_json.get("tranId")),
+            "transaction_id": str(tran_id),
             "raw": response_json,
         }
 

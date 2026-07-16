@@ -96,3 +96,20 @@ def test_transfer_internal_amount_formatting():
         }
     )
 
+
+def test_transfer_internal_missing_tran_id():
+    client = BinanceSpotClient(api_key="dummy_api_key", secret_key="dummy_secret_key")
+    
+    # Scenario 1: tranId is entirely missing from response
+    client._signed_request = MagicMock(return_value={"type": "MAIN_UMFUTURE"})
+    with pytest.raises(ValueError) as excinfo:
+        client.transfer_internal(type="MAIN_UMFUTURE", amount=10.0, asset="USDT")
+    assert "바이낸스 응답에 tranId가 누락되었습니다." in str(excinfo.value)
+
+    # Scenario 2: tranId is explicitly None
+    client._signed_request = MagicMock(return_value={"tranId": None, "type": "MAIN_UMFUTURE"})
+    with pytest.raises(ValueError) as excinfo:
+        client.transfer_internal(type="MAIN_UMFUTURE", amount=10.0, asset="USDT")
+    assert "바이낸스 응답에 tranId가 누락되었습니다." in str(excinfo.value)
+
+
