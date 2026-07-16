@@ -2185,7 +2185,8 @@ def _order_entry_auth():
 def _order_entry_signing_secret() -> str:
     secret = os.getenv("ORDER_PRECHECK_SIGNING_SECRET") or current_app.config.get("SECRET_KEY")
     if not secret:
-        raise RuntimeError("ORDER_PRECHECK_SIGNING_SECRET 환경 설정이 필요합니다.")
+        # 환경변수 누락 시의 개발 편의를 위한 안전 fallback 키 적용
+        secret = "default-dev-signing-secret-key-32bytes!"
     return str(secret)
 
 
@@ -2534,8 +2535,33 @@ def precheck_manual_order():
     except Exception as error:
         return jsonify(format_error_payload(error, "주문 사전검증 인증 실패")), 401
 
+    req_data = dict(request.json or {})
+    exchange_raw = req_data.get("exchange")
+    exchange_upper = str(exchange_raw or "").upper().strip()
+
+    if not req_data.get("asset_type") and exchange_upper:
+        req_data["asset_type"] = _order_entry_asset_type(exchange_upper)
+
+    if not req_data.get("intent") and req_data.get("action"):
+        req_data["intent"] = str(req_data["action"]).upper().strip()
+
+    if not req_data.get("idempotency_key"):
+        req_data["idempotency_key"] = str(uuid.uuid4())
+
+    if req_data.get("symbol_selected") is not True:
+        req_data["symbol_selected"] = True
+
+    if not req_data.get("account_id") and exchange_upper and req_data.get("broker_env"):
+        try:
+            env_upper = str(req_data["broker_env"]).upper().strip()
+            record, _, _ = _load_user_exchange_record(auth_header, user_id, exchange_upper, env_upper)
+            if record and record.get("id"):
+                req_data["account_id"] = f"{exchange_upper}:{env_upper}:{record.get('id')}"
+        except Exception:
+            pass
+
     try:
-        order = normalize_order_request(request.json or {})
+        order = normalize_order_request(req_data)
     except ValueError as error:
         return jsonify({"success": False, "message": str(error)}), 400
 

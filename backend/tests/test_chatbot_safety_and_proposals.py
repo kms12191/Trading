@@ -95,7 +95,7 @@ def test_get_holdings_keeps_detailed_quantity_role(monkeypatch):
     monkeypatch.setattr(
         tool_registry,
         "get_portfolio_summary",
-        lambda *args: {
+        lambda *args, **kwargs: {
             "data": {
                 "summaries": [
                     {

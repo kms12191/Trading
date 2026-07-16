@@ -46,6 +46,7 @@ def list_available_tools() -> list[str]:
         "get_home_market_rankings",
         "get_portfolio_summary",
         "add_watchlist_item",
+        "remove_watchlist_item",
         "get_holdings",
         "search_trade_history",
         "list_open_orders",
@@ -409,9 +410,9 @@ def _format_calendar_reply(row: dict, requested_text: str) -> str:
     return f"{trade_date} 기준\n{country_label}은 휴장일입니다.\n사유: {holiday}\n출처: {source}"
 
 
-def get_market_calendar(auth_header: str, message: str) -> dict:
-    market_country = _detect_market_country_for_calendar(message)
-    trade_date = _detect_calendar_date(message)
+def get_market_calendar(auth_header: str, message: str, market_country: str = None, date: str = None, broker_env: str = None, **kwargs) -> dict:
+    market_country = market_country or _detect_market_country_for_calendar(message)
+    trade_date = date or _detect_calendar_date(message)
     if not market_country:
         return {
             "reply": "어느 시장의 장 운영 여부를 확인할까요?\n예: 한국장, 미국장",
@@ -450,7 +451,7 @@ def get_market_calendar(auth_header: str, message: str) -> dict:
             },
         }
 
-    env = _detect_env(message) or "REAL"
+    env = broker_env or _detect_env(message) or "REAL"
     try:
         client = _get_user_toss_calendar_client(auth_header, env)
         raw = client.get_market_calendar(market_country)
@@ -670,10 +671,16 @@ def _apply_home_market_filters(rows: list[dict], region: str, ranking: str) -> l
     return [{**row, "rank": index + 1} for index, row in enumerate(filtered)]
 
 
-def get_home_market_rankings(auth_header: str, message: str) -> dict:
-    ranking = _detect_ranking(message)
-    segment = _detect_market_segment(message)
-    limit = _detect_limit(message)
+def get_home_market_rankings(auth_header: str, message: str, asset_type: str = None, market_segment: str = None, ranking: str = None, limit: int = None, **kwargs) -> dict:
+    ranking = ranking or _detect_ranking(message)
+    segment = None
+    if asset_type == "CRYPTO":
+        segment = "CRYPTO"
+    elif market_segment:
+        segment = "국내" if market_segment == "KR" else "해외" if market_segment == "US" else "전체"
+    
+    segment = segment or _detect_market_segment(message)
+    limit = int(limit) if limit else _detect_limit(message)
     region = "국내" if segment == "CRYPTO" else segment
 
     if segment == "CRYPTO":
@@ -729,9 +736,9 @@ def get_home_market_rankings(auth_header: str, message: str) -> dict:
     }
 
 
-def get_portfolio_summary(auth_header: str, message: str) -> dict:
-    exchange_filter = _detect_exchange(message)
-    env_filter = _detect_env(message)
+def get_portfolio_summary(auth_header: str, message: str, exchange: str = None, broker_env: str = None, **kwargs) -> dict:
+    exchange_filter = exchange or _detect_exchange(message)
+    env_filter = broker_env or _detect_env(message)
     exchanges = [exchange_filter] if exchange_filter else ["TOSS", "KIS", "COINONE", "BINANCE"]
     envs = [env_filter] if env_filter else ["REAL", "MOCK"]
     summaries = []
@@ -772,9 +779,11 @@ def _is_missing_optional_account_error(error: Exception) -> bool:
     return any(marker in text for marker in missing_markers)
 
 
-def get_exchange_rate(auth_header: str, message: str) -> dict:
-    base_currency, quote_currency = _detect_currency_pair(message)
-    env = _detect_env(message) or "REAL"
+def get_exchange_rate(auth_header: str, message: str, base_currency: str = None, quote_currency: str = None, broker_env: str = None, **kwargs) -> dict:
+    base_detect, quote_detect = _detect_currency_pair(message)
+    base_currency = base_currency or base_detect
+    quote_currency = quote_currency or quote_detect
+    env = broker_env or _detect_env(message) or "REAL"
     payload = _get_internal(
         "/api/market/exchange-rate",
         auth_header,
@@ -1184,7 +1193,7 @@ def _append_trade_status_to_reply(reply: str, trade_status: dict | None, asset_l
     return f"{str(reply or '').rstrip()}\n{status_text}"
 
 
-def get_asset_price(auth_header: str, message: str) -> dict:
+def get_asset_price(auth_header: str, message: str, exchange: str = None, broker_env: str = None, **kwargs) -> dict:
     symbol_query = _extract_symbol_query(message)
     if not symbol_query:
         return {
@@ -1209,8 +1218,8 @@ def get_asset_price(auth_header: str, message: str) -> dict:
     asset_type = str(symbol_data.get("asset_type") or "").upper()
     market = str(symbol_data.get("market") or "").strip().upper()
     label = f"{display_name}({symbol})" if display_name and display_name.upper() != symbol else symbol
-    exchange = _detect_exchange(message) or _default_exchange_for_asset(asset_type, market)
-    broker_env = _detect_env(message) or "REAL"
+    exchange = exchange or _detect_exchange(message) or _default_exchange_for_asset(asset_type, market)
+    broker_env = broker_env or _detect_env(message) or "REAL"
     try:
         payload = _get_internal(
             "/api/chart/quote",
@@ -1277,8 +1286,8 @@ def get_asset_price(auth_header: str, message: str) -> dict:
 _get_asset_price_base = get_asset_price
 
 
-def get_asset_price(auth_header: str, message: str) -> dict:
-    result = _get_asset_price_base(auth_header, message)
+def get_asset_price(auth_header: str, message: str, exchange: str = None, broker_env: str = None, **kwargs) -> dict:
+    result = _get_asset_price_base(auth_header, message, exchange=exchange, broker_env=broker_env, **kwargs)
     data = result.get("data") if isinstance(result, dict) else {}
     if not isinstance(data, dict) or data.get("source") != "ASSET_PRICE":
         return result
@@ -1313,7 +1322,7 @@ def get_asset_price(auth_header: str, message: str) -> dict:
     return result
 
 
-def get_asset_orderbook(auth_header: str, message: str) -> dict:
+def get_asset_orderbook(auth_header: str, message: str, exchange: str = None, broker_env: str = None, **kwargs) -> dict:
     symbol_query = _extract_symbol_query(message)
     if not symbol_query:
         return {
@@ -1336,8 +1345,8 @@ def get_asset_orderbook(auth_header: str, message: str) -> dict:
     asset_type = str(symbol_data.get("asset_type") or "").upper()
     market = str(symbol_data.get("market") or "").strip().upper()
     label = f"{display_name}({symbol})" if display_name and display_name.upper() != symbol else symbol
-    exchange = _detect_exchange(message) or _default_exchange_for_asset(asset_type, market)
-    broker_env = _detect_env(message) or "REAL"
+    exchange = exchange or _detect_exchange(message) or _default_exchange_for_asset(asset_type, market)
+    broker_env = broker_env or _detect_env(message) or "REAL"
 
     try:
         payload = _get_internal(
@@ -1413,7 +1422,7 @@ def get_asset_orderbook(auth_header: str, message: str) -> dict:
     }
 
 
-def get_asset_candles(auth_header: str, message: str) -> dict:
+def get_asset_candles(auth_header: str, message: str, exchange: str = None, broker_env: str = None, interval: str = None, count: int = None, **kwargs) -> dict:
     symbol_query = _extract_symbol_query(message)
     if not symbol_query:
         return {
@@ -1436,10 +1445,10 @@ def get_asset_candles(auth_header: str, message: str) -> dict:
     asset_type = str(symbol_data.get("asset_type") or "").upper()
     market = str(symbol_data.get("market") or "").strip().upper()
     label = f"{display_name}({symbol})" if display_name and display_name.upper() != symbol else symbol
-    exchange = _detect_exchange(message) or _default_exchange_for_asset(asset_type, market)
-    broker_env = _detect_env(message) or "REAL"
-    interval = _detect_candle_interval(message)
-    count = 20
+    exchange = exchange or _detect_exchange(message) or _default_exchange_for_asset(asset_type, market)
+    broker_env = broker_env or _detect_env(message) or "REAL"
+    interval = interval or _detect_candle_interval(message)
+    count = int(count) if count else 20
 
     try:
         payload = _get_internal(
@@ -1703,10 +1712,10 @@ def remove_watchlist_item(auth_header: str, message: str) -> dict:
     }
 
 
-def get_holdings(auth_header: str, message: str) -> dict:
-    exchange = _detect_exchange(message)
-    env = _detect_env(message)
-    summary = get_portfolio_summary(auth_header, message)
+def get_holdings(auth_header: str, message: str, exchange: str = None, broker_env: str = None, **kwargs) -> dict:
+    exchange = exchange or _detect_exchange(message)
+    env = broker_env or _detect_env(message)
+    summary = get_portfolio_summary(auth_header, message, exchange=exchange, broker_env=env, **kwargs)
     summaries = (summary.get("data") or {}).get("summaries") or []
     if exchange:
         summaries = [item for item in summaries if item["exchange"] == exchange]
@@ -2569,10 +2578,10 @@ def _format_trade_asset_name(row: dict) -> str:
     return symbol
 
 
-def search_trade_history(auth_header: str, message: str) -> dict:
+def search_trade_history(auth_header: str, message: str, symbol: str = None, min_amount: float = None, limit: int = None, **kwargs) -> dict:
     user_id, _ = get_user_id_from_header(auth_header)
-    min_amount = _match_min_amount(message)
-    symbol_query = _extract_symbol_query(message)
+    min_amount = min_amount or _match_min_amount(message)
+    symbol_query = symbol or _extract_symbol_query(message)
     symbol = ""
     if symbol_query:
         try:
@@ -2646,7 +2655,8 @@ def search_trade_history(auth_header: str, message: str) -> dict:
             "source_type": "BROKER",
         })
 
-    rows = sorted(rows, key=lambda item: f"{item.get('date') or ''} {item.get('time') or ''}", reverse=True)[:20]
+    history_limit = int(limit) if limit else 20
+    rows = sorted(rows, key=lambda item: f"{item.get('date') or ''} {item.get('time') or ''}", reverse=True)[:history_limit]
     if not rows:
         return {"reply": "조건에 맞는 거래내역을 찾지 못했습니다.", "data": {"source": "TRADE_HISTORY", "items": []}}
 
@@ -2696,11 +2706,11 @@ def search_trade_history(auth_header: str, message: str) -> dict:
     }
 
 
-def list_open_orders(auth_header: str, message: str) -> dict:
+def list_open_orders(auth_header: str, message: str, symbol: str = None, exchange: str = None, broker_env: str = None, limit: int = None, **kwargs) -> dict:
     user_id, _ = get_user_id_from_header(auth_header)
-    exchange = _detect_exchange(message)
-    env = _detect_env(message)
-    symbol_query = _extract_symbol_query(message)
+    exchange = exchange or _detect_exchange(message)
+    env = broker_env or _detect_env(message)
+    symbol_query = symbol or _extract_symbol_query(message)
     symbol = ""
     if symbol_query:
         try:
@@ -2710,11 +2720,12 @@ def list_open_orders(auth_header: str, message: str) -> dict:
         except Exception:
             symbol = symbol_query.upper() if _is_likely_symbol_token(symbol_query) else ""
 
+    order_limit = int(limit) if limit else _detect_limit(message, default=20, maximum=50)
     params = {
         "user_id": f"eq.{user_id}",
         "status": f"in.({','.join(OPEN_ORDER_STATUSES)})",
         "order": "created_at.desc",
-        "limit": str(_detect_limit(message, default=20, maximum=50)),
+        "limit": str(order_limit),
     }
     if exchange:
         params["exchange"] = f"eq.{exchange}"
@@ -2912,7 +2923,7 @@ def _price_outlook_sentence(change_rate: float) -> str:
     return "현재 등락률만으로 방향성을 단정하기는 어려우며, 투자 결정 시 추가적인 재무 정보와 시장 상황을 함께 고려하시기 바랍니다."
 
 
-def get_crypto_market_context(auth_header: str, message: str) -> dict:
+def get_crypto_market_context(auth_header: str, message: str, exchange: str = None, broker_env: str = None, interval: str = None, **kwargs) -> dict:
     symbol_query = _extract_symbol_query(message)
     if not symbol_query:
         return {
@@ -2945,10 +2956,14 @@ def get_crypto_market_context(auth_header: str, message: str) -> dict:
             },
         }
 
-    exchange = _detect_exchange(message) or "COINONE"
-    broker_env = _detect_env(message) or "REAL"
-    interval = _detect_candle_interval(message)
-    if interval == "1d" and any(keyword in str(message or "") for keyword in ["분석", "단타", "흐름", "타이밍", "진입"]):
+    exchange = exchange or _detect_exchange(message) or "COINONE"
+    broker_env = broker_env or _detect_env(message) or "REAL"
+    interval = interval or _detect_candle_interval(message)
+    if not interval and any(keyword in str(message or "") for keyword in ["분석", "단타", "흐름", "타이밍", "진입"]):
+        interval = "1h"
+    elif not interval:
+        interval = "1h"
+    elif interval == "1d" and any(keyword in str(message or "") for keyword in ["분석", "단타", "흐름", "타이밍", "진입"]):
         interval = "1h"
     label = f"{display_name}({symbol})" if display_name and display_name.upper() != symbol else symbol
     quote = _load_crypto_quote_context(auth_header, exchange, symbol, broker_env)

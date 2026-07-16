@@ -143,21 +143,39 @@ def normalize_symbol_candidate(candidate: str) -> str:
     if not symbol:
         return ""
 
-    symbol = re.sub(r"(의|은|는|이|가|을|를)$", "", symbol).strip()
-    if not symbol:
-        return ""
-
+    # 1. 조사 제거 전 원본으로 별칭(Alias) 룩업
     alias = SYMBOL_QUERY_ALIASES.get(symbol) or SYMBOL_QUERY_ALIASES.get(symbol.upper())
     if alias:
         return alias
 
+    # 2. 조사 제거 전 원본으로 학습 유니버스(Training Universe) 매칭
     upper_symbol = symbol.upper()
     training_symbols = load_training_universe_symbols()
-    if upper_symbol in training_symbols and upper_symbol.endswith("USDT") and len(upper_symbol) > 4:
-        return upper_symbol[:-4]
     if upper_symbol in training_symbols:
+        if upper_symbol.endswith("USDT") and len(upper_symbol) > 4:
+            return upper_symbol[:-4]
         return upper_symbol
-    return symbol
+
+    # 3. 매칭 실패 시에만 한국어 조사(의|은|는|이|가|을|를) 제거
+    stripped_symbol = re.sub(r"(의|은|는|이|가|을|를)$", "", symbol).strip()
+    if not stripped_symbol:
+        return symbol
+
+    # 4. 조사 제거된 텍스트로 별칭 룩업
+    alias = SYMBOL_QUERY_ALIASES.get(stripped_symbol) or SYMBOL_QUERY_ALIASES.get(stripped_symbol.upper())
+    if alias:
+        return alias
+
+    # 5. 조사 제거된 텍스트로 학습 유니버스 매칭
+    upper_stripped = stripped_symbol.upper()
+    if upper_stripped in training_symbols:
+        if upper_stripped.endswith("USDT") and len(upper_stripped) > 4:
+            return upper_stripped[:-4]
+        return upper_stripped
+
+    # 6. 최종 실패 시 조사 제거된 텍스트 반환
+    return stripped_symbol
+
 
 
 def normalize_symbol_alias(candidate: str) -> str:

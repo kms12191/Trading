@@ -36,6 +36,7 @@ from backend.services.chatbot.tool_registry import (
     get_portfolio_summary,
     list_available_tools,
     list_open_orders,
+    remove_watchlist_item,
     run_chatbot_tool,
     search_trade_history,
     search_web,
@@ -597,33 +598,20 @@ class ChatbotService:
         )
 
     def _tool_message_from_arguments(self, tool_name: str, arguments: dict, fallback_text: str) -> str:
-        if tool_name in {"search_web", "add_watchlist_item", "get_asset_outlook"}:
+        if tool_name in {"search_web", "add_watchlist_item", "get_asset_outlook", "remove_watchlist_item"}:
             return str(arguments.get("query") or fallback_text)
         if tool_name == "get_crypto_market_context":
             query = str(arguments.get("query") or fallback_text).strip()
-            exchange = str(arguments.get("exchange") or "").strip()
-            broker_env = str(arguments.get("broker_env") or "").strip()
-            interval = str(arguments.get("interval") or "").strip()
-            return " ".join(part for part in [query, exchange, broker_env, interval, "코인 분석해줘"] if part)
+            return f"{query} 코인 분석해줘"
         if tool_name == "search_trade_history":
             parts = ["거래내역"]
             if arguments.get("symbol"):
                 parts.append(str(arguments["symbol"]))
-            if arguments.get("min_amount"):
-                parts.append(f"{arguments['min_amount']}원 이상")
-            if arguments.get("limit"):
-                parts.append(f"상위 {arguments['limit']}개")
             return " ".join(parts)
         if tool_name == "list_open_orders":
             parts = ["미체결 주문"]
             if arguments.get("symbol"):
                 parts.append(str(arguments["symbol"]))
-            if arguments.get("exchange"):
-                parts.append(str(arguments["exchange"]))
-            if arguments.get("broker_env"):
-                parts.append(str(arguments["broker_env"]))
-            if arguments.get("limit"):
-                parts.append(f"{arguments['limit']}개")
             return " ".join(parts)
         if tool_name == "get_exchange_rate":
             base = str(arguments.get("base_currency") or "").strip()
@@ -635,32 +623,24 @@ class ChatbotService:
             quantity_text = f"{quantity}주" if quantity else ""
             return " ".join(part for part in [query, quantity_text, "원화로 계산해줘"] if part)
         if tool_name == "get_market_calendar":
-            market_country = str(arguments.get("market_country") or "").strip().upper()
             date = str(arguments.get("date") or "").strip()
+            market_country = str(arguments.get("market_country") or "").strip().upper()
             market_text = "한국장" if market_country == "KR" else "미국장" if market_country == "US" else ""
             return " ".join(part for part in [date, market_text, "장 운영 여부 알려줘"] if part)
         if tool_name == "get_asset_price":
             query = str(arguments.get("query") or fallback_text).strip()
-            exchange = str(arguments.get("exchange") or "").strip()
-            broker_env = str(arguments.get("broker_env") or "").strip()
-            return " ".join(part for part in [query, exchange, broker_env, "현재가 알려줘"] if part)
+            return f"{query} 현재가 알려줘"
         if tool_name == "get_asset_orderbook":
             query = str(arguments.get("query") or fallback_text).strip()
-            exchange = str(arguments.get("exchange") or "").strip()
-            broker_env = str(arguments.get("broker_env") or "").strip()
-            return " ".join(part for part in [query, exchange, broker_env, "호가 알려줘"] if part)
+            return f"{query} 호가 알려줘"
         if tool_name == "get_asset_candles":
             query = str(arguments.get("query") or fallback_text).strip()
-            exchange = str(arguments.get("exchange") or "").strip()
-            broker_env = str(arguments.get("broker_env") or "").strip()
-            interval = str(arguments.get("interval") or "").strip()
-            return " ".join(part for part in [query, exchange, broker_env, interval, "캔들 흐름 알려줘"] if part)
+            return f"{query} 캔들 흐름 알려줘"
         if tool_name == "get_home_market_rankings":
             asset_type = str(arguments.get("asset_type") or "").upper()
             asset_text = "코인" if asset_type == "CRYPTO" else "국내주식" if asset_type == "STOCK" else ""
             ranking = arguments.get("ranking") or "상승률"
-            limit = arguments.get("limit") or 5
-            return f"{asset_text} {ranking} 순위 상위 {limit}개"
+            return f"{asset_text} {ranking} 순위"
         return fallback_text
 
     def _run_llm_tool_call(self, auth_header: str | None, tool_call: dict, fallback_text: str) -> dict | None:
@@ -680,6 +660,7 @@ class ChatbotService:
             "get_home_market_rankings": get_home_market_rankings,
             "get_portfolio_summary": get_portfolio_summary,
             "add_watchlist_item": add_watchlist_item,
+            "remove_watchlist_item": remove_watchlist_item,
             "get_holdings": get_holdings,
             "search_trade_history": search_trade_history,
             "list_open_orders": list_open_orders,
@@ -698,7 +679,7 @@ class ChatbotService:
             return None
 
         tool_message = self._tool_message_from_arguments(tool_name, arguments, fallback_text)
-        return tool_func(auth_header, tool_message)
+        return tool_func(auth_header, tool_message, **arguments)
 
     def _synthesize_llm_tool_reply(
         self,

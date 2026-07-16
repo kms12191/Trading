@@ -1,4 +1,5 @@
 import importlib
+import os
 import uuid
 
 import pytest
@@ -140,9 +141,10 @@ def test_structured_order_uses_signed_precheck_snapshot(monkeypatch):
         "futures_real_blocked": False,
         "exceeds_real_order_limit": False,
     }
+    secret_key = os.getenv("ORDER_PRECHECK_SIGNING_SECRET") or "test-secret"
     structured = {
         **_valid_structured_order(),
-        "precheck_token": issue_precheck_token("user-1", order, precheck, "test-secret"),
+        "precheck_token": issue_precheck_token("user-1", order, precheck, secret_key),
     }
     captured = {}
     monkeypatch.setattr(

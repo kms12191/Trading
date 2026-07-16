@@ -7,10 +7,25 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "asset_type": {"type": "string", "enum": ["STOCK", "CRYPTO"]},
-                "market_segment": {"type": "string", "description": "KR, US, ALL"},
-                "ranking": {"type": "string", "description": "거래대금, 거래량, 상승률, 하락률"},
-                "limit": {"type": "number"},
+                "asset_type": {
+                    "type": "string",
+                    "enum": ["STOCK", "CRYPTO"],
+                    "description": "자산 유형. STOCK(주식) 또는 CRYPTO(가상자산)"
+                },
+                "market_segment": {
+                    "type": "string",
+                    "enum": ["KR", "US", "ALL"],
+                    "description": "시장 분류. KR(국내장), US(미국장), ALL(전체)"
+                },
+                "ranking": {
+                    "type": "string",
+                    "enum": ["거래대금", "거래량", "상승률", "하락률"],
+                    "description": "정렬 기준. 상승률, 하락률, 거래량, 거래대금 중 하나"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "조회할 상위 종목 개수. 기본값은 5, 최대 20"
+                },
             },
         },
     },
@@ -20,18 +35,43 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "exchange": {"type": "string", "description": "TOSS, KIS, COINONE, BINANCE 등"},
-                "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
+                "exchange": {
+                    "type": "string",
+                    "enum": ["TOSS", "KIS", "COINONE", "BINANCE"],
+                    "description": "거래소 이름. 지정하지 않으면 사용 가능한 모든 거래소 계좌를 통합하여 조회합니다."
+                },
+                "broker_env": {
+                    "type": "string",
+                    "enum": ["REAL", "MOCK"],
+                    "description": "계좌 환경. REAL(실전계좌) 또는 MOCK(모의계좌). 지정하지 않으면 사용자의 기본 설정을 사용합니다."
+                },
             },
         },
     },
     {
         "name": "add_watchlist_item",
-        "description": "로그인한 사용자의 Supabase DB 관심종목에 종목을 추가합니다.",
+        "description": "로그인한 사용자의 Supabase DB 관심종목에 특정 주식 또는 코인을 추가합니다.",
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "종목명 또는 종목코드"},
+                "query": {
+                    "type": "string",
+                    "description": "추가할 종목명 또는 종목코드. 예: 삼성전자, 005930, 비트코인, BTC"
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "remove_watchlist_item",
+        "description": "로그인한 사용자의 Supabase DB 관심종목에서 특정 주식 또는 코인을 해제(삭제)합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "삭제할 종목명 또는 종목코드. 예: 이노스페이스, 461350, 리플, XRP"
+                },
             },
             "required": ["query"],
         },
@@ -42,8 +82,16 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "exchange": {"type": "string", "description": "TOSS, KIS, COINONE, BINANCE 등"},
-                "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
+                "exchange": {
+                    "type": "string",
+                    "enum": ["TOSS", "KIS", "COINONE", "BINANCE"],
+                    "description": "거래소 이름. 지정하지 않으면 사용 가능한 모든 거래소 계좌의 보유 종목을 조회합니다."
+                },
+                "broker_env": {
+                    "type": "string",
+                    "enum": ["REAL", "MOCK"],
+                    "description": "계좌 환경. REAL(실전계좌) 또는 MOCK(모의계좌)"
+                },
             },
         },
     },
@@ -53,9 +101,18 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "symbol": {"type": "string"},
-                "min_amount": {"type": "number"},
-                "limit": {"type": "number"},
+                "symbol": {
+                    "type": "string",
+                    "description": "조회할 종목명 또는 종목코드. 지정하지 않으면 전체 거래내역을 조회합니다."
+                },
+                "min_amount": {
+                    "type": "number",
+                    "description": "조회할 최소 정산 금액(원화 기준). 설정된 금액 이상의 거래만 필터링합니다."
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "조회할 내역 개수. 기본값은 20"
+                },
             },
         },
     },
@@ -65,10 +122,24 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "symbol": {"type": "string", "description": "종목명 또는 종목코드"},
-                "exchange": {"type": "string", "description": "TOSS, KIS, COINONE, BINANCE 등"},
-                "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
-                "limit": {"type": "number", "description": "조회할 주문 개수"},
+                "symbol": {
+                    "type": "string",
+                    "description": "조회할 종목명 또는 종목코드. 지정하지 않으면 전체 미체결 주문을 조회합니다."
+                },
+                "exchange": {
+                    "type": "string",
+                    "enum": ["TOSS", "KIS", "COINONE", "BINANCE"],
+                    "description": "특정 거래소로 필터링할 경우 지정합니다."
+                },
+                "broker_env": {
+                    "type": "string",
+                    "enum": ["REAL", "MOCK"],
+                    "description": "계좌 환경. REAL(실전) 또는 MOCK(모의)"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "조회할 주문 개수. 기본값 20, 최대 50"
+                },
             },
         },
     },
@@ -78,8 +149,14 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "base_currency": {"type": "string", "description": "USD, USDT, JPY, EUR, CNY 등 기준 통화"},
-                "quote_currency": {"type": "string", "description": "KRW, USD 등 상대 통화"},
+                "base_currency": {
+                    "type": "string",
+                    "description": "기준 통화. USD, USDT, JPY, EUR, CNY 등. 지정하지 않으면 기본값은 USD입니다."
+                },
+                "quote_currency": {
+                    "type": "string",
+                    "description": "상대 통화. KRW, USD 등. 지정하지 않으면 기본값은 KRW입니다."
+                },
             },
         },
     },
@@ -89,8 +166,14 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "종목명 또는 티커. 예: 애플, AAPL, 테슬라"},
-                "quantity": {"type": "number", "description": "환산할 주식 수. 기본값은 1"},
+                "query": {
+                    "type": "string",
+                    "description": "원화로 환산할 종목명 또는 티커. 예: 애플, AAPL, 테슬라"
+                },
+                "quantity": {
+                    "type": "number",
+                    "description": "환산할 주식 수. 지정하지 않으면 기본값은 1입니다."
+                },
             },
             "required": ["query"],
         },
@@ -101,8 +184,15 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "market_country": {"type": "string", "enum": ["KR", "US"], "description": "KR은 한국장, US는 미국장"},
-                "date": {"type": "string", "description": "조회 날짜. 예: 2026-07-17"},
+                "market_country": {
+                    "type": "string",
+                    "enum": ["KR", "US"],
+                    "description": "시장 국가. KR은 한국장, US는 미국장"
+                },
+                "date": {
+                    "type": "string",
+                    "description": "조회할 날짜. ISO 포맷 (YYYY-MM-DD). 지정하지 않으면 오늘 날짜를 기준으로 합니다."
+                },
             },
         },
     },
@@ -112,9 +202,20 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "종목명 또는 종목코드. 예: Reddit, RDDT, 삼성전자, BTC"},
-                "exchange": {"type": "string", "description": "TOSS, KIS, COINONE, BINANCE 등"},
-                "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
+                "query": {
+                    "type": "string",
+                    "description": "종목명, 티커 또는 심볼. 예: Reddit, RDDT, 삼성전자, BTC, 리플"
+                },
+                "exchange": {
+                    "type": "string",
+                    "enum": ["TOSS", "KIS", "COINONE", "BINANCE"],
+                    "description": "거래소 이름. 지정하지 않으면 가상자산은 기본적으로 COINONE, 주식은 기본적으로 TOSS를 사용합니다."
+                },
+                "broker_env": {
+                    "type": "string",
+                    "enum": ["REAL", "MOCK"],
+                    "description": "계좌 환경. REAL(실전계좌) 또는 MOCK(모의계좌)"
+                },
             },
             "required": ["query"],
         },
@@ -125,9 +226,20 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "종목명 또는 종목코드. 예: 삼성전자, 005930, BTC"},
-                "exchange": {"type": "string", "description": "TOSS, KIS, COINONE, BINANCE 등"},
-                "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
+                "query": {
+                    "type": "string",
+                    "description": "종목명, 티커 또는 심볼. 예: 삼성전자, 005930, BTC"
+                },
+                "exchange": {
+                    "type": "string",
+                    "enum": ["TOSS", "KIS", "COINONE", "BINANCE"],
+                    "description": "거래소 이름. 지정하지 않으면 가상자산은 기본적으로 COINONE, 주식은 기본적으로 TOSS를 사용합니다."
+                },
+                "broker_env": {
+                    "type": "string",
+                    "enum": ["REAL", "MOCK"],
+                    "description": "계좌 환경. REAL(실전계좌) 또는 MOCK(모의계좌)"
+                },
             },
             "required": ["query"],
         },
@@ -138,11 +250,29 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "종목명 또는 종목코드. 예: 삼성전자, 005930, BTC"},
-                "exchange": {"type": "string", "description": "TOSS, KIS, COINONE, BINANCE 등"},
-                "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
-                "interval": {"type": "string", "description": "1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, 1M"},
-                "count": {"type": "number", "description": "조회할 최근 캔들 개수"},
+                "query": {
+                    "type": "string",
+                    "description": "종목명, 티커 또는 심볼. 예: 삼성전자, 005930, BTC"
+                },
+                "exchange": {
+                    "type": "string",
+                    "enum": ["TOSS", "KIS", "COINONE", "BINANCE"],
+                    "description": "거래소 이름. 지정하지 않으면 가상자산은 기본적으로 COINONE, 주식은 기본적으로 TOSS를 사용합니다."
+                },
+                "broker_env": {
+                    "type": "string",
+                    "enum": ["REAL", "MOCK"],
+                    "description": "계좌 환경. REAL(실전계좌) 또는 MOCK(모의계좌)"
+                },
+                "interval": {
+                    "type": "string",
+                    "enum": ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"],
+                    "description": "캔들 간격. 지정하지 않으면 종목 성격에 맞춰 자동 감지됩니다."
+                },
+                "count": {
+                    "type": "number",
+                    "description": "조회할 최근 캔들 개수. 기본값은 20"
+                },
             },
             "required": ["query"],
         },
@@ -153,10 +283,25 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "코인명 또는 심볼. 예: 리플, XRP, 비트코인, BTC"},
-                "exchange": {"type": "string", "description": "COINONE, BINANCE 등"},
-                "broker_env": {"type": "string", "enum": ["REAL", "MOCK"]},
-                "interval": {"type": "string", "description": "1m, 5m, 15m, 30m, 1h, 4h, 1d"},
+                "query": {
+                    "type": "string",
+                    "description": "코인명 또는 심볼. 예: 리플, XRP, 비트코인, BTC"
+                },
+                "exchange": {
+                    "type": "string",
+                    "enum": ["COINONE", "BINANCE"],
+                    "description": "거래소 이름. 지정하지 않으면 기본값은 COINONE입니다."
+                },
+                "broker_env": {
+                    "type": "string",
+                    "enum": ["REAL", "MOCK"],
+                    "description": "계좌 환경. REAL(실전계좌) 또는 MOCK(모의계좌)"
+                },
+                "interval": {
+                    "type": "string",
+                    "enum": ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+                    "description": "캔들 간격. 기본값은 1h입니다."
+                },
             },
             "required": ["query"],
         },
@@ -167,7 +312,10 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "종목명, 별칭 또는 종목코드. 예: 현대건설우, GST, 리플"},
+                "query": {
+                    "type": "string",
+                    "description": "전망을 분석할 종목명, 별칭 또는 종목코드. 예: 현대건설우, GST, 리플"
+                },
             },
             "required": ["query"],
         },
@@ -178,8 +326,14 @@ FUNCTION_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "검색할 문장 또는 키워드"},
-                "limit": {"type": "number", "description": "검색 결과 개수"},
+                "query": {
+                    "type": "string",
+                    "description": "검색할 문장 또는 키워드"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "검색 결과 개수. 기본값 5"
+                },
             },
             "required": ["query"],
         },
