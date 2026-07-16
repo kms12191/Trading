@@ -52,6 +52,9 @@ describe('homeModel', () => {
       { symbol: 'BTC', trading_value: 200, change_rate: -1 },
     ]
 
+    assert.equal(getHomeWatchlistKey({ symbol: '005930' }, 'STOCK'), 'STOCK:KIS:005930')
+    assert.equal(getHomeWatchlistKey({ id: '005930', assetType: 'STOCK', exchange: 'KIS' }, 'STOCK'), 'STOCK:KIS:005930')
+    assert.equal(getHomeWatchlistKey({ symbol: 'AAPL', asset_type: 'STOCK' }, 'STOCK'), 'STOCK:TOSS:AAPL')
     assert.equal(getHomeWatchlistKey({ symbol: 'BTC', exchange: 'COINONE' }, 'CRYPTO'), 'CRYPTO:COINONE:BTC')
     assert.deepEqual(
       getHomeRowsByCategory({

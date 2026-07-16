@@ -1066,8 +1066,8 @@ def test_post_order_status_failure_preserves_submitted_proposal(monkeypatch):
     assert response.status_code == 200
     assert order_client.place_order_calls == 1
     assert patched_payloads[0]["external_order_id"] == "order-1"
-    assert patched_payloads[0]["status"] == "APPROVED"
-    assert patched_payloads[-1]["status"] == "APPROVED"
+    assert patched_payloads[0]["status"] == "OPEN"
+    assert patched_payloads[-1]["status"] == "OPEN"
     assert patched_payloads[-1]["external_order_id"] == "order-1"
 
 
@@ -1236,7 +1236,10 @@ def test_recover_order_receipt_updates_existing_proposal_with_identifiers(monkey
         ("EXPIRED_IN_MATCH", "FAILED", 409),
         ("CANCELED", "CANCELED", 409),
         ("FILLED", "EXECUTED", 200),
-        ("OPEN", "APPROVED", 200),
+        ("OPEN", "OPEN", 200),
+        ("PENDING", "ORDERED", 200),
+        ("NEW", "ORDERED", 200),
+        ("PARTIALLY_FILLED", "PARTIALLY_FILLED", 200),
     ],
 )
 def test_broker_response_status_is_persisted_without_false_execution(
@@ -1314,6 +1317,27 @@ def test_toss_us_precheck_converts_order_amount_to_krw(monkeypatch):
     assert precheck["currency"] == "USD"
     assert precheck["estimated_amount_krw"] == 105000
     assert precheck["exceeds_real_order_limit"] is True
+
+
+@pytest.mark.parametrize(
+    ("broker_status", "expected_status"),
+    [
+        ("PENDING", "ORDERED"),
+        ("RECEIVED", "ORDERED"),
+        ("OPEN", "OPEN"),
+        ("PARTIALLY_FILLED", "PARTIALLY_FILLED"),
+    ],
+)
+def test_coinone_synced_open_order_status_never_returns_internal_pending(
+    broker_status,
+    expected_status,
+):
+    status, _ = trade._normalize_coinone_synced_status(
+        {"status": broker_status, "raw": {"status": broker_status}},
+        requested_qty=10,
+    )
+
+    assert status == expected_status
 
 
 def test_toss_us_real_order_limit_blocks_before_exchange_order(monkeypatch):

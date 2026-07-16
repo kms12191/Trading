@@ -105,6 +105,13 @@ export const getCryptoWatchlistChartConfig = (chartMode = 'KRW') => {
   return { exchange: 'COINONE', brokerEnv: 'REAL' }
 }
 
+export const getWatchlistChartSymbol = (item = {}, assetType = 'STOCK', cryptoChartMode = 'KRW') => {
+  const symbol = String(item?.id || item?.symbol || item?.ticker || '').trim().toUpperCase()
+  if (String(assetType || '').toUpperCase() !== 'CRYPTO') return symbol
+  if (cryptoChartMode === 'KRW') return symbol.replace(/(?:_?KRW|USDT)$/i, '')
+  return symbol.endsWith('USDT') ? symbol : `${symbol.replace(/(?:_?KRW|USDT)$/i, '')}USDT`
+}
+
 export const getNextWatchlistSelectedId = (currentId, items = []) => {
   if (currentId && items.some((item) => item.id === currentId)) return currentId
   return items[0]?.id || ''

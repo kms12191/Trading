@@ -14,6 +14,7 @@ import {
   formatWatchlistCandles,
   getCryptoWatchlistChartConfig,
   getNextWatchlistSelectedId,
+  getWatchlistChartSymbol,
   getWatchlistChartConfig,
   getWatchlistMarketFilterKey,
 } from './watchlistModel.js'
@@ -184,9 +185,10 @@ function WatchlistCandlestickChart({ item, assetType, cryptoChartMode, onCryptoC
               },
             }, assetType)
         const authHeader = await getAuthHeader()
+        const chartSymbol = getWatchlistChartSymbol(item, assetType, cryptoChartMode)
         const params = new URLSearchParams({
           exchange,
-          symbol: itemId,
+          symbol: chartSymbol,
           interval: chartInterval,
           broker_env: brokerEnv,
           count: '300',

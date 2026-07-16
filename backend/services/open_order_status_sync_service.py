@@ -12,7 +12,7 @@ from backend.services.supabase_client import query_supabase_as_service_role
 from backend.utils.crypto_helper import CryptoHelper
 
 
-ACTIONABLE_STATUSES = ("PENDING", "APPROVED", "MODIFIED")
+ACTIONABLE_STATUSES = ("PENDING", "APPROVED", "ORDERED", "OPEN", "PARTIALLY_FILLED", "MODIFIED")
 SUPPORTED_SYNC_EXCHANGES = ("KIS", "COINONE", "BINANCE", "BINANCE_UM_FUTURES", "TOSS")
 SCHEMA_FALLBACK_COLUMNS = {
     "broker_env",
@@ -62,8 +62,12 @@ def _normalize_external_status(raw_status: str, executed_qty: float = 0.0, reque
     if normalized in {"REJECTED", "FAILED", "EXPIRED"}:
         return "FAILED"
     if normalized in {"PARTIALLY_FILLED", "PARTIAL"} or executed_qty > 0:
-        return "APPROVED"
-    return "APPROVED"
+        return "PARTIALLY_FILLED"
+    if normalized == "OPEN":
+        return "OPEN"
+    if normalized in {"PENDING", "NEW", "ACCEPTED", "SUBMITTED", "ORDERED"}:
+        return "ORDERED"
+    return "ORDERED"
 
 
 class OpenOrderStatusSyncService:

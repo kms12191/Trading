@@ -152,7 +152,12 @@ export const getHomeMetricTabs = (categoryKey) => {
 
 export const getHomeWatchlistKey = (row = {}, assetType = 'STOCK') => {
   const normalizedAssetType = String(row.asset_type || row.assetType || assetType || 'STOCK').toUpperCase()
-  const exchange = String(row.exchange || row.account || (normalizedAssetType === 'CRYPTO' ? 'COINONE' : 'TOSS')).toUpperCase()
-  const symbol = String(row.symbol || row.code || row.ticker || '').toUpperCase()
+  const symbol = String(row.symbol || row.code || row.ticker || row.id || '').toUpperCase()
+  const isKoreanStock = normalizedAssetType === 'STOCK' && /^\d{6}$/.test(symbol)
+  const exchange = String(
+    row.exchange
+    || row.account
+    || (normalizedAssetType === 'CRYPTO' ? 'COINONE' : isKoreanStock ? 'KIS' : 'TOSS'),
+  ).toUpperCase()
   return `${normalizedAssetType}:${exchange}:${symbol}`
 }

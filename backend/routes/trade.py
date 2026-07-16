@@ -58,6 +58,19 @@ BINANCE_SPOT_QUOTE_ASSETS = (
     "BNB",
 )
 
+
+def _normalize_binance_chart_symbol(symbol: str) -> str:
+    """관심종목의 코인 단독 심볼을 바이낸스 USDT 마켓 심볼로 보정합니다."""
+    normalized = str(symbol or "").strip().upper().replace("_", "")
+    if not normalized:
+        return normalized
+    if normalized.endswith("KRW"):
+        normalized = normalized[:-3]
+    if any(normalized.endswith(quote_asset) for quote_asset in BINANCE_SPOT_QUOTE_ASSETS):
+        return normalized
+    return f"{normalized}USDT"
+
+
 def determine_market_country(symbol: str) -> str:
     """
     주식 종목의 국내/해외 여부를 판별합니다.
@@ -1017,6 +1030,12 @@ def _infer_trade_status_from_order_status(order_status: dict | None, fallback: s
         return "FAILED"
     if normalized in {"EXECUTED", "FILLED", "COMPLETED", "DONE"}:
         return "EXECUTED"
+    if normalized in {"PARTIALLY_FILLED", "PARTIAL"}:
+        return "PARTIALLY_FILLED"
+    if normalized in {"OPEN"}:
+        return "OPEN"
+    if normalized in {"PENDING", "NEW", "ACCEPTED", "SUBMITTED", "ORDERED"}:
+        return "ORDERED"
     return fallback
 
 
@@ -1164,9 +1183,13 @@ def _normalize_coinone_synced_status(order_status: dict | None, requested_qty: f
         return "EXECUTED", detail
     if filled_qty > 0 and remaining_qty == 0:
         return "EXECUTED", detail
-    if normalized in {"ORDERED", "RECEIVED", "ACCEPTED"}:
-        return "APPROVED", detail
-    return "PENDING", detail
+    if normalized in {"PARTIALLY_FILLED", "PARTIAL"} or filled_qty > 0:
+        return "PARTIALLY_FILLED", detail
+    if normalized in {"OPEN"}:
+        return "OPEN", detail
+    if normalized in {"PENDING", "NEW", "ORDERED", "RECEIVED", "ACCEPTED", "SUBMITTED"}:
+        return "ORDERED", detail
+    return "ORDERED", detail
 
 
 def _patch_proposal_as_not_actionable(auth_header: str, proposal_id: str, order_status: dict | None, reason: str):
@@ -4496,9 +4519,10 @@ def _fetch_candles_uncached(cache_key, exchange, symbol, interval, count, broker
             elif interval in ("1h", "60m"):
                 binance_interval = "1h"
 
-            url = "https://api.binance.com/api/v3/klines"
+            binance_symbol = _normalize_binance_chart_symbol(symbol)
+            url = "https://fapi.binance.com/fapi/v1/klines" if exchange == "BINANCE_UM_FUTURES" else "https://api.binance.com/api/v3/klines"
             params = {
-                "symbol": symbol.upper(),
+                "symbol": binance_symbol,
                 "interval": binance_interval,
                 "limit": min(count, 1000)
             }

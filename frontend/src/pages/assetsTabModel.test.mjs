@@ -86,8 +86,10 @@ test('보유 종목 표시 행과 정렬을 계산한다', () => {
       },
       {
         exchange: 'TOSS',
-        symbol: 'AAPL',
-        name: 'Apple',
+        symbol: 'SPACEX',
+        name: '스페이스X',
+        market_country: 'US',
+        currency: 'KRW',
         qty: 1,
         avg_price: 100,
         current_price: 110,
@@ -102,8 +104,8 @@ test('보유 종목 표시 행과 정렬을 계산한다', () => {
   assert.equal(rows[0].assetType, 'CRYPTO')
   assert.equal(rows[0].currentPrice, '₩600')
   assert.equal(rows[1].assetType, 'STOCK')
-  assert.equal(rows[1].currentPrice, '₩165,000')
-  assert.deepEqual(sortHoldings(rows, { key: 'profit', direction: 'desc' }).map((row) => row.id), ['AAPL', 'XRP'])
+  assert.equal(rows[1].currentPrice, '$110')
+  assert.deepEqual(sortHoldings(rows, { key: 'profit', direction: 'desc' }).map((row) => row.id), ['XRP', 'SPACEX'])
 })
 
 test('배분 비율 표시를 보정한다', () => {

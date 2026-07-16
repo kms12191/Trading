@@ -5,6 +5,7 @@ import {
   formatWatchlistCandles,
   getCryptoWatchlistChartConfig,
   getNextWatchlistSelectedId,
+  getWatchlistChartSymbol,
   getWatchlistChartConfig,
   getWatchlistMarketFilterKey,
   normalizeWatchlistCandleTime,
@@ -50,6 +51,10 @@ describe('watchlistModel', () => {
       getWatchlistChartConfig({ id: 'BTC' }, 'CRYPTO'),
       { exchange: 'COINONE', brokerEnv: 'REAL' },
     )
+    assert.equal(getWatchlistChartSymbol({ id: 'DOGE' }, 'CRYPTO', 'KRW'), 'DOGE')
+    assert.equal(getWatchlistChartSymbol({ id: 'DOGE' }, 'CRYPTO', 'USD'), 'DOGEUSDT')
+    assert.equal(getWatchlistChartSymbol({ id: 'DOGE_KRW' }, 'CRYPTO', 'FUTURES'), 'DOGEUSDT')
+    assert.equal(getWatchlistChartSymbol({ id: 'DOGEUSDT' }, 'CRYPTO', 'USD'), 'DOGEUSDT')
     assert.equal(getNextWatchlistSelectedId('B', [{ id: 'A' }, { id: 'B' }]), 'B')
     assert.equal(getNextWatchlistSelectedId('C', [{ id: 'A' }, { id: 'B' }]), 'A')
     assert.equal(getNextWatchlistSelectedId('C', []), '')

@@ -259,9 +259,16 @@ export const buildHoldingRows = ({
     const rawExchange = normalizeExchangeCode(stock.raw_exchange || exchangeName)
     const isCoinone = rawExchange === 'COINONE'
     const isBinance = rawExchange === 'BINANCE' || rawExchange === 'BINANCE_UM_FUTURES'
-    const isForeign = /[a-zA-Z]/.test(stock.symbol) && !/^[0-9a-zA-Z]{6,7}$/.test(stock.symbol) && !isCoinone
-    const stockCurrency = stock.currency || (isBinance ? 'USDT' : isForeign ? 'USD' : 'KRW')
-    const currentDisplayCurrency = isBinance ? 'USD' : isForeign ? displayCurrency : 'KRW'
+    const symbolText = String(stock.symbol || stock.id || '').toUpperCase()
+    const marketCountry = String(stock.market_country || stock.marketCountry || stock.market || '').toUpperCase()
+    const isForeign = !isCoinone && !isBinance && (
+      marketCountry === 'US'
+      || marketCountry.includes('OVERSEAS')
+      || marketCountry.includes('해외')
+      || (/[A-Z]/.test(symbolText) && !/^\d{6}$/.test(symbolText))
+    )
+    const stockCurrency = isBinance ? 'USDT' : isForeign ? 'USD' : isCoinone ? 'KRW' : 'KRW'
+    const currentDisplayCurrency = isBinance ? 'USD' : isForeign ? 'USD' : 'KRW'
     const assetType = stock.asset_type || (['COINONE', 'BINANCE', 'BINANCE_UM_FUTURES'].includes(rawExchange) ? 'CRYPTO' : 'STOCK')
     const symbol = stock.symbol || stock.id || `holding-${index}`
     const profitRate = Number(stock.profit_rate)
