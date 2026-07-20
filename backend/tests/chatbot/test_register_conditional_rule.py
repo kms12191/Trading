@@ -61,6 +61,7 @@ def test_register_conditional_rule_success():
         assert rule["user_id"] == "test-user-uuid"
         assert rule["symbol"] == "XRP"
         assert rule["exchange"] == "COINONE"
+        assert rule["broker_env"] == "REAL"  # COINONE은 모의투자가 없으므로 REAL로 강제 설정됨
         assert rule["entry_price"] == 1600.0
         assert rule["target_profit_rate"] == 3.0
         assert rule["stop_loss_rate"] is None

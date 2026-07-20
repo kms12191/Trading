@@ -3831,9 +3831,12 @@ def register_conditional_rule(
         exchange = _default_exchange_for_asset(asset_type, market, symbol)
     exchange = exchange.upper()
 
-    # 계좌 환경 결정 (기본값 MOCK)
-    if not broker_env:
-        broker_env = _detect_env(message) or "MOCK"
+    # 계좌 환경 결정 (TOSS, COINONE은 모의계좌가 없음)
+    if not _exchange_has_mock_env(exchange):
+        broker_env = "REAL"
+    else:
+        if not broker_env:
+            broker_env = _detect_env(message) or "MOCK"
     broker_env = broker_env.upper()
 
     # 실행 모드 결정 (기본값 PROPOSAL - 안전지향)
