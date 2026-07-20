@@ -328,3 +328,29 @@ def delete_symbols(symbols: list[str], source_table: str) -> dict[str, Any]:
         query_supabase_as_service_role(f"{source_table}?symbol=eq.{symbol}", "DELETE")
         deleted.append(symbol)
     return {"deleted": deleted, "blocked": blocked}
+
+
+def update_stock_master_symbol(symbol: str, data: dict[str, Any]) -> dict[str, Any]:
+    normalized = normalize_symbol(symbol)
+    if not normalized:
+        raise ValueError("올바르지 않은 종목 코드입니다.")
+
+    payload = {}
+    if "name" in data:
+        payload["name"] = data["name"]
+    if "display_name" in data:
+        payload["display_name"] = data["display_name"]
+    if "market_segment" in data:
+        payload["market_segment"] = data["market_segment"]
+    if "is_active" in data:
+        payload["is_active"] = bool(data["is_active"])
+
+    if not payload:
+        raise ValueError("수정할 데이터가 존재하지 않습니다.")
+
+    query_supabase_as_service_role(
+        f"kis_stock_master?symbol=eq.{normalized}",
+        "PATCH",
+        json_data=payload,
+    )
+    return {"symbol": normalized, "updated": payload}

@@ -139,9 +139,9 @@ export default function AdminCryptoAssetsPanel({ authHeaders }) {
     <div className="ai-glass rounded-lg p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Crypto Asset Master</p>
-          <h2 className="mt-2 text-2xl font-bold text-white">코인 종목 마스터</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-400">코인원과 바이낸스 상장 상태를 한 행에서 관리하고, 기본 거래소와 관리자 차단 상태를 조정합니다.</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Crypto Asset Management</p>
+          <h2 className="mt-2 text-2xl font-bold text-white">코인 종목 관리</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-400">코인원과 바이낸스 상장 상태 및 기본 거래소, 거래 차단 여부를 제어합니다.</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <input type="search" value={cryptoQuery} onChange={(event) => setCryptoQuery(event.target.value)} placeholder="H · Humanity · ALICE" className="rounded border border-slate-700 bg-[#0f172a] px-3 py-2 text-xs text-white outline-none focus:border-ai-cyan" />

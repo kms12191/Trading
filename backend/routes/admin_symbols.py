@@ -8,6 +8,7 @@ from backend.services.symbol_reconciliation_service import (
     get_latest_symbol_reconciliation,
     restore_symbols,
     run_symbol_reconciliation,
+    update_stock_master_symbol,
 )
 from backend.services.crypto_asset_service import (
     CryptoAssetPatch,
@@ -157,3 +158,14 @@ def update_admin_crypto_symbol(base_symbol):
         return jsonify({"success": True, "data": updated})
     except Exception as error:
         return _json_error(error, "코인 종목 마스터 수정 실패", 403 if isinstance(error, PermissionError) else 400)
+
+
+@admin_symbols_bp.route("/api/admin/market-symbols/<symbol>", methods=["PATCH"])
+def update_admin_market_symbol(symbol):
+    try:
+        _require_admin()
+        body = request.get_json(silent=True) or {}
+        updated = update_stock_master_symbol(symbol, body)
+        return jsonify({"success": True, "data": updated})
+    except Exception as error:
+        return _json_error(error, "주식 종목 마스터 수정 실패", 403 if isinstance(error, PermissionError) else 400)
