@@ -13,6 +13,7 @@ import { resolveWatchlistDisplayCurrency } from './watchlistDisplay.js'
 import { getApiErrorMessage } from '../lib/apiError.js'
 import { deductCoinoneTransfersFromEstimatedHoldings } from '../lib/transferBalanceAdjustments.js'
 import { DEFAULT_DASHBOARD_TAB } from '../dashboardConstants.js'
+import { setBrowserTab } from '../lib/browserTab.js'
 import {
   DASHBOARD_SUMMARY_CURRENCIES,
   TRADE_PROPOSAL_HOLDING_FIELDS,
@@ -49,6 +50,15 @@ import {
 } from './dashboardModel.js'
 
 const DASHBOARD_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
+const DASHBOARD_TAB_BROWSER_TITLES = {
+  dashboard: 'ANTRY - 대시보드',
+  watchlist: 'ANTRY - 관심종목',
+  assets: 'ANTRY - 내 자산',
+  history: 'ANTRY - 거래 내역',
+  settings: 'ANTRY - 설정',
+  admin: 'ANTRY - 관리자',
+}
+
 const fetchDashboardWatchlistCurrentPrice = async (item = {}, authHeader = '') => {
   if (!item.id) return null
 
@@ -177,6 +187,12 @@ export default function Dashboard({ isLoggedIn, userEmail, handleLogout, userPro
   useEffect(() => {
     showMockAssetsRef.current = showMockAssets
   }, [showMockAssets])
+
+  useEffect(() => {
+    return setBrowserTab({
+      title: DASHBOARD_TAB_BROWSER_TITLES[activeTab] || 'ANTRY',
+    })
+  }, [activeTab])
 
   useEffect(() => {
     const timerId = window.setTimeout(() => {

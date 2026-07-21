@@ -38,7 +38,7 @@ ml/models/*
 
 # Custom Local Agent Skills
 .agents/
-
+.tests/
 # SDD (Subagent Driven Development) artifacts
 .superpowers/
 .worktrees/
@@ -46,3 +46,4 @@ backups/
 conflict_report.md
 
 .codegraph
+qa-artifacts/

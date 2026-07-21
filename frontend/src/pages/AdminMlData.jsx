@@ -21,6 +21,7 @@ import {
   ReportHistoryPanel,
   ReportPanel,
   ServingAuditPanel,
+  UniverseManagementPanel,
   V8OptunaPanel,
 } from './adminMlDataPanels.jsx'
 import {
@@ -790,6 +791,17 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
           >
             종목 정리
           </button>
+          <button
+            type="button"
+            onClick={() => setAdminTab('universe')}
+            className={`shrink-0 px-4 py-3 text-sm font-bold border-b-2 transition sm:px-6 ${
+              adminTab === 'universe'
+                ? 'border-ai-cyan text-white bg-ai-cyan/5'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            유니버스 설정
+          </button>
         </div>
 
         {adminTab === 'ml' && (
@@ -981,6 +993,10 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
 
         {adminTab === 'symbols' && (
           <AdminSymbolReconciliation />
+        )}
+
+        {adminTab === 'universe' && (
+          <UniverseManagementPanel isLoggedIn={isLoggedIn} />
         )}
       </main>
 

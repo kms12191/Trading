@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import { supabase } from '../supabaseClient'
 import {
   buildQualityDetail,
   findRegistryRow,
@@ -874,3 +876,260 @@ export function VersionComparisonTable({ versions = [], selectedVersion, recomme
     </div>
   )
 }
+
+export function UniverseManagementPanel({ isLoggedIn }) {
+  const [universeData, setUniverseData] = useState({ kr_stock: [], us_stock: [], crypto: [] })
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [activeAsset, setActiveAsset] = useState('kr_stock')
+  const [inputVal, setInputVal] = useState('')
+
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
+
+  const loadUniverse = async () => {
+    if (!isLoggedIn) return
+    setLoading(true)
+    setError('')
+    setMessage('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setError('로그인 세션이 만료되었습니다.')
+        return
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/ml/universe`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      })
+      const payload = await response.json()
+      if (!response.ok || !payload.success) {
+        setError(payload.message || '유니버스 정보를 가져오는데 실패했습니다.')
+        return
+      }
+      setUniverseData({
+        kr_stock: payload.data.kr_stock || [],
+        us_stock: payload.data.us_stock || [],
+        crypto: payload.data.crypto || [],
+      })
+    } catch (err) {
+      setError(`서버 통신 실패: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadUniverse()
+  }, [isLoggedIn])
+
+  const handleAddSymbol = (e) => {
+    e.preventDefault()
+    const sym = inputVal.trim().toUpperCase()
+    if (!sym) return
+
+    const currentList = universeData[activeAsset] || []
+    if (currentList.includes(sym)) {
+      alert('이미 존재하는 심볼입니다.')
+      return
+    }
+
+    setUniverseData((prev) => ({
+      ...prev,
+      [activeAsset]: [...(prev[activeAsset] || []), sym],
+    }))
+    setInputVal('')
+  }
+
+  const handleRemoveSymbol = (symToRemove) => {
+    setUniverseData((prev) => ({
+      ...prev,
+      [activeAsset]: (prev[activeAsset] || []).filter((sym) => sym !== symToRemove),
+    }))
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError('')
+    setMessage('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setError('로그인 세션이 만료되었습니다.')
+        return
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/ml/universe`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(universeData),
+      })
+      const payload = await response.json()
+      if (!response.ok || !payload.success) {
+        setError(payload.message || '유니버스 설정을 저장하는데 실패했습니다.')
+        return
+      }
+      setMessage('동적 유니버스 설정이 성공적으로 저장되었습니다.')
+      if (payload.data) {
+        setUniverseData({
+          kr_stock: payload.data.kr_stock || [],
+          us_stock: payload.data.us_stock || [],
+          crypto: payload.data.crypto || [],
+        })
+      }
+    } catch (err) {
+      setError(`저장 실패: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const assetLabels = {
+    kr_stock: '국내 주식',
+    us_stock: '해외 주식',
+    crypto: '가상자산',
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-slate-800 bg-[#0c0e15] p-6 text-center text-xs font-bold text-slate-400">
+        <span className="material-symbols-outlined animate-spin text-ai-cyan mr-2">progress_activity</span>
+        유니버스 데이터를 불러오는 중...
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-6 rounded-lg border border-slate-800 bg-[#0c0e15] p-6 shadow-md">
+      <div className="flex flex-col gap-1.5 border-b border-slate-800 pb-4">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-ai-cyan">settings_suggest</span>
+          <h3 className="text-sm font-bold uppercase tracking-wider text-white">동적 유니버스 설정 관리</h3>
+        </div>
+        <p className="text-[11px] text-slate-400">
+          마켓별 모델 학습 및 피처 생성 시 활용되는 동적 수집 유니버스 종목 풀(active_universe.json)을 편집합니다.
+        </p>
+      </div>
+
+      {error && (
+        <div className="rounded border border-red-500/20 bg-red-500/5 px-4 py-3 text-xs text-red-400">
+          {error}
+        </div>
+      )}
+
+      {message && (
+        <div className="rounded border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-xs text-emerald-300">
+          {message}
+        </div>
+      )}
+
+      <div className="flex border-b border-slate-800">
+        {Object.entries(assetLabels).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => {
+              setActiveAsset(key)
+              setError('')
+              setMessage('')
+            }}
+            className={`px-4 py-2 text-xs font-bold border-b-2 transition ${
+              activeAsset === key
+                ? 'border-ai-cyan text-white bg-ai-cyan/5'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            {label} ({universeData[key]?.length || 0})
+          </button>
+        ))}
+      </div>
+
+      <form onSubmit={handleAddSymbol} className="flex gap-2">
+        <input
+          type="text"
+          value={inputVal}
+          onChange={(e) => setInputVal(e.target.value)}
+          placeholder={`추가할 ${assetLabels[activeAsset]} 심볼/코드 입력 (예: ${
+            activeAsset === 'kr_stock' ? '461350' : activeAsset === 'us_stock' ? 'NVDA' : 'BTCUSDT'
+          })`}
+          className="flex-1 rounded border border-slate-700 bg-[#11131a] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-ai-cyan focus:outline-none focus:ring-1 focus:ring-ai-cyan"
+        />
+        <button
+          type="submit"
+          className="flex items-center gap-1 rounded bg-ai-cyan/15 border border-ai-cyan/30 px-4 py-2 text-xs font-bold text-ai-cyan hover:bg-ai-cyan/20 active:scale-[0.98]"
+        >
+          <span className="material-symbols-outlined text-[14px]">add</span>
+          추가
+        </button>
+      </form>
+
+      <div className="min-h-[150px] max-h-[400px] overflow-y-auto rounded border border-slate-800 bg-[#090b11] p-4">
+        {(!universeData[activeAsset] || universeData[activeAsset].length === 0) ? (
+          <div className="flex h-full items-center justify-center text-xs text-slate-500 py-10">
+            등록된 종목이 없습니다.
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {universeData[activeAsset].map((sym) => (
+              <div
+                key={sym}
+                className="flex items-center gap-1.5 rounded-full border border-slate-700 bg-[#12151e] py-1 pl-3 pr-2 text-xs font-semibold text-slate-300 transition-colors hover:border-ai-cyan/40"
+              >
+                <span>{sym}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveSymbol(sym)}
+                  className="flex h-4 w-4 cursor-pointer items-center justify-center rounded-full text-slate-500 hover:bg-red-500/20 hover:text-red-400 focus:outline-none"
+                >
+                  <span className="material-symbols-outlined text-[12px] font-bold">close</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between border-t border-slate-800 pt-4">
+        <span className="text-[10px] text-slate-500">
+          * 변경 사항은 저장 버튼을 누르기 전까지 로컬 파일에 영구 기록되지 않습니다.
+        </span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={loadUniverse}
+            disabled={saving}
+            className="rounded border border-slate-700 bg-transparent px-4 py-2 text-xs font-bold text-slate-300 hover:bg-white/5 disabled:opacity-50"
+          >
+            초기화
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-1.5 rounded bg-gradient-to-r from-blue-700 to-ai-cyan px-6 py-2 text-xs font-bold text-white shadow-md hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
+          >
+            {saving ? (
+              <>
+                <span className="material-symbols-outlined animate-spin text-[14px]">progress_activity</span>
+                저장 중...
+              </>
+            ) : (
+              <>
+                <span className="material-symbols-outlined text-[14px]">save</span>
+                유니버스 설정 저장
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+

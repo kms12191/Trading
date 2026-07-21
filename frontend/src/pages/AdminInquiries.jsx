@@ -13,7 +13,7 @@ const inquiryStatusLabels = {
 }
 
 const inquiryTypeLabels = {
-  account: '계좌',
+  account: 'API연동',
   order: '주문/체결',
   transfer: '입출금',
   'domestic-stock': '국내주식',
@@ -22,6 +22,11 @@ const inquiryTypeLabels = {
   system: '시스템 오류',
   etc: '기타',
 }
+
+const inquiryTypeFilterItems = [
+  { value: 'all', label: '전체' },
+  ...Object.entries(inquiryTypeLabels).map(([value, label]) => ({ value, label })),
+]
 
 const getInquiryStatusVisual = (status = '') => {
   const normalizedStatus = String(status).toUpperCase()
@@ -43,6 +48,11 @@ const filterInquiriesByStatus = (inquiries, statusFilter = 'all') => {
     return inquiries.filter((item) => item.status === 'RECEIVED' || item.status === 'WAITING')
   }
   return inquiries.filter((item) => item.status === statusFilter)
+}
+
+const filterInquiriesByType = (inquiries, typeFilter = 'all') => {
+  if (typeFilter === 'all') return inquiries
+  return inquiries.filter((item) => item.inquiryType === typeFilter)
 }
 
 const formatDate = (value) => {
@@ -140,7 +150,7 @@ function ReplyModal({ inquiry, isSubmitting, error, onClose, onSubmit }) {
         <div className="grid gap-4 p-5">
           <div className="rounded-lg border border-slate-800 bg-[#0f172a] p-4">
             <p className="text-xs font-bold text-slate-500">문의 내용</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">{inquiry.content}</p>
+            <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap break-words pr-1 text-sm leading-6 text-slate-300 [overflow-wrap:anywhere]">{inquiry.content}</p>
           </div>
           <label className="grid gap-2">
             <span className="text-xs font-bold text-slate-400">답변 내용</span>
@@ -178,7 +188,7 @@ function ReplyModal({ inquiry, isSubmitting, error, onClose, onSubmit }) {
 
 export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hideHeader = false }) {
   const [inquiries, setInquiries] = useState([])
-  const [sortOrder, setSortOrder] = useState('desc')
+  const [inquiryTypeFilter, setInquiryTypeFilter] = useState('all')
   const [expandedInquiryId, setExpandedInquiryId] = useState(null)
   const [replyInquiry, setReplyInquiry] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -231,13 +241,13 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
     return [...inquiries].sort((left, right) => {
       const leftTime = new Date(left.createdAt).getTime() || 0
       const rightTime = new Date(right.createdAt).getTime() || 0
-      return sortOrder === 'asc' ? leftTime - rightTime : rightTime - leftTime
+      return rightTime - leftTime
     })
-  }, [inquiries, sortOrder])
+  }, [inquiries])
 
   const filteredInquiries = useMemo(() => {
-    return filterInquiriesByStatus(sortedInquiries, statusFilter)
-  }, [sortedInquiries, statusFilter])
+    return filterInquiriesByType(filterInquiriesByStatus(sortedInquiries, statusFilter), inquiryTypeFilter)
+  }, [inquiryTypeFilter, sortedInquiries, statusFilter])
 
   const summary = useMemo(() => ({
     total: inquiries.length,
@@ -298,13 +308,17 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
               </p>
             </div>
             <select
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value)}
+              value={inquiryTypeFilter}
+              onChange={(event) => {
+                setInquiryTypeFilter(event.target.value)
+                setExpandedInquiryId(null)
+              }}
               className="w-full rounded border border-slate-700 bg-[#0f172a] px-3 py-2 text-xs font-bold text-slate-300 outline-none transition focus:border-ai-cyan sm:w-auto"
-              aria-label="문의 정렬"
+              aria-label="문의 유형 필터"
             >
-              <option value="desc">최신순</option>
-              <option value="asc">과거순</option>
+              {inquiryTypeFilterItems.map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
             </select>
           </div>
 
@@ -379,13 +393,13 @@ export default function AdminInquiries({ isLoggedIn, userEmail, handleLogout, hi
 
                   {isExpanded ? (
                     <div className="grid gap-3 bg-[#0f172a]/70 px-3 py-4 text-xs leading-5 text-slate-300 sm:px-4 md:grid-cols-2">
-                      <div className="rounded-lg border border-slate-800 bg-slate-surface p-3">
+                      <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-surface p-3">
                         <p className="font-bold text-slate-500">문의 내용</p>
-                        <p className="mt-2 whitespace-pre-wrap">{item.content}</p>
+                        <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap break-words pr-1 [overflow-wrap:anywhere]">{item.content}</p>
                       </div>
-                      <div className="rounded-lg border border-slate-800 bg-slate-surface p-3">
+                      <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-surface p-3">
                         <p className="font-bold text-slate-500">기존 답변</p>
-                        <p className="mt-2 whitespace-pre-wrap">{item.answer || '아직 등록된 답변이 없습니다.'}</p>
+                        <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap break-words pr-1 [overflow-wrap:anywhere]">{item.answer || '아직 등록된 답변이 없습니다.'}</p>
                       </div>
                       <div className="rounded-lg border border-slate-800 bg-slate-surface p-3">
                         <p className="font-bold text-slate-500">첨부파일</p>

@@ -33,6 +33,7 @@ export default function AssetsTab({
   mobileLayout = false,
   loadAccountBalance,
 }) {
+  // 모바일 자산 탭은 계좌별 잔고, 입출금, 내부 이체 상태를 한 탭에서 처리합니다.
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' })
   const [withdrawAsset, setWithdrawAsset] = useState(null)
   const [withdrawForm, setWithdrawForm] = useState({

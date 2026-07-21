@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import Header from '../components/Header.jsx'
 import { SidebarNav } from '../components/DashboardComponents.jsx'
 import { DASHBOARD_QUERY_TABS, DASHBOARD_ROUTE, INQUIRY_ROUTES } from '../dashboardConstants.js'
+import { setBrowserTab } from '../lib/browserTab.js'
 import { supabase } from '../supabaseClient.js'
 import {
   HISTORY_PAGE_SIZE,
@@ -11,12 +12,14 @@ import {
   customerCenterItems,
   faqItems,
   filterInquiriesByStatus,
+  filterInquiriesByType,
   filterRecentInquiries,
   getInquirySummaryCounts,
   initialFormState,
   inquiryColumns,
   inquiryHomeSections,
   inquiryStatusItems,
+  inquiryTypeFilterItems,
   inquiryTypes,
   paginateInquiries,
   sortInquiries,
@@ -226,13 +229,13 @@ function InquiryTable({
 
                 {isExpanded ? (
                   <div className="grid gap-3 bg-[#0f172a]/70 px-4 py-4 text-xs leading-5 text-slate-300 md:grid-cols-2">
-                    <div className="rounded-lg border border-slate-800 bg-slate-surface p-3">
+                    <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-surface p-3">
                       <p className="font-bold text-slate-500">문의 내용</p>
-                      <p className="mt-2 whitespace-pre-wrap">{item.content || '등록된 문의 내용이 없습니다.'}</p>
+                      <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap break-words pr-1 [overflow-wrap:anywhere]">{item.content || '등록된 문의 내용이 없습니다.'}</p>
                     </div>
-                    <div className="rounded-lg border border-slate-800 bg-slate-surface p-3">
+                    <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-surface p-3">
                       <p className="font-bold text-slate-500">답변 내용</p>
-                      <p className="mt-2 whitespace-pre-wrap">{item.answer || '아직 등록된 답변이 없습니다.'}</p>
+                      <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap break-words pr-1 [overflow-wrap:anywhere]">{item.answer || '아직 등록된 답변이 없습니다.'}</p>
                     </div>
                     <div className="rounded-lg border border-slate-800 bg-slate-surface p-3">
                       <p className="font-bold text-slate-500">첨부파일</p>
@@ -287,7 +290,7 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
   const [formErrors, setFormErrors] = useState({})
   const [inquiries, setInquiries] = useState([])
   const [statusFilter, setStatusFilter] = useState('all')
-  const [inquirySortOrder, setInquirySortOrder] = useState('desc')
+  const [inquiryTypeFilter, setInquiryTypeFilter] = useState('all')
   const [historyPage, setHistoryPage] = useState(1)
   const [expandedFaqIndex, setExpandedFaqIndex] = useState(null)
   const [inquiriesLoading, setInquiriesLoading] = useState(false)
@@ -297,6 +300,11 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
   const [inquiryError, setInquiryError] = useState('')
   const navigate = useNavigate()
   const { pathname } = useLocation()
+
+  useEffect(() => {
+    return setBrowserTab({ title: 'ANTRY - 고객센터' })
+  }, [])
+
   const isWriteView = pathname === INQUIRY_ROUTES.write
   const isHistoryView = pathname === INQUIRY_ROUTES.history
 
@@ -331,12 +339,12 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
   }, [loadInquiries])
 
   const sortedInquiries = useMemo(() => {
-    return sortInquiries(inquiries, inquirySortOrder)
-  }, [inquiries, inquirySortOrder])
+    return sortInquiries(inquiries, 'desc')
+  }, [inquiries])
 
   const filteredHistoryInquiries = useMemo(() => {
-    return filterInquiriesByStatus(sortedInquiries, statusFilter)
-  }, [sortedInquiries, statusFilter])
+    return filterInquiriesByType(filterInquiriesByStatus(sortedInquiries, statusFilter), inquiryTypeFilter)
+  }, [inquiryTypeFilter, sortedInquiries, statusFilter])
 
   const historyTotalPages = Math.max(1, Math.ceil(filteredHistoryInquiries.length / HISTORY_PAGE_SIZE))
   const currentHistoryPage = Math.min(historyPage, historyTotalPages)
@@ -345,8 +353,8 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
   }, [currentHistoryPage, filteredHistoryInquiries])
 
   const filteredRecentInquiries = useMemo(() => {
-    return filterRecentInquiries(sortedInquiries, statusFilter, 5)
-  }, [sortedInquiries, statusFilter])
+    return filterRecentInquiries(filterInquiriesByType(sortedInquiries, inquiryTypeFilter), statusFilter, 5)
+  }, [inquiryTypeFilter, sortedInquiries, statusFilter])
 
   const summaryCounts = useMemo(() => getInquirySummaryCounts(inquiries), [inquiries])
 
@@ -709,19 +717,20 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
     </>
   )
 
-  const renderSortSelect = (id) => (
+  const renderTypeFilterSelect = (id) => (
     <select
       id={id}
-      value={inquirySortOrder}
+      value={inquiryTypeFilter}
       onChange={(event) => {
-        setInquirySortOrder(event.target.value)
+        setInquiryTypeFilter(event.target.value)
         setHistoryPage(1)
       }}
       className="rounded border border-slate-700 bg-[#0f172a] px-3 py-1.5 text-xs font-bold text-slate-300 focus:border-ai-cyan focus:outline-none"
-      aria-label="문의 정렬"
+      aria-label="문의 유형 필터"
     >
-      <option value="desc">최신순</option>
-      <option value="asc">과거순</option>
+      {inquiryTypeFilterItems.map((item) => (
+        <option key={item.value} value={item.value}>{item.label}</option>
+      ))}
     </select>
   )
 
@@ -730,7 +739,7 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
       <WidgetTitle
         title={inquiryHomeSections.recent.title}
         icon={inquiryHomeSections.recent.icon}
-        action={renderSortSelect('recent-inquiry-sort')}
+        action={renderTypeFilterSelect('recent-inquiry-type-filter')}
       />
       <div className="flex min-h-0 flex-col gap-3">
         <div className="flex flex-wrap gap-2">
@@ -818,7 +827,7 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
             <h1 className="mt-1 text-xl font-extrabold text-white">문의 내역</h1>
             <p className="mt-2 text-sm text-slate-400">등록한 문의와 답변 상태를 확인합니다.</p>
           </div>
-          {renderSortSelect('history-inquiry-sort')}
+          {renderTypeFilterSelect('history-inquiry-type-filter')}
         </div>
         <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4">
           {renderInquirySummaryPanel()}
@@ -864,10 +873,10 @@ export default function Inquiry({ isLoggedIn, userEmail, handleLogout }) {
       <div className="grid gap-3 md:grid-cols-2">
         <button
           type="button"
-          className="group flex items-center gap-4 rounded-lg border border-ai-cyan/30 bg-ai-cyan/10 p-4 text-left transition hover:border-ai-cyan hover:bg-ai-cyan/15"
+          className="group flex items-center gap-4 rounded-lg border border-slate-700 bg-[#0f172a] p-4 text-left transition hover:border-ai-cyan hover:bg-white/[0.03]"
           onClick={() => navigate(INQUIRY_ROUTES.write)}
         >
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-ai-cyan text-slate-950">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-slate-700 bg-slate-surface text-ai-cyan">
             <Icon name="message" className="h-5 w-5" />
           </span>
           <span>

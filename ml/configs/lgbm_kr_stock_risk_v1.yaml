@@ -5,6 +5,7 @@ model:
   version: lgbm_kr_stock_risk_v1
   asset_type: STOCK
   output_path: models/lgbm_kr_stock_risk_v1.joblib
+  min_listing_days: 120
   horizon_periods: 3
   up_return_threshold: 0.01
   risk_return_threshold: -0.02

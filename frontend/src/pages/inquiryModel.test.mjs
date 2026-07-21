@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   HISTORY_PAGE_SIZE,
   createInquiryFilePath,
+  filterInquiriesByType,
   filterRecentInquiries,
   formatInquiryDate,
   getInquirySummaryCounts,
@@ -30,6 +31,7 @@ test('문의 원장을 화면 행으로 변환하고 날짜와 상태 라벨을 
   })
 
   assert.equal(item.type, '주문/체결')
+  assert.equal(item.inquiryType, 'order')
   assert.equal(item.status, '답변 대기')
   assert.equal(item.statusCode, 'RECEIVED')
   assert.equal(item.answer, '')
@@ -60,6 +62,10 @@ test('문의 목록을 정렬, 필터링, 페이지 분할한다', () => {
   assert.deepEqual(sortInquiries(rows, 'asc').map((row) => row.id), ['wait', 'old', 'new'])
   assert.deepEqual(filterRecentInquiries(rows, 'WAITING', 5).map((row) => row.id), ['new', 'wait'])
   assert.deepEqual(filterRecentInquiries(rows, 'COMPLETED', 5).map((row) => row.id), ['old'])
+  assert.deepEqual(filterInquiriesByType([
+    { id: 'api', inquiryType: 'account' },
+    { id: 'order', inquiryType: 'order' },
+  ], 'account').map((row) => row.id), ['api'])
   assert.deepEqual(paginateInquiries(rows, 1, 2).map((row) => row.id), ['old', 'new'])
   assert.equal(HISTORY_PAGE_SIZE, 10)
 })

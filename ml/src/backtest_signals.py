@@ -52,16 +52,55 @@ def resolve_output_paths(config: dict, strategy: str) -> tuple[Path, Path]:
     )
 
 
+def load_median_dollar_volumes(config_path: str) -> dict[str, float]:
+    """
+    각 종목별 최근 20일 기준 중간값 거래대금을 원천 캔들 데이터 파일로부터 계산하여 반환합니다.
+    """
+    volumes = {}
+    
+    # 1. 주식 거래대금 계산
+    stock_raw = resolve_ml_path(config_path, "data/raw/stock_candles.csv")
+    if stock_raw.exists():
+        try:
+            df = pd.read_csv(stock_raw)
+            if not df.empty and "close" in df.columns and "volume" in df.columns:
+                df["dollar_volume"] = df["close"].astype(float) * df["volume"].astype(float)
+                for symbol, group in df.groupby("symbol"):
+                    recent = group.sort_values("date").tail(20)
+                    volumes[str(symbol).upper()] = float(recent["dollar_volume"].median())
+        except Exception:
+            pass
+            
+    # 2. 코인 거래대금 계산
+    crypto_raw = resolve_ml_path(config_path, "data/raw/crypto_candles.csv")
+    if crypto_raw.exists():
+        try:
+            df = pd.read_csv(crypto_raw)
+            if not df.empty and "close" in df.columns and "volume" in df.columns:
+                df["dollar_volume"] = df["close"].astype(float) * df["volume"].astype(float)
+                for symbol, group in df.groupby("symbol"):
+                    recent = group.sort_values("date").tail(20)
+                    volumes[str(symbol).upper()] = float(recent["dollar_volume"].median())
+        except Exception:
+            pass
+            
+    return volumes
+
+
 def build_daily_backtest(
     valid_df: pd.DataFrame,
     top_n: int,
     fee_bps: float,
     slippage_bps: float,
     selection_policy: dict | None = None,
+    volumes_cache: dict[str, float] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     daily_rows = []
     selection_rows = []
-    cost_rate = (fee_bps + slippage_bps) / 10000.0
+    
+    # volumes_cache가 제공되지 않은 경우 빈 딕셔너리로 초기화
+    volumes = volumes_cache or {}
+    universe_cost_rate = (fee_bps + slippage_bps) / 10000.0
 
     for date, group in valid_df.groupby("date", sort=True):
         universe_group = group.copy()
@@ -94,6 +133,24 @@ def build_daily_backtest(
         for idx, row in selected.iterrows():
             pos = row.get("position", "LONG")
             ret = row["future_return"]
+            
+            # 개별 종목 가변 슬리피지 연산
+            symbol_upper = str(row["symbol"]).upper()
+            median_vol = volumes.get(symbol_upper, 0.0)
+            asset_type = row.get("asset_type", "STOCK")
+            
+            # 거래대금 반비례 공식 적용 (기본 슬리피지 5 bps = 0.0005)
+            # alpha: 주식 5,000,000 / 코인 1,000,000
+            alpha = 5000000.0 if asset_type == "STOCK" else 1000000.0
+            if median_vol > 0:
+                slippage_penalty = 0.0005 + (alpha / median_vol)
+            else:
+                slippage_penalty = 0.0100  # 유동성 정보 유실 시 최대 1% 패널티 부과
+                
+            # 슬리피지 1.0% 상한선 제어
+            slippage_penalty = min(slippage_penalty, 0.0100)
+            cost_rate = (fee_bps / 10000.0) + slippage_penalty
+            
             actual_ret = -ret if pos == "SHORT" else ret
             net_ret = actual_ret - cost_rate
             actual_returns.append(actual_ret)
@@ -108,7 +165,7 @@ def build_daily_backtest(
         top_avg_return = float(selected["actual_future_return"].mean())
         net_top_avg_return = float(selected["future_return_net"].mean())
         universe_avg_return = float(universe_group["future_return"].mean())
-        net_universe_avg_return = universe_avg_return - cost_rate
+        net_universe_avg_return = universe_avg_return - universe_cost_rate
         excess_return = top_avg_return - universe_avg_return
         net_excess_return = net_top_avg_return - net_universe_avg_return
 
@@ -328,7 +385,15 @@ def main() -> None:
         top_n = max(1, int(math.ceil(valid_df["symbol"].nunique() * float(args.top_percent))))
 
     selection_policy = config.get("prediction", {}).get("selection_policy", {})
-    daily_df, summary = build_daily_backtest(valid_df, top_n, fee_bps, slippage_bps, selection_policy)
+    volumes_cache = load_median_dollar_volumes(args.config)
+    daily_df, summary = build_daily_backtest(
+        valid_df,
+        top_n,
+        fee_bps,
+        slippage_bps,
+        selection_policy,
+        volumes_cache=volumes_cache
+    )
     summary.update(
         {
             "strategy": args.strategy,

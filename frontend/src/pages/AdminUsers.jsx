@@ -98,6 +98,16 @@ function SummaryCard({ label, value, detail }) {
   )
 }
 
+function MobileSummaryCard({ label, value, detail }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-slate-800 bg-[#0f172a] p-3">
+      <p className="break-keep text-xs font-bold leading-5 text-slate-400">{label}</p>
+      <p className="mt-2 break-words font-mono text-xl font-extrabold leading-7 text-white [overflow-wrap:anywhere]">{value}</p>
+      {detail ? <p className="mt-1 break-words text-xs leading-5 text-slate-500 [overflow-wrap:anywhere]">{detail}</p> : null}
+    </div>
+  )
+}
+
 export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHeader = false }) {
   const [users, setUsers] = useState([])
   const [summary, setSummary] = useState({ totalUsers: 0, todayTokens: 0, tokens30d: 0, activeUsers24h: 0 })
@@ -381,20 +391,21 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
         {!hideHeader ? <Header isLoggedIn={isLoggedIn} userEmail={userEmail} handleLogout={handleLogout} /> : null}
 
         <section className="rounded-lg border border-slate-700/80 bg-slate-surface p-4 sm:p-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
+          {/* hideHeader는 모바일 관리자 안에 포함될 때만 켜지므로, PC 화면은 기존 배치를 그대로 사용합니다. */}
+          <div className={hideHeader ? 'grid gap-4' : 'flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between'}>
+            <div className={hideHeader ? 'min-w-0' : undefined}>
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Admin Users</p>
-              <h1 className="mt-1 text-2xl font-extrabold text-white">유저 관리</h1>
-              <p className="mt-2 text-sm text-slate-400">사용자별 실제 챗봇 토큰 사용량과 최근 사용 흐름을 확인합니다.</p>
+              <h1 className={hideHeader ? 'mt-1 break-keep text-xl font-extrabold text-white' : 'mt-1 text-2xl font-extrabold text-white'}>유저 관리</h1>
+              <p className={hideHeader ? 'mt-2 break-keep text-sm leading-6 text-slate-400' : 'mt-2 text-sm text-slate-400'}>사용자별 실제 챗봇 토큰 사용량과 최근 사용 흐름을 확인합니다.</p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_150px_120px_auto_auto]">
+            <div className={hideHeader ? 'grid w-full min-w-0 grid-cols-2 gap-2' : 'grid gap-2 sm:grid-cols-[minmax(220px,1fr)_150px_120px_auto_auto]'}>
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') handleSearch()
                 }}
-                className="rounded border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-white outline-none transition focus:border-ai-cyan"
+                className={hideHeader ? 'col-span-2 min-w-0 rounded border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-white outline-none transition focus:border-ai-cyan' : 'rounded border border-slate-700 bg-[#0f172a] px-3 py-2 text-sm text-white outline-none transition focus:border-ai-cyan'}
                 placeholder="이메일 또는 닉네임 검색"
               />
               <select value={sort} onChange={(event) => {
@@ -428,29 +439,50 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-            <SummaryCard label="전체 유저" value={formatNumber(summary.totalUsers)} />
-            <SummaryCard label="오늘 실제 토큰" value={formatNumber(summary.todayTokens)} />
-            <SummaryCard label="30일 실제 토큰" value={formatNumber(summary.tokens30d)} />
-            <SummaryCard
-              label="30일 예상 비용"
-              value={formatUsd(estimateBlendedCurrentModelCost(summary.tokens30d))}
-              detail="Blended 기준 추정"
-            />
-            <SummaryCard
-              label="통산 예상 비용"
-              value={formatUsd(estimateBlendedCurrentModelCost(summaryTotalTokens))}
-              detail={`전체 ${formatNumber(summaryTotalTokens)} tokens`}
-            />
-            <SummaryCard label="24시간 활성 유저" value={formatNumber(summary.activeUsers24h)} />
-          </div>
+          {hideHeader ? (
+            <div className="mt-5 grid min-w-0 grid-cols-2 gap-3">
+              {/* 모바일 관리자에서는 요약 카드가 한 줄로 찌그러지지 않도록 별도 카드 컴포넌트를 사용합니다. */}
+              <MobileSummaryCard label="전체 유저" value={formatNumber(summary.totalUsers)} />
+              <MobileSummaryCard label="오늘 실제 토큰" value={formatNumber(summary.todayTokens)} />
+              <MobileSummaryCard label="30일 실제 토큰" value={formatNumber(summary.tokens30d)} />
+              <MobileSummaryCard
+                label="30일 예상 비용"
+                value={formatUsd(estimateBlendedCurrentModelCost(summary.tokens30d))}
+                detail="Blended 기준 추정"
+              />
+              <MobileSummaryCard
+                label="통산 예상 비용"
+                value={formatUsd(estimateBlendedCurrentModelCost(summaryTotalTokens))}
+                detail={`전체 ${formatNumber(summaryTotalTokens)} tokens`}
+              />
+              <MobileSummaryCard label="24시간 활성 유저" value={formatNumber(summary.activeUsers24h)} />
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+              <SummaryCard label="전체 유저" value={formatNumber(summary.totalUsers)} />
+              <SummaryCard label="오늘 실제 토큰" value={formatNumber(summary.todayTokens)} />
+              <SummaryCard label="30일 실제 토큰" value={formatNumber(summary.tokens30d)} />
+              <SummaryCard
+                label="30일 예상 비용"
+                value={formatUsd(estimateBlendedCurrentModelCost(summary.tokens30d))}
+                detail="Blended 기준 추정"
+              />
+              <SummaryCard
+                label="통산 예상 비용"
+                value={formatUsd(estimateBlendedCurrentModelCost(summaryTotalTokens))}
+                detail={`전체 ${formatNumber(summaryTotalTokens)} tokens`}
+              />
+              <SummaryCard label="24시간 활성 유저" value={formatNumber(summary.activeUsers24h)} />
+            </div>
+          )}
         </section>
 
         <section className="grid gap-5">
           <div className="overflow-hidden rounded-lg border border-slate-700/80 bg-slate-surface p-3 sm:p-4">
-            <div className="md:overflow-x-auto">
-              <div className="md:min-w-[760px]">
-                <div className="hidden grid-cols-[minmax(170px,1.2fr)_80px_100px_repeat(4,minmax(90px,1fr))_105px_120px] rounded-t-lg bg-[#0f172a] text-xs font-bold text-slate-400 md:grid">
+            {/* 모바일 관리자에서는 PC 표 형태를 유지하되, 오른쪽 열은 표 내부 가로 스크롤로 확인합니다. */}
+            <div className={hideHeader ? 'overflow-x-auto' : 'md:overflow-x-auto'}>
+              <div className={hideHeader ? 'min-w-[960px]' : 'md:min-w-[760px]'}>
+                <div className={hideHeader ? 'grid grid-cols-[minmax(170px,1.2fr)_80px_100px_repeat(4,minmax(90px,1fr))_105px_120px] rounded-t-lg bg-[#0f172a] text-xs font-bold text-slate-400' : 'hidden grid-cols-[minmax(170px,1.2fr)_80px_100px_repeat(4,minmax(90px,1fr))_105px_120px] rounded-t-lg bg-[#0f172a] text-xs font-bold text-slate-400 md:grid'}>
                   <div className="px-3 py-3">유저</div>
                   <div className="px-3 py-3">권한</div>
                   <div className="px-3 py-3">최근 모델</div>
@@ -473,37 +505,37 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
                       key={item.id}
                       type="button"
                       onClick={() => handleOpenUserModal(item)}
-                      className={`grid w-full grid-cols-2 gap-2 border-t border-slate-800 px-4 py-4 text-left text-sm first:border-t-0 hover:bg-white/[0.03] md:grid-cols-[minmax(170px,1.2fr)_80px_100px_repeat(4,minmax(90px,1fr))_105px_120px] md:gap-0 md:px-0 md:py-0 ${selectedUser?.id === item.id ? 'bg-ai-cyan/5' : ''}`}
+                      className={`${hideHeader ? 'grid w-full grid-cols-[minmax(170px,1.2fr)_80px_100px_repeat(4,minmax(90px,1fr))_105px_120px] gap-0 border-t border-slate-800 px-0 py-0 text-left text-sm first:border-t-0 hover:bg-white/[0.03]' : 'grid w-full grid-cols-2 gap-2 border-t border-slate-800 px-4 py-4 text-left text-sm first:border-t-0 hover:bg-white/[0.03] md:grid-cols-[minmax(170px,1.2fr)_80px_100px_repeat(4,minmax(90px,1fr))_105px_120px] md:gap-0 md:px-0 md:py-0'} ${selectedUser?.id === item.id ? 'bg-ai-cyan/5' : ''}`}
                     >
-                      <span className="min-w-0 md:px-3 md:py-3">
+                      <span className={hideHeader ? 'min-w-0 px-3 py-3' : 'min-w-0 md:px-3 md:py-3'}>
                         <span className="block truncate font-bold text-white">{item.email || item.nickname || '-'}</span>
                         <span className="block truncate text-xs text-slate-500">{item.nickname || item.id}</span>
                       </span>
-                      <span className="text-xs font-bold text-ai-cyan md:px-3 md:py-3">{item.role}</span>
-                      <span className="text-xs text-slate-400 truncate md:px-3 md:py-3" title={item.usage?.recentModel || '-'}>
+                      <span className={hideHeader ? 'px-3 py-3 text-xs font-bold text-ai-cyan' : 'text-xs font-bold text-ai-cyan md:px-3 md:py-3'}>{item.role}</span>
+                      <span className={hideHeader ? 'truncate px-3 py-3 text-xs text-slate-400' : 'text-xs text-slate-400 truncate md:px-3 md:py-3'} title={item.usage?.recentModel || '-'}>
                         {item.usage?.recentModel || '-'}
                       </span>
-                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-slate-300 md:block md:px-3 md:py-3 md:text-right">
-                        <span className="font-inter font-bold text-slate-500 md:hidden">오늘</span>
+                      <span className={hideHeader ? 'block px-3 py-3 text-right font-mono text-xs text-slate-300' : 'flex items-center justify-between gap-2 font-mono text-xs text-slate-300 md:block md:px-3 md:py-3 md:text-right'}>
+                        <span className={hideHeader ? 'hidden' : 'font-inter font-bold text-slate-500 md:hidden'}>오늘</span>
                         <span>{formatNumber(item.usage?.todayTokens)}</span>
                       </span>
-                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-slate-300 md:block md:px-3 md:py-3 md:text-right">
-                        <span className="font-inter font-bold text-slate-500 md:hidden">7일</span>
+                      <span className={hideHeader ? 'block px-3 py-3 text-right font-mono text-xs text-slate-300' : 'flex items-center justify-between gap-2 font-mono text-xs text-slate-300 md:block md:px-3 md:py-3 md:text-right'}>
+                        <span className={hideHeader ? 'hidden' : 'font-inter font-bold text-slate-500 md:hidden'}>7일</span>
                         <span>{formatNumber(item.usage?.tokens7d)}</span>
                       </span>
-                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-white md:block md:px-3 md:py-3 md:text-right">
-                        <span className="font-inter font-bold text-slate-500 md:hidden">30일</span>
+                      <span className={hideHeader ? 'block px-3 py-3 text-right font-mono text-xs text-white' : 'flex items-center justify-between gap-2 font-mono text-xs text-white md:block md:px-3 md:py-3 md:text-right'}>
+                        <span className={hideHeader ? 'hidden' : 'font-inter font-bold text-slate-500 md:hidden'}>30일</span>
                         <span>{formatNumber(item.usage?.tokens30d)}</span>
                       </span>
-                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-slate-300 md:block md:px-3 md:py-3 md:text-right">
-                        <span className="font-inter font-bold text-slate-500 md:hidden">전체</span>
+                      <span className={hideHeader ? 'block px-3 py-3 text-right font-mono text-xs text-slate-300' : 'flex items-center justify-between gap-2 font-mono text-xs text-slate-300 md:block md:px-3 md:py-3 md:text-right'}>
+                        <span className={hideHeader ? 'hidden' : 'font-inter font-bold text-slate-500 md:hidden'}>전체</span>
                         <span>{formatNumber(item.usage?.totalTokens)}</span>
                       </span>
-                      <span className="flex items-center justify-between gap-2 font-mono text-xs text-emerald-300 md:block md:px-3 md:py-3 md:text-right">
-                        <span className="font-inter font-bold text-slate-500 md:hidden">예상 비용</span>
+                      <span className={hideHeader ? 'block px-3 py-3 text-right font-mono text-xs text-emerald-300' : 'flex items-center justify-between gap-2 font-mono text-xs text-emerald-300 md:block md:px-3 md:py-3 md:text-right'}>
+                        <span className={hideHeader ? 'hidden' : 'font-inter font-bold text-slate-500 md:hidden'}>예상 비용</span>
                         <span>{formatUsd(estimateBlendedCurrentModelCost(item.usage?.tokens30d, item.usage?.recentModel))}</span>
                       </span>
-                      <span className="col-span-2 text-xs text-slate-500 md:col-span-1 md:px-3 md:py-3">{formatDateTime(item.usage?.recentUsedAt)}</span>
+                      <span className={hideHeader ? 'px-3 py-3 text-xs text-slate-500' : 'col-span-2 text-xs text-slate-500 md:col-span-1 md:px-3 md:py-3'}>{formatDateTime(item.usage?.recentUsedAt)}</span>
                     </button>
                   ))}
                 </div>
@@ -536,9 +568,10 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
           </div>
         </section>
 
+        {/* 모바일 관리자에서 열린 상세 모달은 화면 높이에 맞춰 내부 스크롤을 조금 더 확보합니다. */}
         {isUserModalOpen && modalUser ? (
-          <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-6">
-            <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-lg border border-slate-700 bg-[#111827] shadow-2xl">
+          <div className={hideHeader ? 'fixed inset-0 z-50 grid place-items-center bg-black/70 px-3 py-4 sm:px-4 sm:py-6' : 'fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-6'}>
+            <div className={hideHeader ? 'max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-lg border border-slate-700 bg-[#111827] shadow-2xl' : 'max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-lg border border-slate-700 bg-[#111827] shadow-2xl'}>
               <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4">
                 <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Admin User</p>
@@ -583,7 +616,7 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
                 </div>
               </div>
 
-              <div className="max-h-[68vh] overflow-y-auto px-5 py-5">
+              <div className={hideHeader ? 'max-h-[70vh] overflow-y-auto px-4 py-4 sm:px-5 sm:py-5' : 'max-h-[68vh] overflow-y-auto px-5 py-5'}>
                 {activeModalTab === 'usage' ? (
                   detailLoading ? (
                     <div className="py-10 text-center text-sm font-bold text-slate-400">상세 사용량을 불러오는 중입니다.</div>
@@ -696,8 +729,9 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
                   ) : tradeError ? (
                     <div className="py-10 text-center text-sm font-bold text-rose-400">{tradeError}</div>
                   ) : (
-                    <div className="overflow-hidden rounded-lg border border-slate-800">
-                      <div className="grid grid-cols-[130px_100px_minmax(120px,1.2fr)_minmax(110px,1fr)_80px_90px_90px_110px_110px] bg-[#0f172a] text-xs font-bold text-slate-400">
+                    <div className={hideHeader ? 'overflow-x-auto rounded-lg border border-slate-800' : 'overflow-hidden rounded-lg border border-slate-800'}>
+                      {/* 모바일 모달의 거래내역 표는 열을 줄이지 않고 내부 스크롤로 전체 항목을 확인합니다. */}
+                      <div className={`${hideHeader ? 'min-w-[920px] ' : ''}grid grid-cols-[130px_100px_minmax(120px,1.2fr)_minmax(110px,1fr)_80px_90px_90px_110px_110px] bg-[#0f172a] text-xs font-bold text-slate-400`}>
                         <div className="px-3 py-3">일시</div>
                         <div className="px-3 py-3">거래소</div>
                         <div className="px-3 py-3">종목</div>
@@ -711,7 +745,7 @@ export default function AdminUsers({ isLoggedIn, userEmail, handleLogout, hideHe
                       {tradeRows.length === 0 ? (
                         <div className="px-4 py-10 text-center text-sm font-bold text-slate-500">표시할 거래내역이 없습니다.</div>
                       ) : tradeRows.map((row) => (
-                        <div key={row.id} className="grid grid-cols-[130px_100px_minmax(120px,1.2fr)_minmax(110px,1fr)_80px_90px_90px_110px_110px] border-t border-slate-800 text-xs">
+                        <div key={row.id} className={`${hideHeader ? 'min-w-[920px] ' : ''}grid grid-cols-[130px_100px_minmax(120px,1.2fr)_minmax(110px,1fr)_80px_90px_90px_110px_110px] border-t border-slate-800 text-xs`}>
                           <div className="px-3 py-3 text-slate-400">{formatDateTime(row.occurredAt)}</div>
                           <div className="px-3 py-3 font-bold text-ai-cyan">{row.exchange}</div>
                           <div className="min-w-0 px-3 py-3">

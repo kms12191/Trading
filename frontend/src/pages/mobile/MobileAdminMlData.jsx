@@ -3,6 +3,7 @@ import Header from '../../components/Header.jsx'
 import { supabase } from '../../supabaseClient'
 import MobileAdminInquiries from './MobileAdminInquiries.jsx'
 import AdminSymbolReconciliation from '../AdminSymbolReconciliation.jsx'
+import AdminUsers from '../AdminUsers.jsx'
 import {
   ActiveSignalPanel,
   AdvancedDataToolsPanel,
@@ -744,7 +745,8 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
 
       <main className="mx-auto flex max-w-7xl flex-col gap-4">
         {/* 관리자 내부 탭 */}
-        <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-800 bg-[#0f172a] p-1">
+        {/* 모바일에서는 관리자 탭이 좁아지지 않도록 2열로 접고, 넓은 화면에서만 4열로 펼칩니다. */}
+        <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-800 bg-[#0f172a] p-1 sm:grid-cols-4">
           <button
             type="button"
             onClick={() => setAdminTab('ml')}
@@ -777,6 +779,17 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
             }`}
           >
             종목 정리
+          </button>
+          <button
+            type="button"
+            onClick={() => setAdminTab('users')}
+            className={`rounded-md px-3 py-2 text-xs font-bold transition ${
+              adminTab === 'users'
+                ? 'bg-ai-cyan text-slate-950'
+                : 'text-slate-400 hover:bg-slate-800/70 hover:text-white'
+            }`}
+          >
+            유저 관리
           </button>
         </div>
 
@@ -957,6 +970,16 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
 
         {adminTab === 'inquiries' && (
           <MobileAdminInquiries
+            isLoggedIn={isLoggedIn}
+            userEmail={userEmail}
+            handleLogout={handleLogout}
+            hideHeader
+          />
+        )}
+
+        {/* 공용 유저 관리 화면을 모바일 관리자 내부에 끼워 넣기 위해 헤더를 숨긴 상태로 렌더링합니다. */}
+        {adminTab === 'users' && (
+          <AdminUsers
             isLoggedIn={isLoggedIn}
             userEmail={userEmail}
             handleLogout={handleLogout}

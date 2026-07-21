@@ -8,6 +8,7 @@ import { preserveMobileDeviceParam } from './mobileRouteUtils.js'
 const INITIAL_RANKING_LIMIT = 10
 const EXPANDED_RANKING_LIMIT = 50
 
+// 모바일 홈 상단 랭킹은 자산군 탭과 지표 탭을 조합해 같은 목록 UI에서 재사용합니다.
 const CATEGORY_TABS = [
   { key: 'domestic', label: '국내', assetType: 'STOCK', region: '국내' },
   { key: 'foreign', label: '해외', assetType: 'STOCK', region: '해외' },
@@ -225,6 +226,7 @@ function RankingCard({ row, category, metric, favoriteKeys, onToggleFavorite }) 
 }
 
 export default function MobileHome({ isLoggedIn, handleLogout }) {
+  // 홈 화면은 관심종목과 시장 랭킹을 가볍게 보여주는 모바일 첫 진입 화면입니다.
   const [activeCategoryKey, setActiveCategoryKey] = useState('domestic')
   const [activeMetricKey, setActiveMetricKey] = useState('tradingValue')
   const [visibleLimit, setVisibleLimit] = useState(INITIAL_RANKING_LIMIT)

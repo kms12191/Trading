@@ -1,9 +1,14 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../supabaseClient'
+import { setBrowserTab } from '../../lib/browserTab.js'
 
 export default function MobileLogin() {
   const navigate = useNavigate()
+
+  useEffect(() => {
+    return setBrowserTab({ title: 'ANTRY - 로그인' })
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {

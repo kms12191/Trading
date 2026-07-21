@@ -457,6 +457,7 @@ def _load_user_exchange_record(auth_header: str, user_id: str, exchange: str, br
     
     # 기존 코드의 record 딕셔너리 포맷 호환을 위해 객체 구성
     record = {
+        "id": creds.get("id"),
         "toss_account_seq": creds["toss_account_seq"],
         "toss_account_no": creds["toss_account_no"],
         "kis_account_no": creds["kis_account_no"],
@@ -470,6 +471,13 @@ def _format_user_value_error_message(error: ValueError) -> str:
     내부 구현 용어가 사용자 화면에 노출되지 않도록 ValueError 메시지를 정규화합니다.
     """
     return str(error).replace("API 크리덴셜 정보", "API 키 정보").replace("API 크리덴셜", "API 키")
+
+
+def _validate_selected_order_account(record: dict, account_id: str, exchange: str, broker_env: str) -> None:
+    record_id = str(record.get("id") or "").strip()
+    expected_account_id = f"{exchange.upper()}:{broker_env.upper()}:{record_id}"
+    if not record_id or str(account_id or "").strip() != expected_account_id:
+        raise ValueError("선택한 주문 계좌가 현재 거래소 또는 거래 환경과 일치하지 않습니다. 계좌를 다시 선택해 주세요.")
 
 
 def _currency_for_quote(exchange: str, symbol: str) -> str:
@@ -2707,6 +2715,7 @@ def precheck_manual_order():
 
     try:
         record, access_key, secret_key = _load_user_exchange_record(auth_header, user_id, exchange, broker_env)
+        _validate_selected_order_account(record, order.get("account_id"), exchange, broker_env)
         validation_client = _build_exchange_client(exchange, broker_env, record, access_key, secret_key)
         _validate_order_entry_symbol(validation_client, exchange, symbol)
         payload = _build_precheck_payload(
@@ -2855,6 +2864,8 @@ def place_manual_order():
 
     try:
         record, access_key, secret_key = _load_user_exchange_record(auth_header, user_id, exchange, broker_env)
+        if data.get("account_id"):
+            _validate_selected_order_account(record, data["account_id"], exchange, broker_env)
     except ValueError as e:
         return jsonify({"success": False, "message": _format_user_value_error_message(e)}), 400
     except Exception as e:

@@ -22,6 +22,7 @@ import {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
+// 관심종목 차트는 선택된 종목과 자산군에 따라 주식/코인용 캔들 설정을 나눠 사용합니다.
 const HeartIcon = ({ className = '', filled = false }) => (
   <svg
     className={className}
@@ -307,6 +308,7 @@ function WatchlistCandlestickChart({ item, assetType, cryptoChartMode, onCryptoC
 }
 
 export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1380, mobileLayout = false }) {
+  // 모바일 관심종목 탭은 목록 선택, 차트, 뉴스 요약을 같은 화면 안에서 전환해 보여줍니다.
   const formatCurrency = (value, currency, targetDisplayCurrency = displayCurrency) => {
     const numeric = Number(value)
     const val = Number.isFinite(numeric) ? numeric : 0

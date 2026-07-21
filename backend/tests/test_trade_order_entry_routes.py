@@ -265,6 +265,51 @@ def test_precheck_returns_signed_token_without_creating_proposal(client, monkeyp
     assert writes == []
 
 
+def test_precheck_rejects_account_id_for_a_different_connected_account(client, monkeypatch):
+    order = {
+        "account_id": "TOSS:REAL:key-2",
+        "exchange": "TOSS",
+        "asset_type": "STOCK",
+        "broker_env": "REAL",
+        "intent": "BUY",
+        "symbol": "005930",
+        "symbol_selected": True,
+        "quantity": 1,
+        "order_type": "LIMIT",
+        "price": 75000,
+        "idempotency_key": str(uuid.UUID("66666666-6666-4666-8666-666666666666")),
+    }
+    monkeypatch.setattr(
+        trade,
+        "_load_user_exchange_record",
+        lambda *_args, **_kwargs: ({"id": "key-1"}, "access", "secret"),
+    )
+    monkeypatch.setattr(trade, "_validate_order_entry_symbol", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        trade,
+        "_build_precheck_payload",
+        lambda **_kwargs: {
+            "reference_price": 75000.0,
+            "estimated_amount_krw": 75000.0,
+            "available_cash": 250000.0,
+            "holding_qty": 0.0,
+            "warnings": [],
+            "balance_check_failed": False,
+            "is_market_closed": False,
+            "insufficient_cash": False,
+            "insufficient_holding": False,
+            "insufficient_permission": False,
+            "futures_real_blocked": False,
+            "exceeds_real_order_limit": False,
+        },
+    )
+
+    response = client.post("/api/trade/precheck", json=order, headers=AUTH)
+
+    assert response.status_code == 400
+    assert "계좌" in response.get_json()["message"]
+
+
 def test_blocked_precheck_does_not_issue_proposal_token(client, monkeypatch):
     order = {
         "account_id": "TOSS:REAL:key-1",

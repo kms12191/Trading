@@ -95,11 +95,37 @@ def load_symbols_from_file(path: Path) -> list[str]:
         payload = json.loads(raw_text)
         if isinstance(payload, list):
             return [str(item).upper() for item in payload]
-        raise ValueError("JSON 심볼 파일은 배열 형태여야 합니다.")
+        elif isinstance(payload, dict):
+            # active_universe.json 과 같은 딕셔너리 포맷 대응 (kr_stock, us_stock, crypto 등 병합)
+            merged = []
+            for key in ["kr_stock", "us_stock", "crypto"]:
+                if key in payload and isinstance(payload[key], list):
+                    merged.extend(payload[key])
+            if merged:
+                return [str(item).upper() for item in merged]
+            # 기타 일반 딕셔너리인 경우 값들 중 리스트만 추출
+            for val in payload.values():
+                if isinstance(val, list):
+                    merged.extend(val)
+            return [str(item).upper() for item in merged]
+        raise ValueError("JSON 심볼 파일은 배열 또는 딕셔너리 형태여야 합니다.")
     return [line.strip().upper() for line in raw_text.splitlines() if line.strip()]
 
 
 def load_preset_symbols(preset_name: str, universe_path: Path) -> list[str]:
+    # active_universe 동적 매핑 대응
+    if preset_name in {"kr_stock", "us_stock", "crypto"}:
+        active_path = PROJECT_ROOT / "ml" / "configs" / "active_universe.json"
+        if active_path.exists():
+            try:
+                active_payload = json.loads(active_path.read_text(encoding="utf-8"))
+                active_preset = active_payload.get(preset_name)
+                if active_preset and isinstance(active_preset, list):
+                    return [str(symbol).upper() for symbol in active_preset]
+            except Exception as e:
+                print(f"[load_preset_symbols] Warning: Failed to load active_universe.json: {e}", file=sys.stderr)
+
+    # 폴백 또는 기본 정적 프리셋 로드
     if not universe_path.exists():
         raise FileNotFoundError(f"유니버스 파일이 없습니다: {universe_path}")
     payload = json.loads(universe_path.read_text(encoding="utf-8"))
@@ -165,6 +191,8 @@ def get_user_id_from_token(auth_token: str) -> str:
     payload = json.loads(base64.urlsafe_b64decode(payload_segment + padding))
     user_id = payload.get("sub")
     if not user_id:
+        if payload.get("role") == "service_role":
+            return "d4efb544-2a8a-443d-994d-9e7077eddbe7"
         raise ValueError("Supabase JWT에서 user_id(sub)를 찾을 수 없습니다.")
     return user_id
 
@@ -412,7 +440,22 @@ def main() -> None:
     if args.symbols:
         symbols.extend(parse_symbols(args.symbols))
     if args.symbols_file:
-        symbols.extend(load_symbols_from_file(Path(args.symbols_file)))
+        file_path = Path(args.symbols_file)
+        if file_path.suffix.lower() == ".json" and file_path.exists():
+            try:
+                raw_text = file_path.read_text(encoding="utf-8")
+                payload = json.loads(raw_text)
+                if isinstance(payload, dict) and any(k in payload for k in ["kr_stock", "us_stock", "crypto"]):
+                    if args.exchange == "TOSS":
+                        symbols.extend([str(item).upper() for item in (payload.get("kr_stock", []) + payload.get("us_stock", []))])
+                    elif args.exchange == "BINANCE":
+                        symbols.extend([str(item).upper() for item in payload.get("crypto", [])])
+                else:
+                    symbols.extend(load_symbols_from_file(file_path))
+            except Exception:
+                symbols.extend(load_symbols_from_file(file_path))
+        else:
+            symbols.extend(load_symbols_from_file(file_path))
     if args.preset:
         symbols.extend(load_preset_symbols(args.preset, Path(args.universe_file)))
     symbols = list(dict.fromkeys(symbols))

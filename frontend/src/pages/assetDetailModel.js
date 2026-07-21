@@ -138,6 +138,28 @@ export const getSupportedCryptoOrderExchanges = (metadata = {}) => {
   return [...new Set(supported)]
 }
 
+export const getOrderEntryAssetType = (exchange = '') => {
+  const normalizedExchange = String(exchange || '').toUpperCase()
+  if (normalizedExchange === 'TOSS' || normalizedExchange === 'KIS') return 'STOCK'
+  if (normalizedExchange === 'BINANCE_UM_FUTURES') return 'CRYPTO_FUTURES'
+  return 'CRYPTO_SPOT'
+}
+
+export const findTradableOrderAccount = (accounts = [], exchange = '', brokerEnv = '') => {
+  const normalizedExchange = String(exchange || '').toUpperCase()
+  const normalizedBrokerEnv = String(brokerEnv || '').toUpperCase()
+  const expectedAssetType = getOrderEntryAssetType(normalizedExchange)
+  if (!Array.isArray(accounts) || !normalizedExchange || !normalizedBrokerEnv) return null
+
+  return accounts.find((account) => (
+    String(account?.exchange || '').toUpperCase() === normalizedExchange
+    && String(account?.asset_type || '').toUpperCase() === expectedAssetType
+    && String(account?.broker_env || '').toUpperCase() === normalizedBrokerEnv
+    && account?.trade_enabled !== false
+    && String(account?.id || '').trim()
+  )) || null
+}
+
 export const getStockWarningBadgeTone = (warningType) => (
   STOCK_WARNING_BADGE_META[String(warningType || '').toUpperCase()]?.tone
   || 'border-slate-600 bg-slate-800/70 text-slate-200'

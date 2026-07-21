@@ -1,6 +1,6 @@
 export { AuditBadge, GuardSummary, JobLogModal, StatusPanel, VersionDeltaPanel } from './adminMlDataCorePanels.jsx'
 export { JobHistoryPanel } from './adminMlDataHistoryPanels.jsx'
-export { ActiveSignalPanel, ExecutionChecklistPanel, ModelSwitchPanel, ReadinessPanel, RegistryPanel, ReportHistoryPanel, ReportPanel, ServingAuditPanel, VersionComparisonTable } from './adminMlDataOperationalPanels.jsx'
+export { ActiveSignalPanel, ExecutionChecklistPanel, ModelSwitchPanel, ReadinessPanel, RegistryPanel, ReportHistoryPanel, ReportPanel, ServingAuditPanel, VersionComparisonTable, UniverseManagementPanel } from './adminMlDataOperationalPanels.jsx'
 export { ModelResultCard } from './adminMlDataResultPanels.jsx'
 export { OperationalTrustPanel, V8OptunaPanel } from './adminMlDataTrustPanels.jsx'
 export { AdvancedDataToolsPanel, AdvancedTrainingToolsPanel, JobHistorySection, MlConsoleHeader, ModelResultsSection, OperationalAutomationPanel, RegistryStatusSection } from './adminMlDataWorkflowPanels.jsx'

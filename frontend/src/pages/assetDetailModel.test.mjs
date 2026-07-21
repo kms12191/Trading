@@ -27,6 +27,8 @@ import {
   getOrderSideLabel,
   getOrderStatusLabel,
   getSupportedCryptoOrderExchanges,
+  getOrderEntryAssetType,
+  findTradableOrderAccount,
   getPolicyReasonLabel,
   getPolicyReasonLabels,
   getProbabilityLevel,
@@ -95,6 +97,21 @@ describe('assetDetailModel', () => {
       }),
       ['BINANCE', 'BINANCE_UM_FUTURES'],
     )
+  })
+
+  it('selects only a tradable order-entry account matching exchange, asset type, and environment', () => {
+    const accounts = [
+      { id: 'COINONE:REAL:key-1', exchange: 'COINONE', asset_type: 'CRYPTO_SPOT', broker_env: 'REAL', trade_enabled: true },
+      { id: 'BINANCE:REAL:key-2', exchange: 'BINANCE', asset_type: 'CRYPTO_SPOT', broker_env: 'REAL', trade_enabled: false },
+      { id: 'BINANCE_UM_FUTURES:MOCK:key-2', exchange: 'BINANCE_UM_FUTURES', asset_type: 'CRYPTO_FUTURES', broker_env: 'MOCK', trade_enabled: true },
+    ]
+
+    assert.equal(getOrderEntryAssetType('COINONE'), 'CRYPTO_SPOT')
+    assert.equal(getOrderEntryAssetType('BINANCE_UM_FUTURES'), 'CRYPTO_FUTURES')
+    assert.equal(getOrderEntryAssetType('TOSS'), 'STOCK')
+    assert.equal(findTradableOrderAccount(accounts, 'COINONE', 'REAL')?.id, 'COINONE:REAL:key-1')
+    assert.equal(findTradableOrderAccount(accounts, 'BINANCE', 'REAL'), null)
+    assert.equal(findTradableOrderAccount(accounts, 'BINANCE_UM_FUTURES', 'MOCK')?.id, 'BINANCE_UM_FUTURES:MOCK:key-2')
   })
 
   it('returns Korean labels for order and auto rule states', () => {

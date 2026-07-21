@@ -1,11 +1,16 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { setBrowserTab } from '../lib/browserTab.js'
 import { SplineScene } from '@/components/ui/splite'
 import { Spotlight } from '@/components/ui/spotlight'
 
 export default function Login() {
   const navigate = useNavigate()
+
+  useEffect(() => {
+    return setBrowserTab({ title: 'ANTRY - 로그인' })
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {

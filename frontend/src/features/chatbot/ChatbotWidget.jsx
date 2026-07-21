@@ -30,7 +30,7 @@ const INITIAL_MESSAGES = [
   {
     id: 'welcome',
     role: 'assistant',
-    text: '안녕하세요. 고객님!\n\n궁금하신 내용을 직접 입력해 주세요.',
+    text: '안녕하세요. 고객님!\n\n궁금하신 내용을 직접 입력해 주세요.\n\n시세 조회와 매매 제안을 도와드릴 수 있지만,\n투자 권유나 수익 보장은 아닙니다.\n모든 주문은 고객 승인 후에만 진행되며,\n최종 투자 판단과 책임은 고객님께 있습니다.',
     createdAt: new Date().toISOString(),
     timelineOrder: 0,
   },
@@ -1190,7 +1190,7 @@ export default function ChatbotWidget({
                 readOnly={!isLoggedIn}
                 placeholder={isLoggedIn ? (isMobilePage ? '궁금한 점을 입력해 주세요.' : '메시지를 입력하세요') : '로그인 후 이용 가능합니다'}
                 className={isMobilePage
-                  ? 'max-h-28 min-h-12 flex-1 resize-none border-none bg-transparent px-0 py-3 text-lg leading-6 text-slate-100 outline-none placeholder:text-slate-400 read-only:cursor-pointer'
+                  ? 'max-h-28 min-h-12 flex-1 resize-none border-none bg-transparent px-0 py-3 text-xs leading-5 text-slate-100 outline-none placeholder:text-slate-400 read-only:cursor-pointer'
                   : 'min-h-11 flex-1 resize-none rounded border border-slate-700 bg-[#111827] px-3 py-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-ai-cyan read-only:cursor-pointer read-only:border-ai-cyan/40'}
               />
               <button
