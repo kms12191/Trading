@@ -76,6 +76,7 @@ class CredentialsGateway:
                 return entry["data"]
 
         data = {
+            "id": record.get("id"),
             "access_key": access_key,
             "secret_key": secret_key,
             "toss_account_seq": record.get("toss_account_seq"),
