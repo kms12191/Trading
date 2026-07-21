@@ -30,7 +30,7 @@ const INITIAL_MESSAGES = [
   {
     id: 'welcome',
     role: 'assistant',
-    text: '안녕하세요. 고객님!\n\n궁금하신 내용을 직접 입력해 주세요.',
+    text: '안녕하세요. 고객님!\n\n궁금하신 내용을 직접 입력해 주세요.\n\n시세 조회와 매매 제안을 도와드릴 수 있지만,\n투자 권유나 수익 보장은 아닙니다.\n모든 주문은 고객 승인 후에만 진행되며,\n최종 투자 판단과 책임은 고객님께 있습니다.',
     createdAt: new Date().toISOString(),
     timelineOrder: 0,
   },
