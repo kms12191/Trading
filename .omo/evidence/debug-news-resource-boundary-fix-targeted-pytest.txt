@@ -1,8 +1,0 @@
-............................                                             [100%]
-============================== warnings summary ===============================
-C:\Users\404_22\anaconda3\Lib\site-packages\_pytest\cacheprovider.py:475
-  C:\Users\404_22\anaconda3\Lib\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path D:\KDH\Trading\.pytest_cache\v\cache\nodeids: [WinError 5] 액세스가 거부되었습니다: 'D:\\KDH\\Trading\\.pytest_cache\\v\\cache'
-    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-28 passed, 1 warning in 9.29s

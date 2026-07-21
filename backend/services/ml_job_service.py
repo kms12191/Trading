@@ -122,6 +122,17 @@ def run_ml_pipeline(
     summary_output: str | None = None,
 ) -> dict[str, Any]:
     python_bin = resolve_ml_python()
+    
+    # 1. 학습 기동 전 유니버스 스크리너 선행 구동 (active_universe.json 자동 최신화)
+    screener_command = [python_bin, "ml/src/universe_screener.py"]
+    subprocess.run(
+        screener_command,
+        cwd=PROJECT_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
     command = [
         python_bin,
         "ml/src/run_pipeline_bundle.py",
