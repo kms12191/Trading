@@ -367,6 +367,18 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                 
                                 crypto_run_count += 1
                                 
+                                # 수집 전 최신 유니버스 갱신
+                                try:
+                                    subprocess.run(
+                                        [sys.executable, "ml/src/universe_screener.py"],
+                                        cwd=str(PROJECT_ROOT),
+                                        check=False,
+                                        capture_output=True,
+                                        text=True
+                                    )
+                                except Exception as e:
+                                    logger.warning(f"Failed to run universe_screener before crypto export: {e}")
+
                                 preset_symbols = load_preset_symbols(dataset_config["preset"], DEFAULT_UNIVERSE_PATH)
                                 symbols = list(dict.fromkeys([*(dataset_config.get("symbols") or []), *preset_symbols]))
                                 
@@ -529,6 +541,18 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                                 )
                                                             except Exception:
                                                                 pass
+
+                                                        # 수집 전 최신 유니버스 갱신
+                                                        try:
+                                                            subprocess.run(
+                                                                [sys.executable, "ml/src/universe_screener.py"],
+                                                                cwd=str(PROJECT_ROOT),
+                                                                check=False,
+                                                                capture_output=True,
+                                                                text=True
+                                                            )
+                                                        except Exception as e:
+                                                            logger.warning(f"Failed to run universe_screener before stock export: {e}")
 
                                                         preset_symbols = load_preset_symbols(dataset_config["preset"], DEFAULT_UNIVERSE_PATH)
                                                         symbols = list(dict.fromkeys([*(dataset_config.get("symbols") or []), *preset_symbols]))

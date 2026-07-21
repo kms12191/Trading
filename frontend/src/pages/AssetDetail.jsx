@@ -5,7 +5,9 @@ import { supabase, deleteUserWatchlistItem, ensureNewsSummaries, fetchUserWatchl
 import { calculateSMA, getVolumeColor } from './chartUtils.js'
 import Header from '../components/Header.jsx'
 import MemberOnlyModal from '../components/MemberOnlyModal.jsx'
+import { getAssetLogoUrl } from '../components/assetLogoModel.js'
 import { getApiErrorMessage } from '../lib/apiError.js'
+import { setBrowserTab } from '../lib/browserTab.js'
 import { buildManualOrderFingerprint, resolveManualOrderIdempotency, shouldResetManualOrderIdempotency } from '../lib/manualOrderIdempotency.js'
 import AssetDetailAutoRulesPanel from './assetDetailAutoRulesPanel.jsx'
 import AssetDetailChartPanel from './assetDetailChartPanel.jsx'
@@ -234,6 +236,23 @@ export default function AssetDetail({ isLoggedIn, userEmail, handleLogout, userP
   const [isFavorite, setIsFavorite] = useState(false)
   const [symbolLookupReady, setSymbolLookupReady] = useState(false)
   const [cryptoOrderExchanges, setCryptoOrderExchanges] = useState([])
+
+  const buildBrowserTabTitle = () => {
+    const titleName = String(displayName || resolvedSymbol || symbol || '').trim()
+    const numericPrice = Number(currentPrice)
+    const titlePrice = Number.isFinite(numericPrice) && numericPrice > 0 ? formatUnitPrice(numericPrice) : ''
+    const titleParts = [titleName, titlePrice].filter(Boolean)
+    return titleParts.length > 0 ? `${titleParts.join(' · ')} | ANTRY` : 'ANTRY'
+  }
+
+  const browserTabLogoUrl = getAssetLogoUrl(resolvedSymbol || symbol, resolvedAssetType)
+
+  useEffect(() => {
+    return setBrowserTab({
+      title: buildBrowserTabTitle(),
+      iconHref: browserTabLogoUrl,
+    })
+  }, [displayName, resolvedSymbol, symbol, currentPrice, exchange, resolvedAssetType, isResolvedUsStock, browserTabLogoUrl])
 
   // URL 파라미터 변경 시 렌더링 도중에 상태 즉시 동기화 (컴포넌트 재사용 버그 원천 차단)
   const [prevSymbol, setPrevSymbol] = useState(symbol)

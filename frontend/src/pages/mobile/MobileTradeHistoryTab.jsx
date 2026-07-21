@@ -18,6 +18,7 @@ import {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
+// 종목명 조회 결과는 거래내역 목록에서 반복 호출되지 않도록 파일 단위 캐시에 보관합니다.
 const symbolDisplayNameCache = new Map()
 
 const fetchSymbolDisplayNames = async (proposals = []) => {
@@ -65,6 +66,7 @@ const hydrateTradeProposals = async (proposals = []) => {
 }
 
 export default function TradeHistoryTab({ mobileLayout = false }) {
+  // 모바일 거래내역 탭은 체결/제안/출금 내역을 합쳐 필터링하고, 필요한 경우 주문 수정도 처리합니다.
   const [tradeHistory, setTradeHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [tradeError, setTradeError] = useState('')

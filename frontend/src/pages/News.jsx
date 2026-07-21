@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Header from '../components/Header.jsx'
+import { setBrowserTab } from '../lib/browserTab.js'
 import { ensureNewsSummaries, fetchNewsArticles } from '../lib/supabaseClient.js'
 
 const PAGE_SIZE = 10
@@ -79,6 +80,10 @@ export default function News({ isLoggedIn, userEmail, handleLogout }) {
   const [page, setPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const newsRequestSeq = useRef(0)
+
+  useEffect(() => {
+    return setBrowserTab({ title: 'ANTRY - 뉴스' })
+  }, [])
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / PAGE_SIZE)), [totalCount])
 

@@ -378,6 +378,16 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
     if "market_country" in candles.columns:
         candles["market_country"] = candles["market_country"].astype(str).str.upper()
     candles = candles.sort_values(["symbol", "date"]).reset_index(drop=True)
+    
+    # 상장 연한 필터 (최소 영업일 730일 이상 확보된 종목만 남김)
+    min_days = int(config.get("model", {}).get("min_listing_days", 730))
+    symbol_counts = candles.groupby("symbol")["date"].count()
+    valid_symbols = symbol_counts[symbol_counts >= min_days].index
+    if len(valid_symbols) > 0:
+        candles = candles[candles["symbol"].isin(valid_symbols)].copy()
+    else:
+        sys.stderr.write(f"Warning: All symbols filtered out by min_listing_days ({min_days}). Skipping filter to preserve data.\n")
+
     candles["date_ymd"] = candles["date"].dt.strftime("%Y-%m-%d")
     asset_type = str(config["model"]["asset_type"]).upper()
     # 30분 캔들 지원: CRYPTO는 30분 단위 내림으로 병합 키 생성 (1h 캔들도 호환)
@@ -392,6 +402,10 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
     frames = []
     for symbol, group in candles.groupby("symbol", sort=False):
         group = group.sort_values("date").copy()
+        
+        # 캔들 가격 데이터 결측치 전방 채움 (거래 정지 등 대비)
+        group[["open", "high", "low", "close"]] = group[["open", "high", "low", "close"]].ffill()
+        
         close = group["close"].astype(float)
         open_price = group["open"].astype(float)
         high = group["high"].astype(float)

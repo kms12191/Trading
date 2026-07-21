@@ -66,7 +66,7 @@ export const faqItems = [
   },
   {
     question: '개인정보와 API 키는 서비스에서 어떻게 보호하나요?',
-    answer: '개인정보와 API 키는 보안 정책에 따라 안전하게 관리되며, 외부에 노출되지 않도록 보호됩니다.',
+    answer: '개인정보와 API 키는 서비스 연동에 필요한 범위에서만 사용되며, 등록된 API Key와 Secret Key는 서버에서 암호화하여 저장됩니다. 화면에는 전체 키가 노출되지 않고 일부만 마스킹되어 표시됩니다.\n\nAPI 키 발급 시에는 필요한 권한만 부여하고, 조회/주문 연동에 필요 없는 출금 권한은 활성화하지 않는 것을 권장합니다.',
   },
 ]
 
@@ -112,6 +112,11 @@ export const inquiryTypeLabels = Object.fromEntries(
   inquiryTypes.filter((item) => item.value).map((item) => [item.value, item.label]),
 )
 
+export const inquiryTypeFilterItems = [
+  { value: 'all', label: '전체' },
+  ...inquiryTypes.filter((item) => item.value),
+]
+
 export const getInquiryFileExtension = (fileName = '') => {
   const parts = fileName.split('.')
   return parts.length > 1 ? parts.pop().toLowerCase() : ''
@@ -154,6 +159,7 @@ export const formatInquiryDate = (value) => {
 
 export const toInquiryViewItem = (row = {}) => ({
   id: row.id,
+  inquiryType: row.inquiry_type || '',
   type: inquiryTypeLabels[row.inquiry_type] || row.inquiry_type || '-',
   status: inquiryStatusLabels[row.status] || row.status || '-',
   statusCode: row.status,
@@ -187,6 +193,11 @@ export const filterInquiriesByStatus = (inquiries, statusFilter = 'all') => {
     return inquiries.filter((item) => item.statusCode === 'WAITING' || item.statusCode === 'RECEIVED')
   }
   return inquiries.filter((item) => item.statusCode === statusFilter)
+}
+
+export const filterInquiriesByType = (inquiries, typeFilter = 'all') => {
+  if (typeFilter === 'all') return inquiries
+  return inquiries.filter((item) => item.inquiryType === typeFilter)
 }
 
 export const filterRecentInquiries = (inquiries, statusFilter = 'all', limit = 5) => {

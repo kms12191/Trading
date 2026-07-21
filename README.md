@@ -1,311 +1,211 @@
-# Toss 메인 AI 트레이딩 프로젝트
+# AE 통합 AI 트레이딩 보조 시스템 (MVP)
 
-이 저장소는 `React + Vite` 프론트엔드, `Flask` 백엔드, `Supabase` DB/Auth, `LightGBM` 기반 ML 파이프라인으로 구성된 트레이딩 보조 시스템입니다.
-현재 코드는 Toss 주식, KIS 레거시 주식, Coinone 코인, Binance 현물/Usd-M 선물 데이터 조회/주문 보조/조건감시 자동매도/ML 운영과 인증 기반 트레이딩 챗봇 오케스트레이터를 포함합니다. 챗봇은 로그인 사용자만 사용할 수 있으며, 사용자별 대화 이력은 Supabase에 격리 저장됩니다.
+본 프로젝트는 Toss증권 Open API와 코인원 API를 주요 거래소로 연동하여 국내·미국 주식 및 가상자산의 시세, 계좌, 보유자산, 주문 제안, 주문 실행 승인 흐름을 단일 대시보드와 RAG 기반 AI 챗봇으로 통합 관리하는 **AI 기반 트레이딩 보조 시스템**입니다.
 
-## 현재 구현 범위
+실거래 자금이 유동하는 분산 환경에서 리스크를 원천 차단하기 위해 **Human-in-the-Loop(사용자 최종 승인)** 원칙과 고도의 보안 설계(양방향 AES-256-GCM 암호화, RLS 정책)를 적용하여 안전한 매매 제안 시스템을 구축했습니다.
 
-- 프론트엔드
-  - 대시보드, 자산 탭, 뉴스 화면, 설정 화면
-  - 종목 상세 페이지 차트/호가/체결/주문 사전검증
-  - 코인원 가상자산 상세 페이지 지정가 주문 UI
-  - 조건감시 익절/손절 등록 및 `매도 제안만 생성`/`조건 도달 시 자동 매도` 선택 UI
-  - ML 운영 콘솔과 활성 신호 확인 UI
-- 백엔드
-  - `home`, `keys`, `ml`, `news`, `trade`, `transfer` Blueprint API
-  - `chatbot` Blueprint API: Supabase Auth 검증, 로그인 사용자별 대화 이력 복원·저장, 도구 호출 및 LLM 응답
-  - 챗봇 매매 제안은 `trade_proposals.status=PENDING`으로만 생성되며, 승인 카드에서만 주문 승인/거절 가능
-  - 일반 채팅의 자연어 주문 요청은 직접 제안을 만들지 않고 `매매 요청 열기` 액션으로 구조화 주문 폼을 열며, 사용자가 폼에서 계좌·종목·수량·가격을 재확인한 뒤에만 제안 생성 가능
-  - 환경 미지정 챗봇 주문 제안은 MOCK이 기본이며 REAL은 사용자가 명시한 경우에만 허용됩니다.
-  - 사전검증 실패, API 키 미등록, 지원하지 않는 주문유형, 실거래 10만 원 초과 요청은 PENDING 제안을 생성하지 않습니다.
-  - 승인 요청은 Supabase RPC로 원자 선점되어 같은 `proposal_id`가 중복 주문으로 전송되지 않습니다.
-  - 종목 상세의 수동 주문도 클라이언트 UUID `idempotency_key`를 먼저 `PENDING` 이력으로 생성한 뒤 동일 RPC로 선점하여, 네트워크 오류 후 같은 주문이 재전송되지 않게 합니다.
-  - 거절 요청도 `PENDING` 상태를 조건으로 원자 갱신되어 이미 승인 선점된 제안을 덮어쓰지 않습니다.
-  - 잔고·보유수량을 확인하지 못한 주문 제안은 생성하지 않으며, MOCK도 하드캡만 우회하고 잔고 검증은 유지합니다.
-  - REAL 시장가 주문은 체결 슬리피지로 10만 원 하드캡을 보장할 수 없어 차단하며 지정가 주문만 허용합니다.
-  - 외부 주문 후 상세 이력 저장이 실패하면 상태·외부 주문 ID를 최소 복구하고, 복구도 실패하면 같은 주문을 재전송하지 않도록 HTTP 503 확인 안내를 반환합니다.
-  - 챗봇 SSE 오류는 사용자에게 `request_id`를 제공하고 서버 로그는 같은 `request_id`로 조회합니다.
-  - 챗봇 사용량은 Supabase `chatbot_usage_counters` RPC로 워커 간 공유 집계
-  - Toss/KIS/Coinone/Binance 클라이언트
-  - 코인원 계좌 잔고 조회, 현재가 조회, 지정가 주문, 미체결 주문 취소
-  - 바이낸스 현물/Usd-M 선물 주문 사전검증, 테스트 주문 검증, 미체결 주문 관리
-  - 조건감시 자동/반자동 매도 워커
-  - 코인원에서 바이낸스로 가상자산 출금 사전검증, 사용자 승인, 상태 추적
-  - 뉴스 수집/요약
-  - ML 자동 수집/학습 스케줄러, 승격 검증, serving 감사
-- ML
-  - 주식 신호 모델: `v1` ~ `v11`
-  - 주식 위험 모델: `v1` ~ `v11`
-  - 국내주식 분리 모델: `lgbm_kr_stock_signal_v1`, `lgbm_kr_stock_risk_v1`
-  - 해외주식 분리 모델: `lgbm_us_stock_signal_v1`, `lgbm_us_stock_risk_v1`
-  - 코인 신호/위험 모델: `v1` ~ `v9`
-  - 예측 CSV, 백테스트 JSON, 모델 레지스트리, EC2 서빙 패키지 생성
+---
 
-## 현재 저장소 기준 핵심 디렉토리
+## 🛠 Tech Stack (기술 스택)
 
-```text
-teamproject/
-├── backend/                  # Flask API Gateway 및 worker
-├── frontend/                 # React + Vite UI
-├── ml/                       # LightGBM 학습/예측 파이프라인
-├── supabase/                 # Supabase 설정 및 마이그레이션
-├── design.md                 # UI 디자인 규칙
-├── database_specification.md # 코드가 실제 참조하는 DB 문서
-├── project_structure.md      # 실제 디렉토리 구조 문서
-└── system_workflow.md        # 시스템 흐름 문서
+### Frontend
+
+![React](https://img.shields.io/badge/react-19.2.6-%2320232a.svg?style=for-the-badge&logo=react&logoColor=%2361DAFB)
+![TailwindCSS](https://img.shields.io/badge/tailwindcss-v4.3.1-%2338B2AC.svg?style=for-the-badge&logo=tailwind-css&logoColor=white)
+![Vite](https://img.shields.io/badge/vite-v8.0.12-%23646CFF.svg?style=for-the-badge&logo=vite&logoColor=white)
+![TradingView](https://img.shields.io/badge/TradingView-Lightweight--Charts-%23131722.svg?style=for-the-badge&logo=tradingview&logoColor=white)
+
+### Backend
+
+![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/flask-%23000.svg?style=for-the-badge&logo=flask&logoColor=white)
+![Pytest](https://img.shields.io/badge/pytest-%230A9EDC.svg?style=for-the-badge&logo=pytest&logoColor=white)
+
+### Database &amp; Infra
+
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/postgres-%23316192.svg?style=for-the-badge&logo=postgresql&logoColor=white)
+
+### ML / MLOps
+
+![LightGBM](https://img.shields.io/badge/LightGBM-green?style=for-the-badge)
+![Optuna](https://img.shields.io/badge/Optuna-blue?style=for-the-badge)
+
+---
+
+## 1. 주요 기능 및 비즈니스 로직 (Core Features &amp; Business Logic)
+
+### 1.1 AI 트레이딩 챗봇 &amp; RAG 오케스트레이션
+
+사용자와의 자연어 대화를 통해 주식/코인의 정보를 탐색하고, RAG 체인을 결합해 최적의 의사결정을 보조합니다.
+
+- **투자 정보 RAG 가이드**: Naver News와 Finnhub 기사, DART 공시 분석 summaries 등을 벡터 검색 엔진(Supabase `match_knowledge_chunks` RPC)과 통합하여, 실시간 시세뿐만 아니라 최신 시장 소식과 공시를 결합한 컨텍스트 답변을 제공합니다.
+- **Human-in-the-Loop 주문 승인**: AI가 자연어 분석을 통해 독자적으로 매매 주문을 실행하지 못하도록 격리했습니다. AI는 단지 `trade_proposals.status=PENDING` 상태의 매매 제안만 생성하며, React 프론트엔드가 Supabase Realtime을 통해 이를 실시간 구독하여 챗봇 내에 **주문 승인/거절 카드**를 렌더링합니다. 사용자의 명시적인 승인 버튼 클릭이 있어야 비로소 실거래가 실행됩니다.
+- **원자적 선점 및 멱등성 보장**: 중복 클릭이나 네트워크 오류에 따른 중복 주문(Double-Spend)을 완벽히 방어합니다. Supabase RPC(원자적 프로시저 갱신)로 락을 걸어 최초 승인 이벤트만 처리하고, Toss/코인원 거래소 전송 시에는 UUID `client_order_id`를 멱등성 키로 함께 전송하여 중복 체결을 기술적으로 예방합니다.
+
+### 1.2 다중 거래소 어댑터 및 자산 융합 대시보드
+
+상이한 거래소 API의 스펙을 단일 인터페이스로 융합하고, 계좌와 자산을 한 화면에서 실시간 모니터링합니다.
+
+- **거래소 어댑터 패턴**: `ExchangeClient` 추상 베이스 클래스를 구현하여 Toss Open API(OAuth 2.0 Client Credentials Grant, 계좌 시퀀스 조회 구조), KIS(레거시 주식), 코인원(HMAC-SHA512 Base64 서명), 바이낸스(HMAC-SHA256 signature 서명) 등 각기 다른 프로토콜의 호출 방식을 정규화된 자산/주문/시세 데이터셋으로 매핑했습니다.
+- **TradingView Lightweight Charts 연동**: 프론트엔드가 개별 거래소 API에 의존하지 않고, 백엔드 단일 엔드포인트 `/api/chart/candles`를 호출하면 백엔드 어댑터가 시세를 캔들 데이터(`{ time, open, high, low, close }`)로 자동 보정하여 반환하고, 이를 Lightweight Charts 컴포넌트에 실시간 드로잉합니다. 단기 캐싱을 통해 렌더링 병목을 제거했습니다.
+- **키 정보 양방향 암호화 및 RLS 격리**: 사용자의 거래소 API 키(Access Key/Secret Key)는 백엔드 내부의 대칭키(AES-256-GCM) 암호화를 거쳐 DB에 저장되며 프론트엔드로 절대 유출되지 않습니다. Supabase의 RLS(Row Level Security) 정책을 활성화하여 사용자는 오직 본인의 profile ID와 매핑된 개인 키 및 자산 내역만 접근할 수 있습니다.
+
+### 1.3 조건감시 자동/반자동 매도 엔진
+
+사용자가 미리 등록해 둔 기술적 조건에 따라 장중 시세를 지속적으로 모니터링하고 대응합니다.
+
+- **실시간 조건식 기계적 감시**: 사용자가 명시적으로 설정한 수치적 조건식(예: 익절 +5%, 손절 -3%)을 백그라운드 워커(`auto_trading_rule_engine.py`)가 백그라운드 스레드에서 주기적으로 폴링하며 감시합니다.
+- **실행 모드 분기**: 조건 도달 시 사용자에게 주문 전송 여부를 재차 확인하게 하는 `PROPOSAL` 모드와, 조건 즉시 실거래 매도 주문을 넣는 `AUTO` 모드를 유연하게 선택할 수 있습니다.
+- **분산 락을 통한 독점 기동**: Gunicorn 다중 프로세스 환경에서 스케줄러가 중복 가동되어 감시 주기가 깨지거나 API 한도를 초과하지 않도록, Supabase `active_locks` 테이블 기반 분산 락(Distributed Lock) 시스템을 구현하여 중앙 프로세스 1개만 실행 독점권을 갖도록 보장합니다.
+
+### 1.4 MLOps &amp; LightGBM 신호 예측 파이프라인
+
+주식과 가상자산의 성격에 맞추어 모델을 분리 설계하고, 학습부터 검증 및 배포 패키징까지 자동화하였습니다.
+
+- **주식/코인 예측 모델 지능적 분기**: 주식(국내: KIS 데이터 기반 `lgbm_kr_stock_signal_v1`, 해외: Toss 데이터 기반 `lgbm_us_stock_signal_v1`)과 코인(코인원/바이낸스 데이터 기반 `lgbm_crypto_signal_v9`) 예측 모델을 분리하였습니다. 영문 티커와 숫자 심볼 코드를 판별하여 적합한 서빙 모델로 지능적 라우팅을 수행합니다.
+- **승격 검증(Promotion Check) 엔진**: 백그라운드 스레드 기반 스케줄러(`ml_scheduler.py`)가 주기적으로 학습을 돌린 후, `ml_split_model_promotion_service.py`를 통해 신규 모델의 CV ROC AUC, MDD, 초과수익률을 기존 Serving 모델과 비교 검증합니다. 통과한 모델만 서비스 레지스트리(`ml_model_registry`)에 승격(`Serving` 적용)시킵니다.
+- **경량화 서빙 패키징**: EC2 프로덕션 배포 시 원시 대용량 CSV나 중간 정제 데이터를 배포하지 않고, 모델 바이너리, YAML 설정, 피처 순서 메타데이터 및 성능 요약만 단독으로 묶은 경량 서빙 패키지(`.tar.gz`)를 빌드하여 모델 유출 리스크와 배포 오버헤드를 낮추었습니다.
+
+### 1.5 가상자산 해외 출금 사전검증 및 재정거래 안전 장치
+
+거래소 간 자산 송금 시 발생 가능한 규제 위반 및 오송금 자산 소실 리스크를 사전 방지합니다.
+
+- **트래블룰(Travel Rule) 규제 대응**: 국내법 및 가상자산 트래블룰을 준수하기 위해 사전에 코인원 거래소 공식 채널에 등록된 바이낸스 XRP 지갑 화이트리스트 주소와 데스티네이션 태그(Destination Tag)만을 대조하는 사전검증(Precheck) 모듈을 설계하여 임의 주소 송금을 원천 차단합니다.
+- **슬리피지 방어(Slippage Protection) 시스템**: 코인원에서 XRP 매수 및 송금 후, 바이낸스 입금 확인 API(`GET /sapi/v1/capital/deposit/hisrec`)를 실시간 폴링하여 입금이 확인된 시점에 즉각 바이낸스 시장가/지정가 매도를 연계합니다. 이 때 블록체인 트랜잭션 대기 시간 동안 시세가 급락하여 코인원 매수 단가 대비 일정 손실 한도(예: -1.5%)를 초과할 경우, 매도를 중단하고 자산을 보류해 추가 손실을 예방하는 안전 필터를 갖췄습니다.
+
+---
+
+## 2. 시스템 아키텍처 (Architecture Diagram)
+
+시스템의 전체 데이터 흐름 및 상호작용은 아래와 같습니다.
+
+```mermaid
+graph TD
+    subgraph Frontend ["React 19 + Tailwind v4 Frontend"]
+        Dashboard["Dashboard / AssetDetail / AdminMlData"]
+        SBClient["Supabase SDK (Realtime 구독)"]
+    end
+
+    subgraph Gateway ["Flask API Gateway (Gunicorn)"]
+        App["backend/app.py"]
+        Routes["home / keys / ml / news / disclosures / trade / transfer"]
+    end
+
+    subgraph Worker ["Background Worker Processes"]
+        WorkerMain["backend/worker.py"]
+        MLScheduler["ml_scheduler.py (데이터 수집 & 학습)"]
+        MarketScheduler["market_snapshot_scheduler.py"]
+        AutoExitScheduler["auto_trading_rule_engine.py (자동/반자동 매도)"]
+    end
+
+    subgraph Supabase ["Supabase Cloud / Database"]
+        DB[(PostgreSQL)]
+        UserKeys["user_api_keys (양방향 암호화)"]
+        TokenCaches["token_caches (OAuth 토큰 DB 캐싱)"]
+        Locks["active_locks (분산 락)"]
+        NewsArticles["news_articles"]
+        Registry["ml_model_registry"]
+        AutoRules["auto_trading_rules"]
+        TradeProposals["trade_proposals"]
+    end
+
+    subgraph External ["External APIs"]
+        Toss["Toss Open API (주 주식 브로커)"]
+        KIS["KIS API (보류/레거시 주식)"]
+        Coinone["Coinone API (주 코인 브로커)"]
+        Binance["Binance API (선물/해외 코인)"]
+        Naver["Naver News / Finnhub"]
+    end
+
+    Dashboard -->|REST API| App
+    Dashboard -->|Auth / Realtime DB| SBClient
+    App --> Routes
+    Routes --> DB
+    Routes --> Toss
+    Routes --> Coinone
+    Routes --> Binance
+
+    WorkerMain --> MLScheduler
+    WorkerMain --> MarketScheduler
+    WorkerMain --> AutoExitScheduler
+
+    MLScheduler --> Locks
+    MLScheduler --> TokenCaches
+    MLScheduler --> Registry
+    MLScheduler --> Toss
+
+    AutoExitScheduler --> Locks
+    AutoExitScheduler --> AutoRules
+    AutoExitScheduler --> UserKeys
+    AutoExitScheduler --> TradeProposals
+    AutoExitScheduler --> Toss
+    AutoExitScheduler --> Coinone
+
+    Routes --> NewsArticles
+    MLScheduler --> NewsArticles
 ```
 
-자세한 구조는 [project_structure.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/project_structure.md:1)를 참고합니다.
+---
 
-## 실행 방법
+## 프로젝트 구조 (Directory Structure)
 
-### 1. 백엔드
+본 리포지토리는 프론트엔드(`frontend`), 백엔드 API 게이트웨이 및 워커(`backend`), 그리고 머신러닝 학습 모델 파이프라인(`ml`) 디렉토리로 구성됩니다. 
 
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
-```
+상세한 파일 및 디렉토리 명세는 [**프로젝트 디렉토리 구조 명세서(project_structure.md)**](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/docs/project_structure.md) 문서를 통해 확인할 수 있습니다.
 
-- 기본 포트: `http://localhost:5050`
-- 권장 운영 방식:
-  - API Gateway: `backend/app.py`
-  - 스케줄러 전용 프로세스: `backend/worker.py`
-- 기본 설정상 `SCHEDULER_RUN_IN_GATEWAY=false` 이므로, 스케줄러 운영은 `worker.py`를 별도로 띄우는 구조가 기준입니다.
-- 코인원 실주문은 현재 지정가 주문만 연결되어 있으며, 시장가 주문은 API 정책 검증 전까지 차단합니다.
-- 조건감시 자동/반자동 매도는 기본 설정상 `AUTO_TRADING_RULES_ENABLED=false`입니다. 실제 감시를 켜려면 `backend/.env`에서 이 값을 `true`로 바꾸고 `worker.py`를 실행해야 합니다.
-- 전체 사용자 미완료 주문 상태 동기화는 기본 설정상 `OPEN_ORDER_STATUS_SYNC_ENABLED=false`입니다. 켜면 worker가 KIS/코인원/바이낸스/바이낸스 선물의 `APPROVED`, `ORDERED`, `OPEN`, `PARTIALLY_FILLED`, `MODIFIED` 주문만 주기적으로 확인해 `trade_proposals` 상태를 보정합니다.
+### 핵심 진입 파일
 
-### 2. 프론트엔드
+- [**app.py**](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/backend/app.py): 백엔드 API Gateway 진입 파일.
+- [**worker.py**](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/backend/worker.py): 백그라운드 스케줄러/감시 엔진의 단일 진입 파일.
+- [**frontend/src/main.jsx**](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/frontend/src/main.jsx): 프론트엔드 React 19 SPA 진입점.
+- [**ml/src/run_pipeline_bundle.py**](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/src/run_pipeline_bundle.py): 머신러닝 학습 파이프라인 기동 스크립트.
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+---
 
-- 기본 포트: `http://localhost:5173`
-- 루트에서도 아래 래퍼 스크립트를 사용할 수 있습니다.
+## 5. 핵심 MLOps 배포 및 품질 관리 명령어
 
-```bash
-npm run dev
-npm run build
-```
+### ML 자동화 파이프라인 구동 및 서빙 배포 패키징
 
-### 3. ML 환경
+머신러닝 학습 및 검증이 완료되면, 보안을 위해 전체 학습 데이터(raw CSV 등)를 클라우드에 노출하지 않고, 추론에 필요한 피처 순서, 설정 YAML, 모델 파일, 성능 해시 메타데이터가 단독으로 묶인 **경량화 서빙 패키지**를 생성하여 EC2로 배포합니다.
 
-```bash
-cd ml
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+- **LightGBM 통합 수집/학습 파이프라인 가동**:
+  ```bash
+  python ml/src/run_pipeline_bundle.py \
+    --config ml/configs/lgbm_stock_v11.yaml \
+    --risk-config ml/configs/lgbm_stock_risk_v11.yaml \
+    --summary-output ml/data/processed/stock_v11_summary.json
+  ```
+- **EC2 배포용 Serving Package 생성**:
+  ```bash
+  python3 -m ml.src.export_serving_package \
+    --asset-key kr_stock \
+    --output-root ml/serving_packages \
+    --no-predictions \
+    --archive
+  ```
 
-현재 기준 대표 실행 예시는 다음과 같습니다.
+### 테스트 및 품질 검증 (ESLint &amp; Pytest)
 
-```bash
-python src/run_pipeline_bundle.py \
-  --config configs/lgbm_stock_v11.yaml \
-  --risk-config configs/lgbm_stock_risk_v11.yaml \
-  --summary-output data/processed/stock_v11_summary.json
-```
+프론트엔드는 비즈니스 로직(Model.js)을 뷰와 분리하여 Node 단위 테스트의 안정성을 유지하며, ESLint 검증을 통해 경고를 완전히 배제한 품질 상태(0 errors, 0 warnings)를 지향합니다.
 
-```bash
-python src/run_pipeline_bundle.py \
-  --config configs/lgbm_crypto_v9.yaml \
-  --risk-config configs/lgbm_crypto_risk_v9.yaml \
-  --summary-output data/processed/crypto_v9_summary.json
-```
+- **백엔드 유닛 테스트 실행**:
+  ```bash
+  python3 -m pytest -q
+  ```
+- **프론트엔드 린트 검증**:
+  ```bash
+  npm run lint
+  ```
 
-EC2에는 학습 산출물 전체를 올리지 않고 서빙 패키지만 올립니다.
+---
 
-```bash
-python3 -m ml.src.export_serving_package \
-  --asset-key kr_stock \
-  --output-root ml/serving_packages \
-  --no-predictions \
-  --archive
-```
+## 6. 관련 문서 모음
 
-생성된 패키지는 `manifest.json`에 모델 파일, risk 모델, config, feature 순서, 정책, 성능 요약, 파일 해시를 포함합니다.
+프로젝트의 심층적인 구조와 변경 이력은 다음의 관련 문서를 통해 탐색할 수 있습니다.
 
-### 4. 테스트와 검증
+- [**Changelog (CHANGELOG.md)**](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/CHANGELOG.md): 컴포넌트별 린트 정리 및 정밀 리팩토링 상세 이력
+- [**시스템 흐름 문서 (system_workflow.md)**](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/docs/system_workflow.md): API 게이트웨이, 워커 프로세스, 뉴스/ML RAG 등 내부 시퀀스 명세
+- [**데이터베이스 사양서 (database_specification.md)**](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/docs/database_specification.md): 19개 핵심 테이블 정의 및 RLS 정책 가이드라인
+- [**프로젝트 디렉토리 구조 (project_structure.md)**](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/docs/project_structure.md): 디렉토리별 정적 구조 세부 명세
 
-```bash
-python3 -m pytest -q
-npm run lint
-npm run build
-```
-
-루트 `pytest`는 `pytest.ini` 기준으로 `backend/tests`, `tests/backend`를 수집합니다. `ml/test_yf.py`는 야후파이낸스 수동 확인 스크립트 성격이므로 기본 테스트 수집 대상에서 제외합니다.
-
-- 2026-07-15 AssetDetail 1차 리팩토링: 공통 순수 유틸을 `frontend/src/pages/assetDetailModel.js`로 분리하고 명확한 dead code warning을 제거했습니다. 전체 lint 상태는 `0 errors`, `109 warnings`입니다.
-- 2026-07-15 Dashboard 1차 리팩토링: 데스크톱/모바일 대시보드 공통 순수 유틸을 `frontend/src/pages/dashboardModel.js`로 분리하고 Node test를 추가했습니다. 전체 lint 상태는 `0 errors`, `97 warnings`입니다.
-- 2026-07-15 AdminMlData 1차 리팩토링: 데스크톱/모바일 ML 관리자 공통 순수 유틸을 `frontend/src/pages/adminMlDataModel.js`로 분리하고 Node test를 추가했습니다. 전체 lint 상태는 `0 errors`, `97 warnings`입니다.
-- 2026-07-15 TradeHistory 1차 리팩토링: 데스크톱/모바일 거래내역 공통 순수 유틸을 `frontend/src/pages/tradeHistoryModel.js`로 분리하고 Node test를 추가했습니다. 전체 lint 상태는 `0 errors`, `97 warnings`입니다.
-- 2026-07-15 Chatbot Tool Registry 1차 리팩토링: 종목 별칭, 심볼 검색어 추출, 후보 선택 응답 순수 로직을 `backend/services/chatbot/tool_symbol_model.py`로 분리하고 pytest를 추가했습니다.
-- 2026-07-15 Settings 1차 리팩토링: 데스크톱/모바일 설정 화면 공통 키 상태 정규화, 닉네임 검증, 거래소별 저장/테스트 payload 생성을 `frontend/src/pages/settingsModel.js`로 분리하고 Node test를 추가했습니다.
-- 2026-07-15 Inquiry 1차 리팩토링: 데스크톱/모바일 문의 화면 공통 문의 라벨, 첨부파일 검증, 목록 정렬·필터·페이지네이션, 등록 폼 검증을 `frontend/src/pages/inquiryModel.js`로 분리하고 Node test를 추가했습니다.
-- 2026-07-15 AssetsTab 1차 리팩토링: 데스크톱/모바일 자산 탭 공통 통화 포맷, 계좌 요약, 보유 종목 표시 행, 정렬, 배분 그래디언트 계산을 `frontend/src/pages/assetsTabModel.js`로 분리하고 Node test를 추가했습니다.
-- 2026-07-15 Dashboard 2차 리팩토링: 데스크톱/모바일 대시보드의 보유종목 정렬을 `sortDashboardHoldings` 공통 모델로 이동하고, 계정/관심종목 로딩 effect 의존성과 set-state 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `79 warnings`입니다.
-- 2026-07-15 AssetDetail 2차 리팩토링: 데스크톱/모바일 종목 상세의 가격 자릿수와 차트 price format 계산을 `assetDetailModel.js`로 이동하고, 데이터 로딩/차트 effect 의존성 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `59 warnings`이며, `AssetDetail.jsx`와 `MobileAssetDetail.jsx`는 후속 섹션 컴포넌트 분리가 필요합니다.
-- 2026-07-15 Watchlist 1차 리팩토링: 데스크톱/모바일 관심종목 탭의 시장 필터, 차트 config, 캔들 정규화, 선택 종목 보정 로직을 `frontend/src/pages/watchlistModel.js`로 분리하고 effect 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `47 warnings`입니다.
-- 2026-07-15 Home 1차 리팩토링: 홈 시장 랭킹의 가격/등락률/거래대금 포맷, 국내·해외 판별, 랭킹 정렬, 관심종목 키 계산을 `frontend/src/pages/homeModel.js`로 분리하고 홈 로딩 effect 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `35 warnings`입니다.
-- 2026-07-15 MarketRankings 1차 리팩토링: 데스크톱/모바일 시장 랭킹 화면의 가격/등락률/거래대금 포맷과 관심종목 키 계산을 `homeModel.js` 재사용으로 통합하고 favorites effect 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `29 warnings`입니다.
-- 2026-07-15 Auth 화면 1차 정리: 데스크톱/모바일 로그인 화면의 미사용 이메일 로그인 상태와 핸들러, 회원가입 화면의 미사용 Supabase 응답 변수를 제거했습니다. 전체 lint 상태는 `0 errors`, `19 warnings`입니다.
-- 2026-07-15 AdminUsers 1차 정리: 관리자 유저 목록 조회의 확정 검색어 상태를 분리하고 목록/상세/거래내역 로더를 안정화해 effect 의존성 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `16 warnings`입니다.
-- 2026-07-15 AdminInquiries 1차 정리: 데스크톱/모바일 문의 관리자 답변 모달 초기값을 key 기반 재마운트로 처리하고 초기 목록 fetch effect 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `12 warnings`입니다.
-- 2026-07-15 AdminSymbolReconciliation 1차 정리: 종목 정리 관리자 화면의 인증 헤더와 최신 스캔 로더를 안정화하고 초기 로딩 effect 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `10 warnings`입니다.
-- 2026-07-15 AssetLogo 1차 정리: 공통 자산 로고 URL 생성 로직을 `frontend/src/components/assetLogoModel.js`로 분리하고 컴포넌트 effect 경고와 Fast Refresh export 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `8 warnings`입니다.
-- 2026-07-15 공통 effect 1차 정리: 디바이스 감지 훅, 대시보드 사이드바 권한 표시, 데스크톱/모바일 뉴스 초기 로딩 effect 경고를 정리했습니다. 전체 lint 상태는 `0 errors`, `4 warnings`입니다.
-- 2026-07-15 Settings/TradeHistory 의존성 정리: 데스크톱/모바일 설정 화면의 키 상태 로더와 거래내역 주문 상태 동기화 함수를 안정화해 남은 effect 의존성 경고를 모두 정리했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`입니다.
-- 2026-07-15 AssetDetail 3차 리팩토링: 데스크톱/모바일 종목 상세의 뉴스·공시·ML 지표·캔들 포맷 순수 유틸을 `assetDetailModel.js`로 이동하고 Node test를 보강했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AssetDetail.jsx`는 4,824줄, `MobileAssetDetail.jsx`는 4,812줄입니다.
-- 2026-07-15 AdminMlData 2차 리팩토링: 데스크톱/모바일 ML 관리자 화면의 공통 수집 상태 패널을 `frontend/src/pages/adminMlDataPanels.jsx`로 분리했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 2,963줄, `MobileAdminMlData.jsx`는 2,924줄입니다.
-- 2026-07-15 AdminMlData 3차 리팩토링: ML 관리자 작업 로그 모달, 승격 검증 요약, 감사 배지를 `adminMlDataPanels.jsx`로 공통화하고 로그 복사 문자열 생성을 `adminMlDataModel.js`로 분리했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 2,803줄, `MobileAdminMlData.jsx`는 2,764줄입니다.
-- 2026-07-15 AdminMlData 4차 리팩토링: 데스크톱/모바일 ML 관리자 버전 차이 요약 패널을 `adminMlDataPanels.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 2,745줄, `MobileAdminMlData.jsx`는 2,706줄입니다.
-- 2026-07-15 AdminMlData 5차 리팩토링: 데스크톱/모바일 ML 관리자 활성 신호 패널을 `adminMlDataPanels.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 2,544줄, `MobileAdminMlData.jsx`는 2,505줄입니다.
-- 2026-07-15 AdminMlData 6차 리팩토링: 데스크톱/모바일 ML 관리자 운영 모델 감사 패널을 `adminMlDataPanels.jsx`로 공통화하고 모바일 검증 카드 배치를 prop으로 유지했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 2,463줄, `MobileAdminMlData.jsx`는 2,425줄입니다.
-- 2026-07-15 AdminMlData 7차 리팩토링: 데스크톱/모바일 ML 관리자 모델 교체 판단 패널을 `adminMlDataPanels.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 2,371줄, `MobileAdminMlData.jsx`는 2,333줄입니다.
-- 2026-07-15 AdminMlData 8차 리팩토링: 데스크톱/모바일 ML 관리자 모델 레지스트리 패널을 `adminMlDataPanels.jsx`로 공통화하고 테이블/카드 레이아웃은 variant로 유지했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 2,267줄, `MobileAdminMlData.jsx`는 2,237줄입니다.
-- 2026-07-15 AdminMlData 9차 리팩토링: 데스크톱/모바일 ML 관리자 준비 상태, 실행 체크리스트, 실험 리포트 패널을 `adminMlDataPanels.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 2,084줄, `MobileAdminMlData.jsx`는 2,055줄입니다. 공통 패널 파일은 1,059줄로 커져 후속 분리 대상입니다.
-- 2026-07-15 AdminMlData 10차 리팩토링: 과밀해진 `adminMlDataPanels.jsx`를 배럴 파일로 축소하고 핵심 공통 패널은 `adminMlDataCorePanels.jsx`, 운영/레지스트리/리포트 패널은 `adminMlDataOperationalPanels.jsx`로 분리했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 새 패널 파일은 각각 283줄, 779줄입니다.
-- 2026-07-15 AdminMlData 11차 리팩토링: 데스크톱/모바일 ML 관리자 버전 비교 표를 `adminMlDataOperationalPanels.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 1,989줄, `MobileAdminMlData.jsx`는 1,960줄입니다.
-- 2026-07-15 AdminMlData 12차 리팩토링: 데스크톱/모바일 ML 관리자 작업 이력 패널을 `adminMlDataHistoryPanels.jsx`로 분리하고 테이블/카드 레이아웃은 variant로 유지했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 1,876줄, `MobileAdminMlData.jsx`는 1,860줄입니다.
-- 2026-07-15 AdminMlData 13차 리팩토링: 데스크톱/모바일 ML 관리자 모델 결과 카드를 `adminMlDataResultPanels.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 1,586줄, `MobileAdminMlData.jsx`는 1,570줄입니다.
-- 2026-07-15 AdminMlData 14차 리팩토링: 데스크톱/모바일 ML 관리자 운영 신뢰도 검증과 v8 Optuna 튜닝 패널을 `adminMlDataTrustPanels.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 1,382줄, `MobileAdminMlData.jsx`는 1,367줄입니다.
-- 2026-07-15 AdminMlData 15차 리팩토링: 데스크톱/모바일 ML 관리자 콘솔 헤더, 자동화 실행, 고급 데이터 도구, 모델 결과, 레지스트리 상태, 학습 도구, 작업 이력 영역을 `adminMlDataWorkflowPanels.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AdminMlData.jsx`는 993줄, `MobileAdminMlData.jsx`는 978줄입니다.
-- 2026-07-15 AssetDetail 1차 리팩토링: 데스크톱/모바일 종목 상세의 상단 메타 헤더와 차트 패널을 `assetDetailHeader.jsx`, `assetDetailChartPanel.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AssetDetail.jsx`는 4,683줄, `MobileAssetDetail.jsx`는 4,671줄입니다.
-- 2026-07-15 AssetDetail 2차 리팩토링: 데스크톱/모바일 종목 상세의 보유/주문 가능 요약 카드와 미체결 주문 관리 패널을 `assetDetailOrderPanels.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AssetDetail.jsx`는 4,530줄, `MobileAssetDetail.jsx`는 4,520줄입니다.
-- 2026-07-15 AssetDetail 3차 리팩토링: 데스크톱/모바일 종목 상세의 조건감시 등록·수정·상태 패널을 `assetDetailAutoRulesPanel.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AssetDetail.jsx`는 4,214줄, `MobileAssetDetail.jsx`는 4,205줄입니다.
-- 2026-07-15 AssetDetail 4차 리팩토링: 데스크톱/모바일 종목 상세의 뉴스·공시 탭 콘텐츠를 `assetDetailNewsDisclosurePanel.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AssetDetail.jsx`는 3,928줄, `MobileAssetDetail.jsx`는 3,920줄입니다.
-- 2026-07-15 AssetDetail 5차 리팩토링: 데스크톱/모바일 종목 상세의 커뮤니티 글·답글 패널을 `assetDetailCommunityPanel.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AssetDetail.jsx`는 3,741줄, `MobileAssetDetail.jsx`는 3,733줄입니다.
-- 2026-07-15 AssetDetail 6차 리팩토링: 데스크톱/모바일 종목 상세의 ML 참고 신호 카드와 해석 로직을 `assetDetailMlSignalPanel.jsx`로 공통화했습니다. 전체 lint 상태는 `0 errors`, `0 warnings`이며 `AssetDetail.jsx`는 3,505줄, `MobileAssetDetail.jsx`는 3,497줄입니다.
-
-## 주요 API
-
-### 홈/시장
-
-- `POST /api/home/market`
-- `POST /api/home/overview`
-- `GET /api/market/rankings`
-  - `asset_type=STOCK|CRYPTO`, `region`, `ranking`, `limit` 쿼리를 받아 홈 더보기 화면용 최대 100개 랭킹을 반환합니다.
-- `POST /api/market/kis/sync`
-- `POST /api/dashboard/balance`
-
-### 키 관리
-
-- `GET /api/keys/status`
-- `POST /api/keys/save`
-- `POST /api/keys/toss/accounts`
-- `POST /api/keys/test`
-
-### 거래/상세 페이지
-
-- `POST /api/trade/precheck`
-- `POST /api/trade/order`
-- `POST /api/trade/order/cancel`
-- `POST /api/trade/order/modify`
-- `POST /api/trade/order/cancel-replace`
-- `POST /api/trade/orders/sync-status`
-- `POST /api/trade/estimated-holdings`
-- `GET /api/chart/candles`
-- `GET /api/chart/orderbook`
-- `GET /api/chart/trades`
-- `GET /api/stocks/warnings`
-- `GET /api/symbol/lookup`
-- `GET /api/symbol/search`
-
-### 가상자산 이동
-
-- `GET /api/transfer/binance/deposit-address`
-- `GET /api/transfer/coinone/deposit-address`
-- `POST /api/transfer/withdraw/precheck`
-- `POST /api/transfer/withdraw/approve`
-- `GET /api/transfer/withdraw/status`
-
-현재 출금 플로우는 대시보드 자산 탭에서 코인원 → 바이낸스 이동과 XRP 기준 바이낸스 → 코인원 이동을 지원합니다. 사전검증은 도착 거래소 입금 주소/Tag 일치 여부, 출금 가능 수량, 최소 출금 수량, 출금 수수료, 예상 수령 수량을 함께 반환합니다. 실제 출금은 사전검증 후 사용자가 최종 승인 체크를 완료했을 때만 실행됩니다.
-
-### 뉴스
-
-- `GET /api/news`
-- `POST /api/news/sync`
-  선택적으로 `{ "symbol": "...", "display_name": "...", "market": "DOMESTIC|GLOBAL", "asset_type": "STOCK|CRYPTO" }` 본문을 보내면 해당 종목만 즉시 수집할 수 있습니다.
-- `POST /api/news/summaries/ensure`
-
-현재 뉴스 수집 공급원은 `NAVER`와 `FINNHUB`입니다. 문서상 과거에 언급된 Tavily 수집은 현재 코드 기준 기본 경로가 아닙니다.
-
-### 지식/Obsidian 메모리
-
-- `POST /api/knowledge/obsidian/sync-note`
-  - Obsidian 플러그인이 현재 Markdown 노트를 앱으로 동기화합니다.
-  - `vault_name`, `file_path`, `content`, `modified_at`를 받아 `user_knowledge_notes`에 사용자별로 저장합니다.
-  - 저장된 노트 본문은 즉시 `knowledge_chunks`로 분할되며, 각 chunk는 `embedding_status=PENDING` 상태로 저장됩니다.
-- `GET /api/knowledge/obsidian/auto-memory`
-  - 앱/챗봇이 수집한 `user_memory_facts`를 Obsidian 자동메모리 marker에 넣기 좋은 배열 형태로 반환합니다.
-
-### ML 운영
-
-- `POST /api/ml/export-candles`
-- `GET /api/ml/jobs`
-- `POST /api/ml/jobs/train`
-- `POST /api/ml/jobs/tune`
-- `GET /api/ml/automation/presets`
-- `POST /api/ml/jobs/full-run`
-- `GET /api/ml/model-results`
-- `GET /api/ml/registry`
-- `POST /api/ml/registry/activate`
-- `GET /api/ml/readiness`
-- `GET /api/ml/data-quality`
-- `GET /api/ml/registry/promotion-check`
-- `GET /api/ml/serving-audit`
-- `GET /api/ml/active-model`
-- `GET /api/ml/predictions/active`
-- `POST /api/ml/report`
-- `GET /api/ml/reports`
-
-## ML 운영 기준 사실
-
-- 자동화 preset 정의는 현재 `backend/services/ml_automation_service.py` 기준입니다.
-- 운영 점검 기준 preset:
-  - `stock-v11-full`
-  - `crypto-v9-full`
-  - `kr-stock-v1-full`
-  - `us-stock-v1-full`
-- 레거시 자동화 preset은 코드에 남아 있을 수 있으나, 현재 운영 점검 기준은 위 preset입니다.
-- 작업 이력의 1차 저장소는 파일입니다.
-  - `ml/data/ops/job_history.json`
-  - `ml/data/ops/model_registry.json`
-- Supabase `ml_dataset_jobs`, `ml_training_runs`, `ml_model_registry`는 best-effort 동기화 대상입니다.
-- EC2 배포용 모델은 `ml/src/export_serving_package.py`로 생성한 `ml/serving_packages/*.tar.gz`를 사용합니다.
-
-## 보안 및 운영 메모
-
-- 사용자 거래소 키는 `user_api_keys` 테이블에 암호화 저장하고, 백엔드에서만 복호화합니다.
-- Toss/KIS OAuth 토큰의 현재 기준 캐시 경로는 Supabase `token_caches` 테이블입니다.
-- 저장소에 `.toss_token_cache.json`, `.kis_token_cache.json` 파일이 남아 있어도 현재 운영 기준의 1차 토큰 소스라고 가정하면 안 됩니다.
-- 분산 환경에서 뉴스/ML 자동화 중복 실행 방지를 위해 `active_locks` 기반 분산 락을 사용합니다.
-- 조건감시 자동매도는 사용자가 `AUTO`를 선택한 규칙만 직접 주문을 전송합니다. 실거래 추정 금액이 내부 1회 한도 10만 원을 넘으면 자동 주문 대신 매도 제안으로 우회합니다.
-
-## 같이 보면 좋은 문서
-
-- [project_structure.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/project_structure.md:1)
-- [system_workflow.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/system_workflow.md:1)
-- [database_specification.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/database_specification.md:1)
-- [ml/README.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/README.md:1)
-- [ml/serving_package_runbook.md](/Users/kangheesung/10-19_개발/13_프로젝트/13.05_트레이딩/teamproject/ml/serving_package_runbook.md:1)
-
-## 2026-07-09 DART summary RAG
-
-- DART disclosure RAG is summary-only: it indexes saved disclosure analysis summaries and basic metadata, not original disclosure bodies.
-- News is excluded from this indexing path.
-- Build chunks with `python backend\scripts\backfill_disclosure_summary_chunks.py`.
-- Embed pending chunks with `python backend\scripts\embed_pending_knowledge_chunks.py`.
-- Retrieval uses `POST /api/knowledge/retrieve-context` and the Supabase `match_knowledge_chunks` vector RPC.
-
-## 2026-07-09 Obsidian note RAG
-
-- `POST /api/knowledge/obsidian/sync-note` stores the note, replaces its `OBSIDIAN` chunks, and immediately embeds only the chunks for that note.
-- The sync response includes `chunk_count` and `embedding_count`; a successful sync is ready for chatbot RAG retrieval without running the manual embedding script.
-- The manual script is still useful for backfill or retries. Set `KNOWLEDGE_EMBEDDING_SOURCE_TYPE=OBSIDIAN` when embedding Obsidian chunks.

@@ -996,3 +996,68 @@ def list_ml_reports():
             "success": False,
             "message": f"실험 리포트 목록 조회 실패: {str(e)}"
         }), 500
+
+
+@ml_bp.route("/api/ml/universe", methods=["GET"])
+def get_active_universe():
+    """로컬 active_universe.json 파일의 내용을 조회합니다."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"success": False, "message": "인증 헤더가 누락되었습니다."}), 401
+
+    try:
+        get_user_id_from_header(auth_header)
+        import json
+        from pathlib import Path
+        active_path = Path(PROJECT_ROOT) / "ml" / "configs" / "active_universe.json"
+        if not active_path.exists():
+            return jsonify({"success": False, "message": "유니버스 파일이 존재하지 않습니다."}), 404
+
+        data = json.loads(active_path.read_text(encoding="utf-8"))
+        return jsonify({
+            "success": True,
+            "data": data
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"유니버스 조회 실패: {str(e)}"
+        }), 500
+
+
+@ml_bp.route("/api/ml/universe", methods=["POST"])
+def update_active_universe():
+    """로컬 active_universe.json 파일을 갱신합니다."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"success": False, "message": "인증 헤더가 누락되었습니다."}), 401
+
+    try:
+        get_user_id_from_header(auth_header)
+        data = request.json or {}
+        for key in ["kr_stock", "us_stock", "crypto"]:
+            if key not in data or not isinstance(data[key], list):
+                return jsonify({"success": False, "message": f"{key} 목록이 누락되었거나 배열 형식이 아닙니다."}), 400
+
+        import json
+        from pathlib import Path
+        active_path = Path(PROJECT_ROOT) / "ml" / "configs" / "active_universe.json"
+        
+        sanitized_data = {}
+        for key in ["kr_stock", "us_stock", "crypto"]:
+            sanitized_data[key] = sorted(list(dict.fromkeys([str(sym).strip().upper() for sym in data[key] if sym])))
+
+        active_path.write_text(json.dumps(sanitized_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        return jsonify({
+            "success": True,
+            "message": "동적 유니버스 설정이 성공적으로 갱신되었습니다.",
+            "data": sanitized_data
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"유니버스 설정 저장 실패: {str(e)}"
+        }), 500
+
+

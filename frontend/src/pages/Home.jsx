@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useNavigate } from "react-router-dom";
 import Header from "../components/Header.jsx";
 import AssetLogo from "../components/AssetLogo.jsx";
+import { setBrowserTab } from "../lib/browserTab.js";
 import { deleteUserWatchlistItem, fetchUserWatchlist, upsertUserWatchlistItem } from "../supabaseClient";
 import {
   applyClientMarketFilters,
@@ -238,6 +239,10 @@ export default function Home({ isLoggedIn, userEmail, handleLogout }) {
     : filters.ranking;
   const stockMoreHref = `/market-rankings?assetType=stock&region=${encodeURIComponent(stockFilters.region)}&ranking=${encodeURIComponent(stockFilters.ranking)}`;
   const coinMoreHref = `/market-rankings?assetType=coin&ranking=${encodeURIComponent(coinFilters.ranking)}`;
+
+  useEffect(() => {
+    return setBrowserTab({ title: "ANTRY" });
+  }, []);
 
   const loadFavorites = async () => {
     if (!isLoggedIn) {

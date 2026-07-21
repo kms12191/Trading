@@ -64,14 +64,14 @@ export default function MobileHeader({ isLoggedIn, handleLogout }) {
             <div className="mt-6 grid grid-cols-2 gap-3">
               <button
                 type="button"
-                className="h-12 rounded-2xl border border-slate-700 bg-slate-900/80 px-4 text-sm font-extrabold text-slate-200 transition active:scale-[0.98] active:bg-slate-800"
+                className="h-12 rounded-2xl border border-slate-700 bg-slate-900/80 px-4 text-sm font-extrabold text-slate-200 transition hover:-translate-y-0.5 hover:border-ai-cyan hover:bg-ai-cyan hover:text-slate-950 hover:shadow-[0_16px_36px_rgba(34,211,238,0.34)] active:scale-[0.98] active:bg-cyan-300"
                 onClick={() => setShowLogoutConfirm(false)}
               >
                 아니요
               </button>
               <button
                 type="button"
-                className="h-12 rounded-2xl bg-ai-cyan px-4 text-sm font-extrabold text-slate-950 shadow-[0_12px_30px_rgba(34,211,238,0.24)] transition active:scale-[0.98] active:bg-cyan-300"
+                className="h-12 rounded-2xl border border-slate-700 bg-slate-900/80 px-4 text-sm font-extrabold text-slate-200 transition hover:-translate-y-0.5 hover:border-ai-cyan hover:bg-ai-cyan hover:text-slate-950 hover:shadow-[0_16px_36px_rgba(34,211,238,0.34)] active:scale-[0.98] active:bg-cyan-300"
                 onClick={() => {
                   setShowLogoutConfirm(false)
                   handleLogout?.()

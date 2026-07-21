@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "created_at": "2026-07-14T08:50:06.816185+00:00",
+  "created_at": "2026-07-21T06:09:12.143840+00:00",
   "package_name": "kr_stock-lgbm_kr_stock_signal_v1",
   "asset_key": "kr_stock",
   "asset_type": "STOCK_KR",
@@ -257,9 +257,9 @@
     }
   },
   "performance": {
-    "cv_roc_auc": 0.7362183024965228,
-    "precision_at_top_10pct": 0.839572192513369,
-    "risk_cv_roc_auc": 0.580150879832303,
+    "cv_roc_auc": 0.7396827786075001,
+    "precision_at_top_10pct": 0.8556149732620321,
+    "risk_cv_roc_auc": 0.5775992803991391,
     "composite_excess_return_net": 0.0,
     "composite_precision_at_top_n": 0.0,
     "composite_max_drawdown_net": 0.0,
@@ -284,7 +284,7 @@
       "package_path": "models/lgbm_kr_stock_signal_v1.joblib",
       "required": true,
       "exists": true,
-      "sha256": "aad781d35a61afa8f05bad3178fcaf48806434ec74d94169e844da81766b896e"
+      "sha256": "352117205f3b87edbbff762e47060a7d1c24920c46d72cefc82340aa6cc93396"
     },
     {
       "role": "risk_model",
@@ -292,7 +292,7 @@
       "package_path": "models/lgbm_kr_stock_risk_v1.joblib",
       "required": true,
       "exists": true,
-      "sha256": "426f52c9505206c6ae4f05a219bea0e28d884552a8ce39f71177b964d48eb90d"
+      "sha256": "9b440b11dad94e0b8fa9452b6e2b6efed5051784d286dc9e9ccda0041b1c13b7"
     },
     {
       "role": "config",
@@ -308,7 +308,7 @@
       "package_path": "metadata/lgbm_kr_stock_signal_v1.metrics.json",
       "required": true,
       "exists": true,
-      "sha256": "184d39438c7a7a9a138b1a4f6b436d9149d0b8dd0f257f5dbcb3ca06949beb7b"
+      "sha256": "0a0568f78ac71aae81fbfdf8fbc50b271e71a5f1f29799d4c0eb9a4961eb554a"
     },
     {
       "role": "risk_metrics",
@@ -316,7 +316,7 @@
       "package_path": "metadata/lgbm_kr_stock_risk_v1.metrics.json",
       "required": true,
       "exists": true,
-      "sha256": "de001ec280a688fa5b62e4d786256c6b43f6e2fb20fe46174265e52e3e89a823"
+      "sha256": "b067209be04f621359733f3017d58fe71f0d7e603c3326a6d8a9c0314fa0b5d2"
     },
     {
       "role": "summary",
@@ -332,7 +332,7 @@
       "package_path": "predictions/kr_stock_predictions_lgbm_v1.csv",
       "required": false,
       "exists": true,
-      "sha256": "0c8ea0c52d92eaf896aac718175d4cd2ec97a1eb4728b0676e523f456a97f959"
+      "sha256": "62955d54459dc444defa0d3253661618023c9edc339c8c240eced6fc9cefdc56"
     }
   ]
 }

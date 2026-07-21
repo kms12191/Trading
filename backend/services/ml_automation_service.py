@@ -56,7 +56,7 @@ AUTOMATION_PRESETS = {
         "dataset": {
             "asset_type": "CRYPTO",
             "exchange": "BINANCE",
-            "preset": "crypto_core_30",
+            "preset": "crypto",
             "symbols": [],
             "interval": "30m",
             "count": 5000,
@@ -107,7 +107,7 @@ AUTOMATION_PRESETS = {
         "dataset": {
             "asset_type": "STOCK",
             "exchange": "TOSS",
-            "preset": "stock_kr_core_45",
+            "preset": "kr_stock",
             "symbols": [],
             "interval": "1d",
             "count": 700,
@@ -142,7 +142,7 @@ AUTOMATION_PRESETS = {
         "dataset": {
             "asset_type": "STOCK",
             "exchange": "TOSS",
-            "preset": "stock_us_core_45",
+            "preset": "us_stock",
             "symbols": [],
             "interval": "1d",
             "count": 700,
@@ -168,7 +168,7 @@ AUTOMATION_PRESETS = {
         "dataset": {
             "asset_type": "CRYPTO",
             "exchange": "BINANCE",
-            "preset": "crypto_core_30",
+            "preset": "crypto",
             "symbols": [],
             "interval": "30m",
             "count": 5000,

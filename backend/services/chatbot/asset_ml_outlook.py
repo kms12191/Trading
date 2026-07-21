@@ -5,18 +5,47 @@ Scalar = str | int | float | None
 
 
 PREDICTIVE_OUTLOOK_KEYWORDS = (
-    "\uc624\ub97c\uae4c",
-    "\uc62c\ub77c",
-    "\ub0b4\ub9b4\uae4c",
-    "\uc804\ub9dd",
-    "\uc0c1\uc2b9",
-    "\ud558\ub77d",
-    "\uc0b4\uae4c",
-    "\ud314\uae4c",
-    "\ub9e4\uc218",
-    "\ub9e4\ub3c4",
-    "\uc9c4\uc785",
+    "오를까",
+    "올라",
+    "내릴까",
+    "전망",
+    "상승",
+    "하락",
+    "살까",
+    "팔까",
+    "매수",
+    "매도",
+    "진입",
 )
+
+# 내부 정책 사유 코드 → 일반 언어 변환
+_POLICY_REASON_KOR = {
+    "market_breadth": "시장 전체 상승 종목이 부족합니다",
+    "sector_breadth": "이 업종의 흐름이 약합니다",
+    "sector_strength": "업종 전반이 힘을 잃고 있습니다",
+    "market_regime": "현재 시장은 보수적 대응이 필요합니다",
+    "market_drawdown": "시장 전반에 낙폭 부담이 있습니다",
+    "hard_market_drawdown": "시장 급락 구간으로 진입을 차단합니다",
+    "news_stress": "부정적 뉴스 신호가 감지됩니다",
+    # 한글 레이블이 그대로 올 경우
+    "시장 폭 부족": "시장 전체 상승 종목이 부족합니다",
+    "섹터 폭 부족": "이 업종의 흐름이 약합니다",
+    "섹터 강도 부족": "업종 전반이 힘을 잃고 있습니다",
+    "시장 국면 보수적": "현재 시장은 보수적 대응이 필요합니다",
+    "시장 낙폭 부담": "시장 전반에 낙폭 부담이 있습니다",
+    "시장 급락 차단": "시장 급락 구간으로 진입을 차단합니다",
+    "뉴스 스트레스": "부정적 뉴스 신호가 감지됩니다",
+}
+
+# 내부 등급 코드 → 한글
+_GRADE_KOR = {
+    "STRONG_BUY_CANDIDATE": "강력 매수 후보",
+    "BUY_CANDIDATE": "매수 후보",
+    "HOLD": "관망",
+    "WATCH": "관망",
+    "RISKY": "위험 주의",
+    "NEUTRAL": "중립",
+}
 
 
 def is_predictive_outlook_question(text: str) -> bool:
@@ -52,22 +81,51 @@ def build_single_asset_ml_outlook(
         return _missing_prediction_result(asset_key, symbol, display_name, payload)
 
     prediction = rows[0]
-    reply = "\n".join(
-        [
-            f"{display_name}({symbol}) \uc9c8\ubb38\uc740 ML \ud65c\uc131 \uc2e0\ud638 \uae30\uc900\uc73c\ub85c \ubcf4\uba74 \ub2e4\uc74c\uacfc \uac19\uc2b5\ub2c8\ub2e4.",
-            f"- \ubc29\ud5a5: {_format_position(prediction.get('position'))} / \ub4f1\uae09: {prediction.get('signal_grade') or '-'}",
-            f"- \uc0c1\uc2b9 \ud655\ub960: {_format_probability(prediction.get('up_probability'))}",
-            f"- \uc704\ud5d8 \ud655\ub960: {_format_probability(prediction.get('risk_probability'))}",
-            f"- \uc2e0\ud638 \uc810\uc218: {_format_number(prediction.get('signal_score'))}",
-            f"- \ubaa8\ub378: {prediction.get('model_version') or '-'}",
-            "",
-            "\ubaa8\ub378 \uae30\ubc18 \ucc38\uace0 \uc2e0\ud638\uc774\uba70, \ubc14\ub85c \ub9e4\uc218/\ub9e4\ub3c4\ub97c \ub2e8\uc815\ud558\ub294 \ub2f5\uc774 \uc544\ub2d9\ub2c8\ub2e4.",
-            "\uc8fc\uc758: \uc774 \uac12\uc740 \ub9e4\ub9e4 \uc2e4\ud589 \uc2e0\ud638\uac00 \uc544\ub2c8\ub77c \ucc38\uace0\uc6a9 \uc608\uce21\uc785\ub2c8\ub2e4. "
-            "\ub274\uc2a4, \uacf5\uc2dc, \uac00\uaca9/\uac70\ub798\ub7c9, \ubcf4\uc720 \ube44\uc911\uc744 \ud568\uaed8 \ud655\uc778\ud55c \ub4a4 \ud310\ub2e8\ud574\uc57c \ud569\ub2c8\ub2e4.",
-        ]
-    )
+
+    # ── 응답 구성 ───────────────────────────────────────────
+    position_label = _format_position(prediction.get("position"))
+    grade_label = _format_grade(prediction.get("signal_grade"))
+    up_pct = _format_probability(prediction.get("up_probability"))
+    risk_pct = _format_probability(prediction.get("risk_probability"))
+
+    reply_lines = [
+        f"{display_name}({symbol}) 종목의 ML 참고 신호입니다.",
+        "",
+        f"▶ 판단: {position_label} ({grade_label})",
+        f"  상승 가능성 {up_pct}  ·  하락 위험 {risk_pct}",
+    ]
+
+    # 모델이 생성한 요약 문장
+    reason_summary = str(prediction.get("reason_summary") or "").strip()
+    if reason_summary:
+        reply_lines += ["", reason_summary]
+
+    # 관망·주의 이유 (일반 언어)
+    block_labels = prediction.get("policy_block_reason_labels")
+    if not isinstance(block_labels, list) or not block_labels:
+        raw = str(prediction.get("policy_block_reason") or "").strip()
+        if raw:
+            block_labels = [r.strip() for r in raw.split("|") if r.strip()]
+    if block_labels:
+        reply_lines += ["", "현재 관망을 권고하는 이유:"]
+        for label in block_labels[:4]:
+            plain = _POLICY_REASON_KOR.get(label, label)
+            reply_lines.append(f"  • {plain}")
+
+    # 시장 국면
+    regime = str(prediction.get("market_regime_state") or "").strip()
+    if regime:
+        regime_kor = "보수적 관망" if regime == "risk_off" else regime
+        reply_lines += ["", f"시장 국면: {regime_kor}"]
+
+    reply_lines += [
+        "",
+        "이 신호는 참고용 예측이며 매매 실행 근거가 아닙니다.",
+        "뉴스·공시·보유 비중 등을 함께 확인 후 최종 판단하세요.",
+    ]
+
     return {
-        "reply": reply,
+        "reply": "\n".join(reply_lines),
         "actions": [],
         "data": {
             "source": "ML_ACTIVE_SIGNAL",
@@ -125,15 +183,19 @@ def _asset_key_for_symbol(symbol_data: dict) -> str:
 def _format_position(value: Scalar) -> str:
     normalized = str(value or "").strip().upper()
     mapping = {
-        "BUY": "\ub9e4\uc218 \ud6c4\ubcf4",
-        "LONG": "\ub9e4\uc218 \ud6c4\ubcf4",
-        "SELL": "\ub9e4\ub3c4 \uc8fc\uc758",
-        "SHORT": "\ub9e4\ub3c4 \uc8fc\uc758",
-        "HOLD": "\ubcf4\uc720",
-        "NEUTRAL": "\uc911\ub9bd",
-        "WATCH": "\uad00\ub9dd",
+        "BUY": "매수 후보",
+        "LONG": "매수 후보",
+        "SELL": "매도 주의",
+        "SHORT": "매도 주의",
+        "HOLD": "관망",
+        "NEUTRAL": "중립",
+        "WATCH": "관망",
     }
-    return mapping.get(normalized, str(value or "\uc54c \uc218 \uc5c6\uc74c"))
+    return mapping.get(normalized, str(value or "알 수 없음"))
+
+
+def _format_grade(value: Scalar) -> str:
+    return _GRADE_KOR.get(str(value or "").strip().upper(), str(value or "-"))
 
 
 def _format_probability(value: Scalar) -> str:

@@ -139,7 +139,7 @@ model:
   - obv_zscore_20
 prediction:
   risk_model_path: models/lgbm_us_stock_risk_v1.joblib
-  long_threshold: 0.1604
+  long_threshold: -0.1
   stock_min_composite_spread: 0.3606
   stock_policy:
     enabled: true
@@ -171,8 +171,8 @@ prediction:
     max_per_market: 2
     max_per_sector: 1
     max_unknown_sector: 2
-    min_kr_count: 1
-    min_us_count: 0
+    min_kr_count: 0
+    min_us_count: 1
     unknown_sector_penalty: 19.1794
   override_policy:
     enabled: false

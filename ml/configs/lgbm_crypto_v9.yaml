@@ -105,7 +105,7 @@ model:
   - market_news_stress_score
 prediction:
   risk_model_path: models/lgbm_crypto_risk_v9.joblib
-  long_threshold: 0.08
+  long_threshold: -0.1
   short_threshold: 0.72
 labels:
   neutral_zone_abs_return: 0.002

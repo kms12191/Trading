@@ -1190,7 +1190,7 @@ export default function ChatbotWidget({
                 readOnly={!isLoggedIn}
                 placeholder={isLoggedIn ? (isMobilePage ? '궁금한 점을 입력해 주세요.' : '메시지를 입력하세요') : '로그인 후 이용 가능합니다'}
                 className={isMobilePage
-                  ? 'max-h-28 min-h-12 flex-1 resize-none border-none bg-transparent px-0 py-3 text-lg leading-6 text-slate-100 outline-none placeholder:text-slate-400 read-only:cursor-pointer'
+                  ? 'max-h-28 min-h-12 flex-1 resize-none border-none bg-transparent px-0 py-3 text-xs leading-5 text-slate-100 outline-none placeholder:text-slate-400 read-only:cursor-pointer'
                   : 'min-h-11 flex-1 resize-none rounded border border-slate-700 bg-[#111827] px-3 py-2 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-ai-cyan read-only:cursor-pointer read-only:border-ai-cyan/40'}
               />
               <button
