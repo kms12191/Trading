@@ -554,19 +554,35 @@ export default function TradeHistoryTab({ mobileLayout = false }) {
               />
             </label>
             <div className={`flex items-center rounded border border-slate-700 bg-[#0f172a] text-sm font-bold text-slate-300 ${mobileLayout ? 'h-11 gap-1.5 px-3' : 'h-10 gap-2 px-3'}`}>
-              <input
-                className={`bg-transparent font-mono text-xs text-slate-200 outline-none [color-scheme:dark] ${mobileLayout ? 'min-w-0 flex-1 text-center' : 'w-32'}`}
-                type="date"
-                value={dateRange.start}
-                onChange={(event) => setDateRange((prev) => ({ ...prev, start: event.target.value }))}
-              />
+              <div className={mobileLayout ? 'relative min-w-0 flex-1' : ''}>
+                <input
+                  className={`bg-transparent font-mono text-xs outline-none [color-scheme:dark] ${mobileLayout ? `w-full min-w-0 text-center ${dateRange.start ? 'text-slate-200' : 'text-transparent'}` : 'w-32 text-slate-200'}`}
+                  type="date"
+                  value={dateRange.start}
+                  aria-label="시작일"
+                  onChange={(event) => setDateRange((prev) => ({ ...prev, start: event.target.value }))}
+                />
+                {mobileLayout && !dateRange.start ? (
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-xs text-slate-200">
+                    연도-월-일
+                  </span>
+                ) : null}
+              </div>
               <span className="shrink-0 text-slate-600">-</span>
-              <input
-                className={`bg-transparent font-mono text-xs text-slate-200 outline-none [color-scheme:dark] ${mobileLayout ? 'min-w-0 flex-1 text-center' : 'w-32'}`}
-                type="date"
-                value={dateRange.end}
-                onChange={(event) => setDateRange((prev) => ({ ...prev, end: event.target.value }))}
-              />
+              <div className={mobileLayout ? 'relative min-w-0 flex-1' : ''}>
+                <input
+                  className={`bg-transparent font-mono text-xs outline-none [color-scheme:dark] ${mobileLayout ? `w-full min-w-0 text-center ${dateRange.end ? 'text-slate-200' : 'text-transparent'}` : 'w-32 text-slate-200'}`}
+                  type="date"
+                  value={dateRange.end}
+                  aria-label="종료일"
+                  onChange={(event) => setDateRange((prev) => ({ ...prev, end: event.target.value }))}
+                />
+                {mobileLayout && !dateRange.end ? (
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-xs text-slate-200">
+                    연도-월-일
+                  </span>
+                ) : null}
+              </div>
             </div>
             <label className={`flex items-center gap-2 rounded border border-slate-700 bg-[#0f172a] text-sm text-slate-400 ${mobileLayout ? 'h-11 w-full px-3.5' : 'h-10 min-w-56 px-3'}`}>
               <span className="shrink-0 text-xs font-bold text-slate-500">거래소</span>
