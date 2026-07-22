@@ -353,10 +353,16 @@ export default function AdminAiFundDashboard({ userId }) {
               <>
                 <div className="flex items-center justify-center gap-2 text-emerald-400 font-bold">
                   <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                  <span>AI가 코인원 248개 종목을 5초 간격으로 실시간 탐색 중입니다</span>
+                  <span>
+                    AI가 {selectedExchanges.map((e) => e.toUpperCase()).join(' · ')} {selectedExchanges.length}개 거래소를 5초 간격으로 실시간 탐색 중입니다
+                  </span>
                 </div>
                 <p className="text-[11px] text-slate-400 max-w-lg mx-auto leading-relaxed">
-                  현재 설정된 <strong>공격적 리스크 정책 (확신도 65% 이상)</strong>을 달성한 고확신 상승 종목이 포착되면 자동으로 주문이 체결됩니다. 확신도가 미달하는 시점에는 자금을 안전하게 보존하기 위해 매수를 보류하고 있습니다.
+                  현재 설정된{' '}
+                  <strong>
+                    {riskPreset === 'conservative' ? '보수적 리스크 정책 (확신도 85% 이상)' : riskPreset === 'neutral' ? '중립적 리스크 정책 (확신도 75% 이상)' : '공격적 리스크 정책 (확신도 65% 이상)'}
+                  </strong>
+                  을 달성한 고확신 상승 종목이 포착되면 자동으로 주문이 체결됩니다. 확신도가 미달하는 시점에는 자금을 안전하게 보존하기 위해 매수를 보류하고 있습니다.
                 </p>
               </>
             ) : (
