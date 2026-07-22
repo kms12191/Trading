@@ -56,3 +56,12 @@ def test_emergency_kill_switch():
         assert success is True
 
 
+def test_is_symbol_tradable_on_exchange():
+    trader = AdminAiManagedTrader(user_id="00000000-0000-0000-0000-000000000123", exchange_type="coinone")
+    with patch("backend.services.coinone_client.CoinoneClient.get_krw_markets", return_value=[{"target_currency": "btc"}, {"target_currency": "eth"}]):
+        assert trader.is_symbol_tradable_on_exchange("BTCUSDT") is True
+        assert trader.is_symbol_tradable_on_exchange("ETHUSDT") is True
+        assert trader.is_symbol_tradable_on_exchange("UNLISTEDUSDT") is False
+
+
+

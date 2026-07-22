@@ -40,10 +40,17 @@ class AdminAiManagedTrader:
                 logger.info(f"[AdminAiTrader] Fund trading is inactive for user {self.user_id}")
                 return None
 
+            if not self.is_symbol_tradable_on_exchange(symbol):
+                logger.warning(
+                    f"[AdminAiTrader] Skipping {symbol}: Not listed/tradable on target exchange '{self.exchange_type}'"
+                )
+                return None
+
             min_score = float(config.get("min_signal_confidence", 0.75))
             if confidence_score < min_score:
                 logger.info(f"[AdminAiTrader] Confidence score {confidence_score} < threshold {min_score}")
                 return None
+
 
             max_pos_size = float(config.get("max_position_size", 0.0))
             if max_pos_size <= 0:
@@ -110,19 +117,35 @@ class AdminAiManagedTrader:
         executed_qty: float,
         order_id: Optional[str]
     ) -> None:
+        payload = {
+            "user_id": self.user_id,
+            "exchange_type": self.exchange_type,
+            "symbol": symbol,
+            "side": side,
+            "confidence_score": confidence_score,
+            "executed_price": executed_price,
+            "executed_qty": executed_qty,
+            "total_amount": executed_price * executed_qty,
+            "order_id": order_id,
+            "status": "SUCCESS"
+        }
         safe_query_supabase_as_service_role(
             "admin_ai_trade_logs",
             method="POST",
-            json_data={
-                "user_id": self.user_id,
-                "exchange_type": self.exchange_type,
-                "symbol": symbol,
-                "side": side,
-                "confidence_score": confidence_score,
-                "executed_price": executed_price,
-                "executed_qty": executed_qty,
-                "total_amount": executed_price * executed_qty,
-                "order_id": order_id,
-                "status": "SUCCESS"
-            }
+            json_data=payload
         )
+
+    def is_symbol_tradable_on_exchange(self, symbol: str) -> bool:
+        """Verifies if symbol is listed and tradable on the configured target exchange."""
+        clean_target = symbol.replace("USDT", "").replace("-", "").replace("/", "").upper()
+        if not clean_target:
+            return False
+
+        if self.exchange_type == "coinone":
+            from backend.services.coinone_client import CoinoneClient
+            markets = CoinoneClient.get_krw_markets()
+            if markets:
+                target_currencies = {m.get("target_currency", "").upper() for m in markets}
+                return clean_target in target_currencies
+        return True
+
