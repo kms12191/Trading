@@ -202,7 +202,6 @@ AUTOMATION_PRESETS = {
             "retry": 3,
             "retry_wait_seconds": 60.0,
             "append": True,
-            "include_macro": True,
             "chunk_size": 0,
             "chunk_index": 1,
         },
@@ -213,7 +212,35 @@ AUTOMATION_PRESETS = {
             "skip_build_features": False,
         },
     },
+    # v10: 248개 전종목 30분 캔들 + 김치프리미엄 & 펀딩비 피처 + Optuna Hyperparameter Tuning
+    "crypto-v10-full": {
+        "label": "코인 v10 자동 수집+학습 (248종목 30m)",
+        "dataset": {
+            "asset_type": "CRYPTO",
+            "exchange": "BINANCE",
+            "preset": "crypto",
+            "symbols": [],
+            "interval": "30m",
+            "count": 5000,
+            "sleep_seconds": 0.3,
+            "retry": 2,
+            "retry_wait_seconds": 10.0,
+            "append": True,
+            "include_macro": False,
+            "chunk_size": 10,
+            "chunk_index": 1,
+            "raw_output": "crypto_candles_30m.csv",
+        },
+        "training": {
+            "config": "ml/configs/lgbm_crypto_v10.yaml",
+            "risk_config": "ml/configs/lgbm_crypto_risk_v10.yaml",
+            "summary_output": "ml/data/processed/crypto_v10_summary.json",
+            "skip_build_features": False,
+        },
+    },
 }
+
+
 
 
 def list_automation_presets() -> list[dict]:
