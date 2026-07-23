@@ -6,6 +6,8 @@ import requests
 from decimal import Decimal, ROUND_DOWN, InvalidOperation
 from urllib.parse import urlencode
 
+from backend.services.ai_fund_exchange import ExchangeCapability
+
 _FUTURES_EXCHANGE_INFO_CACHE = {}   # {cache_key: (payload, cached_at)}
 _SPOT_SYMBOL_INFO_CACHE = {}        # {cache_key: (payload, cached_at)}
 _BINANCE_TIME_SYNC_TTL_SECONDS = 300
@@ -86,6 +88,15 @@ class BinanceSpotClient:
         self.base_url = self.SPOT_BASE_URLS.get(self.env, self.SPOT_BASE_URLS["REAL"])
         self._server_time_offset_ms = 0
         self._server_time_synced_at = 0.0
+
+    def get_capabilities(self) -> ExchangeCapability:
+        """바이낸스 현물 API에서 지원하는 주문 범위를 반환합니다."""
+        return ExchangeCapability(
+            supports_spot=True,
+            supports_order_lookup=True,
+            supports_cancel=True,
+            supports_market_order=True,
+        )
 
     def _sync_server_time(self) -> bool:
         try:

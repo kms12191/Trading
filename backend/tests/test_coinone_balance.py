@@ -3,6 +3,44 @@ import pytest
 from backend.services.coinone_client import CoinoneClient
 
 
+def test_get_order_status_flattens_coinone_nested_order_payload(monkeypatch):
+    client = CoinoneClient("access-token", "secret-key")
+    monkeypatch.setattr(
+        client,
+        "_private_post",
+        lambda *_args, **_kwargs: {
+            "result": "success",
+            "order": {
+                "order_id": "order-1",
+                "status": "FILLED",
+                "executed_qty": "25000000",
+                "average_executed_price": "0.0004",
+                "fee": "2",
+            },
+        },
+    )
+
+    status = client.get_order_status("order-1", symbol="BTT")
+
+    assert status == {
+        "order_id": "order-1",
+        "status": "FILLED",
+        "executed_qty": "25000000",
+        "average_fill_price": "0.0004",
+        "fee": "2",
+        "raw": {
+            "result": "success",
+            "order": {
+                "order_id": "order-1",
+                "status": "FILLED",
+                "executed_qty": "25000000",
+                "average_executed_price": "0.0004",
+                "fee": "2",
+            },
+        },
+    }
+
+
 def test_coinone_balance_excludes_locked_withdrawal_quantity_from_holdings():
     client = CoinoneClient("access", "secret")
 

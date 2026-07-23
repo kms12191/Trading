@@ -228,6 +228,7 @@ def run_ml_training_job():
         data = request.json or {}
         config = str(data.get("config") or "").strip()
         risk_config = str(data.get("risk_config") or "").strip() or None
+        short_config = str(data.get("short_config") or "").strip() or None
         summary_output = str(data.get("summary_output") or "").strip() or None
         skip_build_features = bool(data.get("skip_build_features", False))
         label = str(data.get("label") or config or "ml-train").strip()
@@ -241,6 +242,7 @@ def run_ml_training_job():
                 "label": label,
                 "config": config,
                 "risk_config": risk_config,
+                "short_config": short_config,
                 "summary_output": summary_output,
                 "skip_build_features": skip_build_features,
             },
@@ -249,6 +251,7 @@ def run_ml_training_job():
         result = run_ml_pipeline(
             config_path=config,
             risk_config_path=risk_config,
+            short_config_path=short_config,
             skip_build_features=skip_build_features,
             summary_output=summary_output,
         )
@@ -496,6 +499,7 @@ def run_ml_full_pipeline_job():
                 "label": preset["label"],
                 "config": training_config["config"],
                 "risk_config": training_config.get("risk_config"),
+                "short_config": training_config.get("short_config"),
                 "summary_output": training_config.get("summary_output"),
                 "skip_build_features": bool(training_config.get("skip_build_features", False)),
                 "dataset_job_id": dataset_job["id"],
@@ -525,6 +529,7 @@ def run_ml_full_pipeline_job():
         result = run_ml_pipeline(
             config_path=training_config["config"],
             risk_config_path=training_config.get("risk_config"),
+            short_config_path=training_config.get("short_config"),
             skip_build_features=bool(training_config.get("skip_build_features", False)),
             summary_output=training_config.get("summary_output"),
         )
@@ -1059,5 +1064,4 @@ def update_active_universe():
             "success": False,
             "message": f"유니버스 설정 저장 실패: {str(e)}"
         }), 500
-
 

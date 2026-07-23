@@ -5,6 +5,8 @@ import json
 import uuid
 import requests
 
+from backend.services.ai_fund_exchange import ExchangeCapability
+
 class CoinoneClient:
     """
     코인원 API v2.1 연동 및 연결 검증을 담당하는 클라이언트 클래스입니다.
@@ -13,6 +15,15 @@ class CoinoneClient:
         self.access_token = access_token
         self.secret_key = secret_key.encode('utf-8')  # 코인원 Secret Key는 원본 바이트열 그대로 처리
         self.base_url = "https://api.coinone.co.kr"
+
+    def get_capabilities(self) -> ExchangeCapability:
+        """코인원 현물 API에서 검증된 주문 지원 범위를 반환합니다."""
+        return ExchangeCapability(
+            supports_spot=True,
+            supports_order_lookup=True,
+            supports_cancel=True,
+            supports_market_order=False,
+        )
 
     @staticmethod
     def _normalize_symbol(symbol: str) -> str:
@@ -383,10 +394,24 @@ class CoinoneClient:
             payload["target_currency"] = target_currency
 
         data = self._private_post("/v2.1/order/detail", payload)
-        status = str(data.get("status") or data.get("order_status") or "UNKNOWN").upper()
+        order = data.get("order") if isinstance(data.get("order"), dict) else {}
+        status = str(
+            order.get("status")
+            or data.get("status")
+            or data.get("order_status")
+            or "UNKNOWN"
+        ).upper()
         return {
-            "order_id": order_id,
+            "order_id": order.get("order_id") or data.get("order_id") or order_id,
             "status": status,
+            "executed_qty": order.get("executed_qty") or data.get("executed_qty"),
+            "average_fill_price": (
+                order.get("average_executed_price")
+                or order.get("average_fill_price")
+                or data.get("average_executed_price")
+                or data.get("average_fill_price")
+            ),
+            "fee": order.get("fee") or data.get("fee"),
             "raw": data,
         }
 
@@ -452,3 +477,23 @@ class CoinoneClient:
             "secondary_address": transaction.get("secondary_address") or secondary_address,
             "raw": data,
         }
+
+    @staticmethod
+    def get_krw_markets() -> list[dict]:
+        """
+        코인원 퍼블릭 API에서 거래 가능한 전체 KRW 마켓 종목 목록(300개 이상)을 거래대금 순으로 정렬하여 조회합니다.
+        """
+        url = "https://api.coinone.co.kr/public/v2/ticker_new/krw"
+        try:
+            req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                tickers = data.get("tickers") or []
+                sorted_tickers = sorted(
+                    tickers,
+                    key=lambda t: float(t.get("quote_volume", 0) or 0),
+                    reverse=True
+                )
+                return sorted_tickers
+        except Exception as err:
+            return []

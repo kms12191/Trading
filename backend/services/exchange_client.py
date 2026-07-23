@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+from backend.services.ai_fund_exchange import ExchangeCapability
+
 
 MARKET_CLOSED_ORDER_MESSAGE = "주문 전송 실패\n정규장이 마감되었습니다."
 
@@ -48,6 +50,15 @@ def is_market_closed_order_error(message: str | None) -> bool:
 
 
 class ExchangeClient(ABC):
+    def get_capabilities(self) -> ExchangeCapability:
+        """기존 클라이언트와 호환되는 기본 현물 주문 capability를 반환합니다."""
+        return ExchangeCapability(
+            supports_spot=True,
+            supports_order_lookup=True,
+            supports_cancel=callable(getattr(self, "cancel_order", None)),
+            supports_market_order=False,
+        )
+
     @abstractmethod
     def get_price(self, symbol: str) -> dict:
         """

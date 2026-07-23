@@ -572,3 +572,45 @@ export function JobHistorySection({
     </div>
   )
 }
+
+export function AdvancedToolsContainer({
+  activeSubTab,
+  onSubTabChange,
+  children,
+}) {
+  const tabs = [
+    { id: 'hpo', label: 'Optuna HPO 튜닝' },
+    { id: 'custom', label: '커스텀 수집 & 레포트' },
+    { id: 'universe', label: '유니버스 종목 관리' },
+  ]
+
+
+  return (
+    <section className="rounded-lg border border-slate-700 bg-[#0f172a] p-5 shadow-xl">
+      <div className="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ai-cyan">Advanced Tools Console</p>
+          <h2 className="mt-1 text-xl font-bold text-white">고급 도구 및 튜닝 모듈</h2>
+        </div>
+        <div className="flex rounded-lg border border-slate-800 bg-slate-900/90 p-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => onSubTabChange(tab.id)}
+              className={`rounded-md px-3.5 py-1.5 text-xs font-bold transition ${
+                activeSubTab === tab.id
+                  ? 'bg-ai-cyan text-[#07111f] shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-5">{children}</div>
+    </section>
+  )
+}
+

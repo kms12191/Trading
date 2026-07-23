@@ -65,52 +65,29 @@ export const presets = {
 
 export const trainingPresets = [
   {
-    key: 'stock-v6',
-    label: '주식 v6 학습',
-    config: 'ml/configs/lgbm_stock_v6.yaml',
-    riskConfig: 'ml/configs/lgbm_stock_risk_v6.yaml',
-    summaryOutput: 'ml/data/processed/stock_v6_summary.json',
+    key: 'stock-v8',
+    label: '주식 v8 학습',
+    config: 'ml/configs/lgbm_stock_v8.yaml',
+    riskConfig: 'ml/configs/lgbm_stock_risk_v8.yaml',
+    summaryOutput: 'ml/data/processed/stock_v8_summary.json',
   },
   {
-    key: 'crypto-v6',
-    label: '코인 v6 학습',
-    config: 'ml/configs/lgbm_crypto_v6.yaml',
-    riskConfig: 'ml/configs/lgbm_crypto_risk_v6.yaml',
-    summaryOutput: 'ml/data/processed/crypto_v6_summary.json',
+    key: 'stock-v11',
+    label: '주식 v11 학습',
+    config: 'ml/configs/lgbm_stock_v11.yaml',
+    riskConfig: 'ml/configs/lgbm_stock_risk_v11.yaml',
+    summaryOutput: 'ml/data/processed/stock_v11_summary.json',
   },
   {
-    key: 'stock-v7',
-    label: '주식 v7 학습',
-    config: 'ml/configs/lgbm_stock_v7.yaml',
-    riskConfig: 'ml/configs/lgbm_stock_risk_v7.yaml',
-    summaryOutput: 'ml/data/processed/stock_v7_summary.json',
-  },
-  {
-    key: 'crypto-v7',
-    label: '코인 v7 학습',
-    config: 'ml/configs/lgbm_crypto_v7.yaml',
-    riskConfig: 'ml/configs/lgbm_crypto_risk_v7.yaml',
-    summaryOutput: 'ml/data/processed/crypto_v7_summary.json',
+    key: 'crypto-v10',
+    label: '코인 v10 학습 (248종목)',
+    config: 'ml/configs/lgbm_crypto_v10.yaml',
+    riskConfig: 'ml/configs/lgbm_crypto_risk_v10.yaml',
+    summaryOutput: 'ml/data/processed/crypto_v10_summary.json',
   },
 ]
 
 export const tuningPresets = [
-  {
-    key: 'stock-v7-tune',
-    label: '주식 v7 HPO 튜닝',
-    config: 'ml/configs/lgbm_stock_v7.yaml',
-    defaultTrials: 20,
-    summary: '주식 v7 모델에 대해 Optuna로 최적의 하이퍼파라미터(learning_rate, num_leaves 등)를 탐색합니다.',
-    version: 'v7',
-  },
-  {
-    key: 'crypto-v7-tune',
-    label: '코인 v7 HPO 튜닝',
-    config: 'ml/configs/lgbm_crypto_v7.yaml',
-    defaultTrials: 20,
-    summary: '코인 v7 모델에 대해 Optuna로 최적의 하이퍼파라미터를 탐색합니다.',
-    version: 'v7',
-  },
   {
     key: 'stock-v8-tune',
     label: '주식 v8 HPO 튜닝',
@@ -121,29 +98,17 @@ export const tuningPresets = [
     isNew: true,
   },
   {
-    key: 'crypto-v8-tune',
-    label: '코인 v8 HPO 튜닝',
-    config: 'ml/configs/lgbm_crypto_v8.yaml',
+    key: 'crypto-v10-tune',
+    label: '코인 v10 HPO 튜닝',
+    config: 'ml/configs/lgbm_crypto_v10.yaml',
     defaultTrials: 20,
-    summary: '코인 v8 모델에 대해 Optuna로 하이퍼파라미터를 탐색합니다 (30m 캔들 기반).',
-    version: 'v8',
+    summary: '코인 v10 모델에 대해 Optuna로 최적의 하이퍼파라미터를 탐색합니다 (248개 알트코인 전종목).',
+    version: 'v10',
     isNew: true,
   },
 ]
 
 export const automationPresets = [
-  {
-    key: 'stock-v7-full',
-    label: '주식 v7 자동 수집+학습',
-    summary: 'Toss stock_core_90 수집 후 v7 학습까지 한 번에 실행',
-    version: 'v7',
-  },
-  {
-    key: 'crypto-v7-full',
-    label: '코인 v7 자동 수집+학습',
-    summary: 'Binance crypto_core_30 수집 후 v7 학습까지 한 번에 실행 (1h 캔들)',
-    version: 'v7',
-  },
   {
     key: 'stock-v8-full',
     label: '주식 v8 자동 수집+학습',
@@ -152,10 +117,17 @@ export const automationPresets = [
     isNew: true,
   },
   {
-    key: 'crypto-v8-full',
-    label: '코인 v8 자동 수집+학습',
-    summary: '일평균 100만$↑ & 상장 1년↑ 코인 동적 스크리닝 및 가변 슬리피지가 적용된 v8 학습 모델 (30m 캔들)',
-    version: 'v8',
+    key: 'crypto-v10-full',
+    label: '코인 v10 자동 수집+학습 (248종목 30m)',
+    summary: '코인원/바이낸스 248개 알트코인 전종목 + 김치프리미엄 & 펀딩비 피처 적용 v10 학습 모델',
+    version: 'v10',
+    isNew: true,
+  },
+  {
+    key: 'crypto-v11-full',
+    label: '코인 v11 자동 수집+학습 (248종목 4h) [테스트]',
+    summary: '30m→4h 타임프레임 전환 + BTC 하락 차단 룰 + Stop-Loss -3% 탑재. 결과 확인 후 v10 대체 예정.',
+    version: 'v11',
     isNew: true,
   },
   {
@@ -174,9 +146,11 @@ export const automationPresets = [
   },
 ]
 
-export const operationalAutomationPresets = automationPresets.filter((preset) => ['v8', 'split-v1'].includes(preset.version))
-export const legacyAutomationPresets = automationPresets.filter((preset) => !['v8', 'split-v1'].includes(preset.version))
-export const v8TuningPresets = tuningPresets.filter((preset) => preset.version === 'v8')
+export const operationalAutomationPresets = automationPresets
+export const legacyAutomationPresets = []
+export const v8TuningPresets = tuningPresets
+
+
 
 export function formatMetric(value) {
   if (value === null || value === undefined || value === '') return '-'

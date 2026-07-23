@@ -2,8 +2,9 @@
 set -euo pipefail
 
 AWS_HOST="${AWS_HOST:-ubuntu@52.79.188.213}"
-AWS_KEY="${AWS_KEY:-$HOME/Downloads/AE.pem}"
+AWS_KEY="${AWS_KEY:-$HOME/.ssh/AE.pem}"
 REMOTE_DIR="${REMOTE_DIR:-/home/ubuntu/teamproject}"
+DEPLOY_WORKER="${DEPLOY_WORKER:-false}"
 SSH_OPTS=(-i "$AWS_KEY" -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2)
 
 if [[ ! -f "$AWS_KEY" ]]; then
@@ -58,9 +59,19 @@ rsync -av --progress -e "ssh ${SSH_OPTS[*]}" \
   --exclude 'ml/serving_packages/**' \
   --exclude 'ml/reports' \
   --exclude 'ml/notebooks' \
+  --exclude 'ml/local_releases' \
+  --exclude 'ml/local_logs' \
+  --exclude 'ml/local_runtime' \
+  --exclude 'ml/releases' \
   --exclude 'supabase/.temp' \
   ./ "${AWS_HOST}:${REMOTE_DIR}/"
 
-echo "[3/3] Docker 이미지 재빌드 및 backend-api 재시작"
-ssh "${SSH_OPTS[@]}" "$AWS_HOST" \
-  "cd ${REMOTE_DIR} && docker compose up -d --build backend-api && docker compose ps"
+if [[ "$DEPLOY_WORKER" == "true" ]]; then
+  echo "[3/3] Docker 이미지 재빌드 및 backend-api/backend-worker 재시작"
+  ssh "${SSH_OPTS[@]}" "$AWS_HOST" \
+    "cd ${REMOTE_DIR} && docker compose --profile worker up -d --build backend-api backend-worker && docker compose ps"
+else
+  echo "[3/3] Docker 이미지 재빌드 및 backend-api 재시작 (worker 유지)"
+  ssh "${SSH_OPTS[@]}" "$AWS_HOST" \
+    "cd ${REMOTE_DIR} && docker compose up -d --build backend-api && docker compose ps"
+fi

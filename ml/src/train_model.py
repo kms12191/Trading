@@ -75,6 +75,8 @@ def main() -> None:
     fit_df = base_train_df if not base_train_df.empty else train_df
 
     lightgbm_params = dict(config["lightgbm"])
+    lightgbm_params.setdefault("verbose", -1)
+    lightgbm_params.setdefault("verbosity", -1)
     if training_options.get("use_scale_pos_weight"):
         lightgbm_params["scale_pos_weight"] = compute_scale_pos_weight(fit_df[target_column])
 
@@ -89,6 +91,8 @@ def main() -> None:
         random_state=int(config["model"]["random_state"]),
         **lightgbm_params,
     )
+
+
     model.fit(
         fit_df[feature_columns],
         fit_df[target_column],
@@ -183,6 +187,8 @@ def main() -> None:
             random_state=int(config["model"]["random_state"]),
             **lightgbm_params,
         )
+
+
         fold_weights = build_sample_weights(
             fold_train_df,
             target_column=target_column,

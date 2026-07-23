@@ -1,6 +1,6 @@
 # AWS EC2 백엔드 배포 가이드
 
-이 문서는 현재 프로젝트의 Flask 백엔드를 AWS EC2에 Docker Compose로 배포하고, 이후 코드 수정 후 다시 배포하는 절차를 정리한 가이드입니다. 로컬 프론트엔드 또는 추후 Vercel 프론트엔드는 AWS 백엔드 API에 연결하고, 백그라운드 자동매매/조건감시 기능은 `backend-worker` 컨테이너가 담당합니다.
+이 문서는 현재 프로젝트의 Flask 백엔드를 AWS EC2에 Docker Compose로 배포하고, 이후 코드 수정 후 다시 배포하는 절차를 정리한 가이드입니다. 로컬 프론트엔드 또는 추후 Vercel 프론트엔드는 AWS 백엔드 API에 연결하고, 백그라운드 자동매매/조건감시 기능은 `backend-worker` 컨테이너가 담당합니다. AI 위탁 실거래 코드를 수정한 배포에서는 API와 worker를 반드시 같은 이미지 버전으로 함께 재시작합니다.
 
 ## 1. 현재 배포 구조
 
@@ -80,6 +80,18 @@ Connection refused   서버는 닿지만 SSH 데몬 문제
 ```
 
 급할 때만 SSH를 임시로 `0.0.0.0/0`으로 열 수 있습니다. 배포가 끝나면 반드시 다시 `내 IP/32`로 줄여야 합니다.
+
+### 코인원 API IP 허용 목록
+
+AI 위탁 실거래에서 코인원 주문은 EC2 worker 컨테이너가 전송합니다. 따라서 코인원 API 키의 IP 허용 목록에는 개발 Mac IP가 아니라 worker의 실제 외부 송신 IP를 등록해야 합니다.
+
+EC2에서 확인:
+
+```bash
+docker compose exec backend-worker curl -s https://checkip.amazonaws.com
+```
+
+직접 인터넷에 연결된 EC2는 보통 Elastic IP가 보이고, NAT Gateway를 경유하는 사설 서브넷은 NAT Gateway의 Elastic IP가 보입니다. 표시된 IP를 코인원 API 키의 허용 목록에 등록한 뒤에만 실주문을 시작합니다.
 
 ## 3. 터미널에서 AWS 접속
 
@@ -201,9 +213,45 @@ worker 관련 값:
 
 ```env
 SCHEDULER_RUN_IN_GATEWAY=false
+WORKER_MODE=trading
 AUTO_TRADING_RULES_ENABLED=true
 AUTO_TRADING_RULES_INTERVAL_SECONDS=10
+AI_FUND_TRADING_ENABLED=false
+AI_FUND_TRADING_INTERVAL_SECONDS=30
 ```
+
+`WORKER_MODE=trading`은 조건매매, 미완료 주문 상태 동기화, AI 위탁만 실행합니다. 뉴스 수집, DART 공시 수집, ML 자동화, 홈 시장 스냅샷, 장 캘린더 스케줄러는 이 worker에서 시작하지 않습니다.
+
+### 로컬 ML 릴리스 운영
+
+실거래 AWS는 학습을 수행하지 않고, 로컬 머신이 생성·검증한 릴리스만 읽습니다. 코인 신규 매수는 릴리스 생성 시각이 90분 이내일 때만, 주식 신규 매수는 36시간 이내일 때만 허용합니다. 예측이 만료되면 신규 매수만 보류하며, 보유 포지션의 손절·익절·비상정지·체결 대사는 계속 동작합니다.
+
+로컬에서 예측 릴리스를 생성합니다.
+
+```bash
+python3 scripts/run_local_ml_serving.py --asset crypto
+./scripts/deploy_ml_release_aws.sh ml/local_releases/releases/crypto/<release-id>
+```
+
+주식은 `--asset kr_stock`, `--asset us_stock`으로 각각 실행합니다. 재학습은 `--train`을 명시했을 때만 수행합니다.
+
+맥이 켜져 있는 동안 자동 실행하려면 다음을 한 번 실행합니다. 생성에 성공한 릴리스만 AWS로 업로드·활성화됩니다.
+
+```bash
+./scripts/install_local_ml_launchd.sh
+```
+
+AWS `backend/.env`에는 `ML_RELEASE_REQUIRED=true`를 설정하고, 최초 릴리스가 `ml/releases/current/<asset>`에 검증되어 반영된 것을 확인하기 전까지 `AI_FUND_TRADING_ENABLED=false`를 유지합니다.
+
+AI 위탁 실거래는 서버 전역 `COINONE_ACCESS_TOKEN` 값이 아니라 Supabase `user_api_keys`에 저장된 사용자별 암호화 키를 사용합니다. 따라서 worker에는 아래 값이 반드시 있어야 합니다.
+
+```env
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+ENCRYPTION_KEY=...
+```
+
+초기 배포와 IP 허용 목록 검증 전에는 `AI_FUND_TRADING_ENABLED=false`로 둡니다. 최신 worker 로그와 코인원 IP 허용 목록을 확인한 후에만 `true`로 바꾸고 worker를 재시작합니다.
 
 주의:
 
@@ -306,6 +354,12 @@ npm run build
 cd ..
 ```
 
+AI 위탁 자동투자 변경이 포함됐다면 추가로 실행합니다.
+
+```bash
+PYTHONPATH=. pytest backend/tests/test_admin_ai_fund_trading_scheduler.py -q
+```
+
 3. AWS 보안그룹 SSH 확인
 
 ```bash
@@ -314,22 +368,24 @@ curl https://checkip.amazonaws.com
 
 AWS 보안그룹의 SSH 22번 소스를 현재 IP `/32`로 맞춥니다.
 
-4. 백엔드 API 배포
+4. AI 위탁 포함 백엔드/worker 배포
 
 ```bash
-./scripts/deploy_backend_aws.sh
+DEPLOY_WORKER=true ./scripts/deploy_backend_aws.sh
 ```
 
-5. worker도 새 코드로 재시작
+`DEPLOY_WORKER=true`는 `backend-api`와 `backend-worker`를 같은 이미지로 재빌드해 재시작합니다. 일반 API 수정만 배포할 때는 기존처럼 `./scripts/deploy_backend_aws.sh`를 사용합니다.
 
-자동매매/조건감시/챗봇 worker 테스트가 필요하면 서버에 접속해서 실행합니다.
+5. worker 상태와 최신 코드 확인
 
 ```bash
 ssh -i ~/Downloads/AE.pem ubuntu@52.79.188.213
 cd /home/ubuntu/teamproject
-docker compose --profile worker up -d --build backend-worker
 docker compose ps
+docker compose logs --tail=100 backend-worker
 ```
+
+`backend-worker`의 시작 시간이 배포 시각과 일치하는지, 이전 버전의 `DRY_RUN` 또는 코인원 미상장 심볼 오류가 없는지 확인합니다.
 
 6. 상태 확인
 
@@ -463,6 +519,20 @@ docker compose ps
 ```
 
 실거래 API 키가 들어간 환경에서는 `AUTO` 실행 모드가 실제 주문으로 이어질 수 있습니다. 처음 테스트는 `PROPOSAL` 모드를 권장합니다.
+
+### AI 위탁 실거래 전환 순서
+
+AI 위탁은 `admin_ai_fund_configs.is_active=true`와 `operation_mode=LIVE` 설정을 worker가 읽어 주문을 시도합니다. worker 컨테이너를 올리는 것만으로는 주문하지 않지만, 이미 활성화된 설정이 있으면 시작 직후 주문 조건을 평가합니다.
+
+```text
+1. AI_FUND_TRADING_ENABLED=false 상태로 API와 worker 코드 배포
+2. backend-worker 로그에서 최신 코드와 거래소 후보 필터 동작 확인
+3. EC2 worker의 외부 송신 IP를 코인원 API 키 허용 목록에 등록
+4. backend/.env의 AI_FUND_TRADING_ENABLED=true 적용
+5. docker compose --profile worker up -d --force-recreate backend-worker
+6. 대시보드에서 운용 금액과 1회 투자 비중을 저장한 뒤 AI 위탁 운용 시작
+7. backend-worker 로그와 ai_fund_orders, admin_ai_trade_logs의 실제 체결 상태 확인
+```
 
 ## 11. 자주 만난 문제와 해결
 

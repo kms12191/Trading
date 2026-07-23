@@ -8,6 +8,7 @@ import {
   formatCryptoAmount,
   isActionableOrderStatus,
   isDeletableTradeHistoryItem,
+  mapAiFundOrderToTrade,
   mapBrokerHistoryToTrade,
   mapProposalToTrade,
   mapTradeStatus,
@@ -77,6 +78,30 @@ test('독립 브로커 원장을 거래내역 행으로 변환한다', () => {
   assert.equal(row.side, '매도')
   assert.equal(row.amount, '₩210,000')
   assert.equal(row.fees, '₩30')
+})
+
+test('AI 위탁 체결 원장을 일반 거래내역 행으로 변환한다', () => {
+  const row = mapAiFundOrderToTrade({
+    id: 'ai-order-1',
+    exchange_type: 'coinone',
+    symbol: 'BTT',
+    side: 'BUY',
+    status: 'FILLED',
+    requested_qty: 25000000,
+    filled_qty: 25000000,
+    requested_price: 0.000402,
+    average_fill_price: 0.0004,
+    fee_amount: 2,
+    exchange_order_id: 'exchange-1',
+    created_at: '2026-07-23T00:44:25Z',
+  })
+
+  assert.equal(row.sourceType, 'AI_FUND')
+  assert.equal(row.exchange, 'COINONE')
+  assert.equal(row.status, '체결완료')
+  assert.equal(row.quantity, '25,000,000')
+  assert.equal(row.amount, '₩10,000')
+  assert.equal(row.fees, '₩2')
 })
 
 test('완료된 자산 이동은 출금과 입금 행을 함께 만든다', () => {

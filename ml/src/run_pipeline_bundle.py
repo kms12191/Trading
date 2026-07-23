@@ -43,7 +43,7 @@ def run_step(step_name: str, command: list[str]) -> None:
     subprocess.run(command, cwd=PROJECT_ROOT, check=True)
 
 
-def build_summary(config_path: Path, risk_config_path: Path | None) -> dict:
+def build_summary(config_path: Path, risk_config_path: Path | None, short_config_path: Path | None) -> dict:
     config = load_config(config_path)
     model_path = resolve_ml_path(config_path, config["model"]["output_path"])
     metrics_path = model_path.with_suffix(".metrics.json")
@@ -81,6 +81,24 @@ def build_summary(config_path: Path, risk_config_path: Path | None) -> dict:
         if risk_metrics_path.exists():
             summary["risk_metrics"] = json.loads(risk_metrics_path.read_text(encoding="utf-8"))
 
+    if short_config_path:
+        short_config = load_config(short_config_path)
+        short_model_path = resolve_ml_path(short_config_path, short_config["model"]["output_path"])
+        short_metrics_path = short_model_path.with_suffix(".metrics.json")
+        summary["short_config"] = str(short_config_path)
+        summary["short_model_version"] = short_config["model"]["version"]
+        summary["short_metrics_path"] = str(short_metrics_path)
+        if short_metrics_path.exists():
+            summary["short_metrics"] = json.loads(short_metrics_path.read_text(encoding="utf-8"))
+        for key in ("predictions_path", "backtest_short_summary_path"):
+            target = short_config.get("data", {}).get(key)
+            if not target:
+                continue
+            resolved = resolve_ml_path(short_config_path, target)
+            summary[f"short_{key}"] = str(resolved)
+            if resolved.exists() and resolved.suffix == ".json":
+                summary["short_backtest"] = json.loads(resolved.read_text(encoding="utf-8"))
+
     return summary
 
 
@@ -88,6 +106,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="동일 조건 재현용 ML 파이프라인 번들 실행기")
     parser.add_argument("--config", required=True, help="상승 모델 설정 파일")
     parser.add_argument("--risk-config", default=None, help="하락 위험 모델 설정 파일")
+    parser.add_argument("--short-config", default=None, help="숏 수익 모델 설정 파일")
     parser.add_argument("--skip-build-features", action="store_true", help="기존 피처 CSV를 그대로 사용")
     parser.add_argument("--skip-backtests", action="store_true", help="백테스트 단계를 건너뜀")
     parser.add_argument("--summary-output", default=None, help="실험 요약 JSON 저장 경로")
@@ -95,6 +114,7 @@ def main() -> None:
 
     config_path = resolve_cli_path(args.config)
     risk_config_path = resolve_cli_path(args.risk_config) if args.risk_config else None
+    short_config_path = resolve_cli_path(args.short_config) if args.short_config else None
     python_bin = sys.executable
 
     if not args.skip_build_features:
@@ -117,6 +137,16 @@ def main() -> None:
             "train_risk_model",
             [python_bin, "ml/src/train_model.py", "--config", str(risk_config_path)],
         )
+
+    if short_config_path:
+        run_step(
+            "train_short_model",
+            [python_bin, "ml/src/train_model.py", "--config", str(short_config_path)],
+        )
+        run_step(
+            "evaluate_short_model",
+            [python_bin, "ml/src/evaluate.py", "--config", str(short_config_path)],
+        )
         run_step(
             "evaluate_risk_model",
             [python_bin, "ml/src/evaluate.py", "--config", str(risk_config_path)],
@@ -137,8 +167,13 @@ def main() -> None:
                 "backtest_composite",
                 [python_bin, "ml/src/backtest_signals.py", "--config", str(config_path), "--strategy", "composite"],
             )
+        if short_config_path:
+            run_step(
+                "backtest_short_only",
+                [python_bin, "ml/src/backtest_signals.py", "--config", str(short_config_path), "--strategy", "short_only"],
+            )
 
-    summary = build_summary(config_path, risk_config_path)
+    summary = build_summary(config_path, risk_config_path, short_config_path)
     if args.summary_output:
         summary_path = resolve_cli_path(args.summary_output)
         summary_path.parent.mkdir(parents=True, exist_ok=True)

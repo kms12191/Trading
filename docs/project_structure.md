@@ -130,7 +130,8 @@ backend/
 - `worker.py`
   - 뉴스 수집
   - DART 공시 수집
-  - ML 자동화
+  - 조건매매 감시, 주문 상태 동기화, AI 위탁 주문·보호 매도
+  - ML 학습·예측은 로컬 launchd가 맡고, AWS worker는 검증된 릴리스만 읽습니다.
   - 홈 마켓 스냅샷
   - 조건감시 자동/반자동 매도 스케줄러
   - 전체 사용자 미완료 주문 상태 동기화 스케줄러
@@ -155,6 +156,7 @@ backend/
   - `chatbot/tool_registry.py`는 `get_crypto_market_context`를 통해 코인 현재가, 호가, 캔들, ML 활성 신호, 보유 스냅샷, 스프레드·슬리피지, Coinone/Binance 김치프리미엄과 주의사항을 통합한 읽기 전용 분석 도구를 제공합니다.
   - `crypto_asset_service.py`는 Supabase `crypto_assets` 단일 테이블을 기준으로 코인원/바이낸스 상장 상태, 거래 가능 여부, 표시명, 기본 거래소, 관리자 차단 상태를 조회·검색·수정합니다.
   - `crypto_asset_sync_service.py`는 코인원 Public currency 목록과 바이낸스 exchangeInfo를 병합해 `crypto_assets`에 상장/거래 가능 상태를 업서트합니다.
+  - `ml_release_service.py`는 `ml/releases/current/<asset>` 릴리스의 파일 SHA-256, 생성 시각, 코인 예측 원본 시세 시각을 검증합니다.
   - `obsidian_service.py`는 Markdown frontmatter/title/hash 정규화를 담당
   - `knowledge_chunk_service.py`는 저장된 노트 본문을 RAG/embedding 대상 chunk로 분할
   - `knowledge_repository.py`는 `user_knowledge_notes`, `user_memory_facts` Supabase 저장/조회 래퍼를 담당
@@ -423,6 +425,12 @@ ml/
 ├── models/
 ├── notebooks/
 ├── reports/
+├── releases/
+│   ├── current/
+│   └── releases/
+├── local_logs/
+├── local_releases/
+├── local_runtime/
 ├── serving_packages/
 └── src/
     ├── backtest_signals.py
@@ -457,6 +465,11 @@ ml/
   - 학습된 joblib 및 metrics JSON
 - `reports/`
   - 비교 리포트와 최신 실험 리포트
+- `releases/`
+  - AWS API·worker가 읽기 전용으로 사용하는 현재 릴리스와 버전별 릴리스 디렉터리
+  - 각 릴리스 `manifest.json`에는 파일 해시와 예측 원본 데이터 시각(`prediction_data_at`)이 포함됩니다.
+- `local_releases/`, `local_logs/`, `local_runtime/`
+  - 로컬 자동학습·예측 런처의 임시 릴리스, 실행 로그, 자산별 중복 실행 잠금 디렉터리입니다.
 - `serving_packages/`
   - EC2 업로드용 서빙 패키지 출력 디렉토리
   - `manifest.json`, 모델 joblib, risk 모델 joblib, config, metrics, summary만 포함하며 raw 학습 데이터는 포함하지 않습니다.

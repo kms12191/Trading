@@ -251,9 +251,9 @@ export const formatUnitCurrency = (value, currency, targetDisplayCurrency = 'KRW
 
 export const buildHoldingRows = ({
   holdings = [],
-  displayCurrency = 'KRW',
   exchangeRate = 1500,
 } = {}) => (
+
   holdings.map((stock, index) => {
     const exchangeName = stock.exchange || stock.account_type || '-'
     const rawExchange = normalizeExchangeCode(stock.raw_exchange || exchangeName)

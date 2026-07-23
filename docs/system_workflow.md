@@ -259,8 +259,10 @@ sequenceDiagram
 현재 코드 기준 사실:
 
 - 자동화 preset 정의 파일은 `backend/services/ml_automation_service.py`입니다.
-- 현재 운영 점검 기준 preset은 `stock-v11-full`, `crypto-v9-full`, `kr-stock-v1-full`, `us-stock-v1-full`입니다.
-- 통합 주식 모델, 국내주식 모델, 해외주식 모델, 코인 모델은 `model_registry.json` 및 Supabase `ml_model_registry`를 통해 serving/recommended/latest 상태를 관리합니다.
+- 현재 운영 점검 기준 preset은 `stock-v11-full`, `crypto-v10-full` (248개 코인 30m 캔들), `kr-stock-v1-full`, `us-stock-v1-full`입니다.
+- 통합 주식 모델(v11), 국내주식 모델(v1), 해외주식 모델(v1), 코인 모델(v10)은 `model_registry.json` 및 Supabase `ml_model_registry`를 통해 serving/recommended/latest 상태를 관리합니다.
+- 코인 v10 모델은 248개 알트코인 30분봉 데이터(11.5만 건)로 학습되며, Optuna HPO(5-fold time series CV)로 최적화된 hyper-parameters(CV ROC AUC 0.5942, Risk ROC AUC 0.6062)를 사용합니다.
+- Promotion Guard 검증 시 248개 코인 노이즈 특성을 반영하여 `min_cv_roc_auc: 0.50`, `min_precision_at_top_10pct: 0.20` 임계값을 적용하고, 학습 완수 시 `lgbm_crypto_signal_v10`을 자동 서빙 모델로 승격 조치합니다.
 - `ml/data/ops/job_history.json`이 1차 작업 이력 저장소입니다.
 - Supabase의 `ml_dataset_jobs`, `ml_training_runs`, `ml_model_registry`는 동기화 대상이지만, 테이블 부재 시에도 흐름이 계속 진행되도록 작성되어 있습니다.
 - EC2 배포 시에는 `ml/src/export_serving_package.py`로 생성한 서빙 패키지 `.tar.gz`만 업로드하며, raw 학습 데이터와 전체 processed 산출물은 배포 대상에서 제외합니다.
@@ -268,6 +270,10 @@ sequenceDiagram
 ## 6. 토큰 캐시 흐름
 
 현재 Toss/KIS OAuth 토큰은 로컬 파일보다 Supabase `token_caches`를 우선 사용하는 구조입니다.
+
+### 로컬 ML 릴리스와 AWS 주문 분리
+
+AI 위탁의 모델 학습·예측·릴리스 배포는 로컬 ML 런처가 담당하고, AWS `backend-worker`는 주문·보호 매도·대사만 담당합니다. AWS 신규 매수는 `ML_RELEASE_REQUIRED=true`일 때 검증된 현재 릴리스와 코인 원본 데이터 시각(`prediction_data_at`, 90분 이내)을 모두 만족해야 합니다. `AI_FUND_EXECUTION_ENABLED=true`는 AWS 실행 노드에만 설정하며, `AI_FUND_TRADING_ENABLED`가 별도로 true여야 주문 스케줄러가 시작됩니다.
 
 1. API 호출 전 `token_cache_service` 조회
 2. 유효 토큰이 있으면 복호화해서 사용
@@ -289,3 +295,39 @@ sequenceDiagram
 - 조건감시 자동/반자동 매도: `auto_trading_rules`
 
 락 획득 실패 시 예외로 중단하기보다, 해당 주기의 작업을 건너뛰고 다음 사이클을 기다리는 방식입니다.
+
+## 8. 관리자 AI 위탁 자동투자 및 리스크 관리 시스템
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as AdminAiFundDashboard
+    participant DB as Supabase admin_ai_fund_configs
+    participant Worker as backend/worker.py
+    participant Engine as AdminAiManagedTrader
+    participant Ex as Exchange API (Coinone/Toss/Binance)
+
+    UI->>DB: 위탁 운용 설정 및 리스크 프리셋 저장
+    Worker->>DB: 5초/30초 주기 위탁 설정 조회
+    Worker->>Engine: evaluate_and_execute_signal()
+    Engine->>Engine: 1. 거래소 248개 상장 검증 Guard 필터링
+    Engine->>Engine: 2. ML 확신도(65%/75%/85%) 조건 검증
+    Engine->>Engine: 3. 손실 방지 쉴드 및 목표 익절(+3%/+5%/+8%) 검증
+    alt 조건 통과
+        Engine->>Ex: 시장가 주문 전송
+        Engine->>DB: admin_ai_trade_logs 기록
+    else 조건 미달
+        Engine-->>Worker: 자금 보호 매수 보류 (Hold)
+    end
+    DB-->>UI: Realtime PG Subscription으로 체결 내역 즉시 갱신
+```
+
+현재 구현 사양:
+
+- **실행 아키텍처**: REST API 게이트웨이(`app.py`)와 완전히 분리된 백그라운드 프로세스(`backend/worker.py`) 내 `AdminAiManagedTrader` 및 `start_auto_trading_rule_scheduler()`에서 상주 구동됩니다.
+- **상장 상태 검증 Guard**: 선택한 거래소(예: 코인원 248개 종목)에 실제로 상장되어 거래 가능한 종목만 strict filter를 거쳐 주문을 집행합니다.
+- **리스크 정책 프리셋**:
+  - **보수적**: 목표익절 **+3.0%** / 손절 **-1.0%** / 최소 확신도 **85%** / 1회 투입 **5%**
+  - **중립적**: 목표익절 **+5.0%** / 손절 **-2.0%** / 최소 확신도 **75%** / 1회 투입 **10%**
+  - **공격적**: 목표익절 **+8.0%** / 손절 **-4.0%** / 최소 확신도 **65%** / 1회 투입 **20%**
+- **실시간 탐색 펄스 타이머**: UI에서 5초 간격으로 `lastCheckTime` 스캔 펄스를 실시간 업뎃하여 운용 상태를 시각화합니다.

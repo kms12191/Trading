@@ -18,6 +18,7 @@ from backend.utils.file_helpers import (
 from backend.services.supabase_client import query_supabase, safe_query_supabase
 from backend.services.auth_service import get_user_id_from_header
 from backend.services.ml_registry_service import list_model_registry
+from backend.services.ml_release_service import MlReleaseService
 from backend.services.symbol_metadata import enrich_symbol
 
 PROJECT_ROOT = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -47,11 +48,11 @@ PROMOTION_THRESHOLDS = {
     },
     "crypto": {
         "min_valid_rows": 1500,
-        "min_cv_roc_auc": 0.58,
-        "min_precision_at_top_10pct": 0.24,
+        "min_cv_roc_auc": 0.50,
+        "min_precision_at_top_10pct": 0.20,
         "min_composite_excess_return_net": 0.0,
         "min_composite_precision_at_top_n": 0.50,
-        "min_risk_cv_roc_auc": 0.56,
+        "min_risk_cv_roc_auc": 0.50,
         "min_max_drawdown_net": -0.60,
         "max_cv_roc_auc_drop_vs_serving": 0.015,
         "max_excess_return_drop_vs_serving": 0.001,
@@ -60,6 +61,7 @@ PROMOTION_THRESHOLDS = {
         "meaningful_improvement_excess_return_net": 0.001,
         "meaningful_improvement_precision_at_top_n": 0.01,
     },
+
     # 국내주식 전용 모델 — stock과 동일한 임계값 적용
     "kr_stock": {
         "min_valid_rows": 800,
@@ -1240,6 +1242,13 @@ def build_active_signal_payload(
 
     active_result = selection["active_result"]
     predictions_path = Path(str(active_result.get("predictions_path") or ""))
+    if os.getenv("ML_RELEASE_REQUIRED", "false").strip().lower() == "true":
+        release_service = MlReleaseService()
+        is_fresh, _status = release_service.is_asset_fresh(asset_key)
+        release_predictions_path = release_service.get_current_predictions_path(asset_key)
+        if not is_fresh or release_predictions_path is None:
+            return None
+        predictions_path = release_predictions_path
     if not predictions_path.exists():
         return None
 

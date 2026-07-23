@@ -60,9 +60,19 @@ COIN_DISPLAY_NAMES = {
     "EOS": "이오스",
     "KAS": "카스파",
     "ICP": "인터넷컴퓨터",
-    "STX": "스택스",
     "IMX": "이뮤터블엑스",
+    "SUI": "수이",
+    "WLD": "월드코인",
+    "STRK": "스타크넷",
+    "ONDO": "온도파이낸스",
+    "FLOKI": "플로키",
+    "TAO": "비텐서",
+    "BLUR": "블러",
+    "POL": "폴리곤",
+    "PENDLE": "펜들",
+    "SGR": "슈가",
 }
+
 
 # 가상자산 목록 전역 캐시
 _crypto_cache = {"coinone": [], "binance": [], "last_updated": 0.0}

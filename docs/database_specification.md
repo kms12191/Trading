@@ -222,6 +222,28 @@ erDiagram
         string model_name
         string version
     }
+    admin_ai_fund_configs {
+        uuid id PK
+        uuid user_id FK
+        string exchange_type
+        numeric allocated_capital
+        string risk_preset
+        numeric min_signal_confidence
+        numeric target_take_profit_pct
+        numeric daily_mdd_limit_pct
+        boolean is_active
+    }
+    admin_ai_trade_logs {
+        uuid id PK
+        uuid user_id FK
+        string exchange_type
+        string symbol
+        string side
+        numeric confidence_score
+        numeric executed_price
+        numeric total_amount
+        string status
+    }
     chatbot_token_usage_logs {
         uuid id PK
         uuid user_id FK
@@ -240,10 +262,13 @@ erDiagram
     profiles ||--o{ ml_dataset_jobs : "executes"
     profiles ||--o{ ml_training_runs : "runs"
     profiles ||--o{ ml_model_registry : "approves"
+    profiles ||--o{ admin_ai_fund_configs : "manages_fund"
+    profiles ||--o{ admin_ai_trade_logs : "records_ai_trades"
     ml_dataset_jobs ||--o{ ml_training_runs : "feeds"
     profiles ||--o{ chatbot_token_usage_logs : "uses_tokens"
     profiles ||--o{ chatbot_qa_events : "logs_qa"
 ```
+
 
 ---
 
@@ -938,7 +963,43 @@ erDiagram
     *   `created_at`, `updated_at` (TIMESTAMPTZ)
 *   **RLS**: `service_role` 전용 관리.
 
+### 2.25 admin_ai_fund_configs
+*   **용도**: 관리자 전용 AI 위탁 자동투자 대시보드의 계정 및 거래소별 위탁 자금, 리스크 프리셋, ML 확신도, 목표 익절 %, 손절(MDD) % 및 자율 운용 활성화 상태를 저장합니다.
+*   **주요 컬럼**:
+    *   `id` (UUID, PK)
+    *   `user_id` (UUID, FK) - `profiles.id` 참조
+    *   `exchange_type` (TEXT) - `coinone`, `toss`, `binance`
+    *   `allocated_capital` (NUMERIC) - 위탁 할당 자금 (KRW)
+    *   `max_position_size` (NUMERIC) - 1회 최대 포지션 투입 금액
+    *   `risk_preset` (TEXT) - `conservative`, `neutral`, `aggressive`
+    *   `min_signal_confidence` (NUMERIC) - ML 상승 확신도 승인 임계값 (예: 0.65, 0.75, 0.85)
+    *   `target_take_profit_pct` (NUMERIC) - 목표 익절 % (예: 3.0, 5.0, 8.0)
+    *   `daily_mdd_limit_pct` (NUMERIC) - 손절/일일 MDD 제한 % (예: -1.0, -2.0, -4.0)
+    *   `is_active` (BOOLEAN) - AI 자율 운용 활성화 상태
+    *   `created_at`, `updated_at` (TIMESTAMPTZ)
+*   **제약조건**: `UNIQUE(user_id, exchange_type)`
+*   **RLS**: 본인 설정 CRUD 및 백그라운드 워커(`service_role`) 전체 관리가 허용됩니다.
+*   **ML 릴리스 저장 위치**: 학습 모델, 예측 CSV, SHA-256 무결성 정보와 `prediction_data_at`은 현재 Supabase 테이블이 아닌 `ml/releases` 파일 시스템의 `manifest.json`에 저장됩니다. `admin_ai_fund_configs`에는 운용 정책만 저장하며, 릴리스 검증은 AWS API·워커가 읽기 전용 마운트에서 수행합니다.
+
+### 2.26 admin_ai_trade_logs
+*   **용도**: AI 자율 운용 엔진 및 리스크 제어에 의해 체결된 매매 주문 이력 및 체결 상태를 저장합니다.
+*   **주요 컬럼**:
+    *   `id` (UUID, PK)
+    *   `user_id` (UUID, FK) - `profiles.id` 참조
+    *   `exchange_type` (TEXT) - `coinone`, `toss`, `binance`
+    *   `symbol` (TEXT) - 심볼 코드 (예: `KRW-BTC`, `BTCUSDT`)
+    *   `side` (TEXT) - `BUY`, `SELL`
+    *   `confidence_score` (NUMERIC) - 매매 집행 당시 ML 확신도 점수
+    *   `executed_price` (NUMERIC) - 주문 체결가
+    *   `executed_qty` (NUMERIC) - 체결 수량
+    *   `total_amount` (NUMERIC) - 총 체결 금액
+    *   `order_id` (TEXT) - 거래소 체결 주문 식별자
+    *   `status` (TEXT) - `EXECUTED`, `CANCELLED`, `FAILED`
+    *   `created_at` (TIMESTAMPTZ)
+*   **RLS**: 본인 체결 로그 조회 및 백그라운드 워커(`service_role`) 기록 작성이 허용됩니다.
+
 ---
+
 
 ## 3. 주요 뷰(View) 및 RPC 함수
 

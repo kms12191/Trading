@@ -43,12 +43,40 @@ crypto = CryptoHelper(ENCRYPTION_KEY)
 logger = logging.getLogger(__name__)
 
 def get_stock_shadow_preset_keys() -> list[str]:
-    """주식 자동화 시 실행할 프리셋 키 목록을 반환합니다.
-    
-    serving 모델과 동일한 config를 사용하는 v11이 우선이며,
-    국내/해외 분리 shadow 모델(kr-v1, us-v1)은 보조 학습으로 병렬 실행됩니다.
-    """
-    return ["kr-stock-v1-full", "us-stock-v1-full", "stock-v11-full"]
+    """주식 자동화 시 실행할 프리셋 키 목록을 반환합니다 (국내주식/해외주식 이원화)."""
+    return ["kr-stock-v1-full", "us-stock-v1-full"]
+
+
+
+def get_crypto_shadow_preset_keys() -> list[str]:
+    """코인 자동화 시 실행할 프리셋 키 목록을 반환합니다 (200+ 알트코인 유니버스 v10 포함)."""
+    return ["crypto-v10-full", "crypto-v9-full"]
+
+
+def _request_toss_oauth_token(client_id: str, client_secret: str) -> str | None:
+    try:
+        token_res = requests.post(
+            "https://open-api.tossinvest.com/oauth2/token",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data={
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+            timeout=10,
+        )
+        token_res.raise_for_status()
+        token_json = token_res.json()
+    except requests.exceptions.RequestException as error:
+        logger.warning("[StockAutomation] Toss OAuth request failed: %s", error)
+        return None
+    except ValueError as error:
+        logger.warning("[StockAutomation] Toss OAuth response was not valid JSON: %s", error)
+        return None
+
+    access_token = token_json.get("access_token") if isinstance(token_json, dict) else None
+    return str(access_token).strip() if access_token else None
+
 
 # 모듈 수준의 전역 상태 변수
 _news_ingest_started = False
@@ -349,8 +377,9 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                         if locked:
                             last_crypto_hour = crypto_slot_str
                             try:
-                                # v9: 30분 캔들 + 잔차 수익률 라벨 — 현재 serving 코인 모델과 동일 config
-                                preset = resolve_automation_preset("crypto-v9-full")
+                                # v10: 248개 알트코인 전종목 + 김치프리미엄 & 펀딩비 피처 — 현재 serving 코인 모델과 동일 config
+                                preset = resolve_automation_preset("crypto-v10-full")
+
                                 dataset_config = preset["dataset"]
                                 training_config = preset["training"]
                                 
@@ -427,6 +456,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                         "label": preset["label"] + " (Auto)",
                                         "config": training_config["config"],
                                         "risk_config": training_config.get("risk_config"),
+                                        "short_config": training_config.get("short_config"),
                                         "summary_output": training_config.get("summary_output"),
                                         "skip_build_features": bool(training_config.get("skip_build_features", False)),
                                         "dataset_job_id": dataset_job["id"],
@@ -436,6 +466,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                 result = run_ml_pipeline(
                                     config_path=training_config["config"],
                                     risk_config_path=training_config.get("risk_config"),
+                                    short_config_path=training_config.get("short_config"),
                                     skip_build_features=bool(training_config.get("skip_build_features", False)),
                                     summary_output=training_config.get("summary_output"),
                                 )
@@ -467,11 +498,19 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                     if latest_tr_job:
                                         sync_training_job_to_supabase(auth_header, latest_tr_job)
                                     sync_model_registry_to_supabase(auth_header, training_config.get("summary_output"))
+                                    model_ver = resolve_model_version_from_config(training_config["config"])
+                                    if result.get("success"):
+                                        try:
+                                            from backend.services.ml_registry_service import set_serving_model
+                                            set_serving_model(dataset_config["asset_type"], model_ver, approved_by="auto-scheduler")
+                                        except Exception as e:
+                                            logger.warning(f"Failed to auto promote serving model {model_ver}: {e}")
                                     record_model_audit_jobs(
                                         auth_header,
                                         "crypto",
-                                        resolve_model_version_from_config(training_config["config"]),
+                                        model_ver,
                                     )
+
                                 
                             except Exception:
                                 pass
@@ -490,39 +529,40 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                     if last_stock_date != today_str:
                         with distributed_lock("stock_automation", 7200) as locked:
                             if locked:
-                                stock_run_started = False
                                 if supabase_service_role_key:
                                     try:
                                         auth_header = f"Bearer {supabase_service_role_key}"
+                                        client_id = None
+                                        client_secret = None
+
+                                        # 1. DB user_api_keys 대소문자 미구분 ilike 조회
                                         toss_keys = safe_query_supabase(
                                             auth_header,
                                             "user_api_keys",
                                             "GET",
                                             params={
-                                                "exchange": "eq.TOSS",
-                                                "broker_env": "eq.REAL",
+                                                "exchange": "ilike.TOSS",
                                                 "limit": "1",
                                             },
                                         )
-                                        if toss_keys:
+                                        if toss_keys and isinstance(toss_keys, list) and len(toss_keys) > 0:
                                             record = toss_keys[0]
-                                            client_id = crypto.decrypt(record.get("encrypted_access_key"))
-                                            client_secret = crypto.decrypt(record.get("encrypted_secret_key"))
+                                            try:
+                                                client_id = crypto.decrypt(record.get("encrypted_access_key"))
+                                                client_secret = crypto.decrypt(record.get("encrypted_secret_key"))
+                                            except Exception as dec_err:
+                                                logger.warning(f"[StockAutomation] Failed to decrypt DB Toss key: {dec_err}")
 
-                                            token_res = requests.post(
-                                                "https://open-api.tossinvest.com/oauth2/token",
-                                                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                                                data={
-                                                    "grant_type": "client_credentials",
-                                                    "client_id": client_id,
-                                                    "client_secret": client_secret,
-                                                },
-                                                timeout=10,
-                                            )
-                                            token_json = token_res.json()
-                                            access_token = token_json.get("access_token")
+                                        # 2. DB 미등록 또는 복호화 실패 시 환경변수 Fallback
+                                        if not client_id or not client_secret:
+                                            client_id = os.getenv("TOSS_CLIENT_ID") or os.getenv("TOSS_API_KEY")
+                                            client_secret = os.getenv("TOSS_CLIENT_SECRET") or os.getenv("TOSS_SECRET_KEY") or os.getenv("TOSS_API_SECRET")
+
+                                        if client_id and client_secret:
+                                            access_token = _request_toss_oauth_token(client_id, client_secret)
 
                                             if access_token:
+
                                                 for preset_key in get_stock_shadow_preset_keys():
                                                     dataset_job = None
                                                     train_job = None
@@ -609,6 +649,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                                 "label": preset["label"] + " (Auto)",
                                                                 "config": training_config["config"],
                                                                 "risk_config": training_config.get("risk_config"),
+                                                                "short_config": training_config.get("short_config"),
                                                                 "summary_output": training_config.get("summary_output"),
                                                                 "skip_build_features": bool(training_config.get("skip_build_features", False)),
                                                                 "dataset_job_id": dataset_job["id"],
@@ -638,6 +679,7 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                         result = run_ml_pipeline(
                                                             config_path=training_config["config"],
                                                             risk_config_path=training_config.get("risk_config"),
+                                                            short_config_path=training_config.get("short_config"),
                                                             skip_build_features=bool(training_config.get("skip_build_features", False)),
                                                             summary_output=training_config.get("summary_output"),
                                                         )
@@ -669,9 +711,10 @@ def start_ml_automation_scheduler(ml_automation_enabled: bool, supabase_service_
                                                         sync_model_registry_to_supabase(auth_header, training_config.get("summary_output"))
                                                         record_model_audit_jobs(
                                                             auth_header,
-                                                            "stock",
+                                                            dataset_config["asset_type"],
                                                             resolve_model_version_from_config(training_config["config"]),
                                                         )
+
                                                     except Exception as e:
                                                         logger.exception(f"[StockAutomation] Preset={preset_key} run failed: %s", e)
                                                         if dataset_job:

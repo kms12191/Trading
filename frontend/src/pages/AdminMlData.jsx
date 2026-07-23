@@ -4,9 +4,12 @@ import { supabase } from '../supabaseClient'
 import AdminInquiries from './AdminInquiries.jsx'
 import AdminUsers from './AdminUsers.jsx'
 import AdminSymbolReconciliation from './AdminSymbolReconciliation.jsx'
+import AdminAiFundDashboard from './AdminAiFundDashboard.jsx'
+
 import {
   ActiveSignalPanel,
   AdvancedDataToolsPanel,
+  AdvancedToolsContainer,
   AdvancedTrainingToolsPanel,
   ExecutionChecklistPanel,
   JobHistorySection,
@@ -24,6 +27,7 @@ import {
   UniverseManagementPanel,
   V8OptunaPanel,
 } from './adminMlDataPanels.jsx'
+
 import {
   formatPath,
   legacyAutomationPresets,
@@ -37,7 +41,8 @@ import {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5050'
 
-export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideHeader = false }) {
+export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, userProfile, hideHeader = false }) {
+
   const [adminTab, setAdminTab] = useState('ml')
   const [mode, setMode] = useState('crypto')
   const [form, setForm] = useState(presets.crypto)
@@ -81,6 +86,8 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
   const [tuningMessage, setTuningMessage] = useState('')
   const [selectedLogJob, setSelectedLogJob] = useState(null)
   const [showAdvancedTools, setShowAdvancedTools] = useState(false)
+  const [advancedSubTab, setAdvancedSubTab] = useState('hpo')
+
 
   const selectedPreset = useMemo(() => presets[mode], [mode])
 
@@ -802,7 +809,19 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
           >
             유니버스 설정
           </button>
+          <button
+            type="button"
+            onClick={() => setAdminTab('ai-fund')}
+            className={`shrink-0 px-4 py-3 text-sm font-bold border-b-2 transition sm:px-6 ${
+              adminTab === 'ai-fund'
+                ? 'border-ai-cyan text-emerald-400 bg-emerald-500/10 font-bold'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            AI 위탁 운용
+          </button>
         </div>
+
 
         {adminTab === 'ml' && (
           <>
@@ -868,75 +887,58 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
         />
 
         {showAdvancedTools ? (
-        <>
-        <V8OptunaPanel
-          presets={v8TuningPresets}
-          trials={tuneTrials}
-          updateConfig={tuneUpdateConfig}
-          loadingKey={tuningLoadingKey}
-          message={tuningMessage}
-          isLoggedIn={isLoggedIn}
-          onTrialsChange={setTuneTrials}
-          onUpdateConfigChange={setTuneUpdateConfig}
-          onRun={handleRunTuning}
-        />
+          <AdvancedToolsContainer
+            activeSubTab={advancedSubTab}
+            onSubTabChange={setAdvancedSubTab}
+          >
+            {advancedSubTab === 'hpo' && (
+              <V8OptunaPanel
+                presets={v8TuningPresets}
+                trials={tuneTrials}
+                updateConfig={tuneUpdateConfig}
+                loadingKey={tuningLoadingKey}
+                message={tuningMessage}
+                isLoggedIn={isLoggedIn}
+                onTrialsChange={setTuneTrials}
+                onUpdateConfigChange={setTuneUpdateConfig}
+                onRun={handleRunTuning}
+              />
+            )}
 
-        <AdvancedDataToolsPanel
-          presets={presets}
-          mode={mode}
-          selectedPreset={selectedPreset}
-          form={form}
-          result={result}
-          error={error}
-          loading={loading}
-          onApplyPreset={applyPreset}
-          onUpdateField={updateField}
-          onExport={handleExport}
-        />
-        </>
+            {advancedSubTab === 'custom' && (
+              <div className="space-y-6">
+                <AdvancedDataToolsPanel
+                  presets={presets}
+                  mode={mode}
+                  selectedPreset={selectedPreset}
+                  form={form}
+                  result={result}
+                  error={error}
+                  loading={loading}
+                  onApplyPreset={applyPreset}
+                  onUpdateField={updateField}
+                  onExport={handleExport}
+                />
+                <ReportPanel
+                  loading={reportLoading}
+                  message={reportMessage}
+                  onGenerate={handleGenerateReport}
+                />
+                <ReportHistoryPanel
+                  reports={reportHistory}
+                  loading={reportHistoryLoading}
+                  error={reportHistoryError}
+                  onRefresh={loadReportHistory}
+                />
+              </div>
+            )}
+
+            {advancedSubTab === 'universe' && (
+              <UniverseManagementPanel isLoggedIn={isLoggedIn} />
+            )}
+          </AdvancedToolsContainer>
         ) : null}
 
-        {showAdvancedTools ? (
-        <ModelResultsSection
-          results={modelResults}
-          loading={modelResultsLoading}
-          error={modelResultsError}
-          isLoggedIn={isLoggedIn}
-          onRefresh={loadModelResults}
-        />
-        ) : null}
-
-        {showAdvancedTools ? (
-        <RegistryStatusSection
-          rowsByAsset={registryRows}
-          loading={registryLoading}
-          error={registryError}
-          message={registryMessage}
-          activatingKey={activatingRegistryKey}
-          promotionChecks={promotionChecks}
-          promotionChecksLoading={promotionChecksLoading}
-          onActivate={handleActivateRegistry}
-        />
-        ) : null}
-
-        {showAdvancedTools ? <ExecutionChecklistPanel /> : null}
-
-        {showAdvancedTools ? (
-        <ReportPanel
-          loading={reportLoading}
-          message={reportMessage}
-          onGenerate={handleGenerateReport}
-        />
-        ) : null}
-
-        {showAdvancedTools ? (
-        <ReportHistoryPanel
-          reports={reportHistory}
-          loading={reportHistoryLoading}
-          error={reportHistoryError}
-          onRefresh={loadReportHistory}
-        />
-        ) : null}
 
         <section className="grid gap-6 grid-cols-1">
           {showAdvancedTools ? (
@@ -998,7 +1000,13 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, hideH
         {adminTab === 'universe' && (
           <UniverseManagementPanel isLoggedIn={isLoggedIn} />
         )}
+
+        {adminTab === 'ai-fund' && (
+          <AdminAiFundDashboard userId={userProfile?.id} />
+        )}
+
       </main>
+
 
       <JobLogModal
         job={selectedLogJob}

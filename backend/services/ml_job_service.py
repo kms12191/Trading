@@ -118,6 +118,7 @@ def resolve_ml_python() -> str:
 def run_ml_pipeline(
     config_path: str,
     risk_config_path: str | None = None,
+    short_config_path: str | None = None,
     skip_build_features: bool = False,
     summary_output: str | None = None,
 ) -> dict[str, Any]:
@@ -141,6 +142,8 @@ def run_ml_pipeline(
     ]
     if risk_config_path:
         command.extend(["--risk-config", risk_config_path])
+    if short_config_path:
+        command.extend(["--short-config", short_config_path])
     if skip_build_features:
         command.append("--skip-build-features")
     if summary_output:

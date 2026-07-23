@@ -43,7 +43,9 @@ from backend.routes.transfer import transfer_bp
 from backend.routes.admin_inquiries import admin_inquiries_bp
 from backend.routes.admin_users import admin_users_bp
 from backend.routes.admin_symbols import admin_symbols_bp
+from backend.routes.admin_ai_fund import admin_ai_fund_bp
 from backend.routes.chatbot import chatbot_bp
+
 from backend.routes.knowledge import knowledge_bp
 
 app = Flask(__name__)
@@ -140,7 +142,9 @@ app.register_blueprint(transfer_bp)
 app.register_blueprint(admin_inquiries_bp)
 app.register_blueprint(admin_users_bp)
 app.register_blueprint(admin_symbols_bp)
+app.register_blueprint(admin_ai_fund_bp)
 app.register_blueprint(chatbot_bp)
+
 app.register_blueprint(knowledge_bp)
 
 @app.get("/api/health")

@@ -9,7 +9,9 @@ import Settings from './pages/Settings'
 import Home from './pages/Home'
 import MarketRankings from './pages/MarketRankings'
 import AdminMlData from './pages/AdminMlData'
+import AdminAiFundDashboard from './pages/AdminAiFundDashboard'
 import AssetDetail from './pages/AssetDetail'
+
 import SearchNotFound from './pages/SearchNotFound'
 import InvestmentSurveyModal from './components/InvestmentSurveyModal'
 import MemberOnlyNotice from './components/MemberOnlyNotice.jsx'
@@ -17,6 +19,7 @@ import { INQUIRY_ROUTES } from './dashboardConstants.js'
 import ChatbotWidget from './features/chatbot/ChatbotWidget.jsx'
 import useDeviceType from './hooks/useDeviceType.js'
 import MobileRoutes from './routes/MobileRoutes.jsx'
+import RouteTracker from './RouteTracker.js'
 
 function AdminProtectedRoute({ isLoggedIn, userProfile, children }) {
   const hasAccess = isLoggedIn && userProfile?.role === 'ADMIN'
@@ -291,7 +294,16 @@ function AppShell({
               </AdminProtectedRoute>
             )}
           />
+          <Route
+            path="/admin/ai-fund"
+            element={(
+              <AdminProtectedRoute isLoggedIn={isLoggedIn} userProfile={userProfile}>
+                <AdminAiFundDashboard userId={userId} />
+              </AdminProtectedRoute>
+            )}
+          />
           <Route path="/login" element={<Login />} />
+
           <Route path="/signup" element={<Navigate to="/login" replace />} />
           <Route
             path="/asset/:assetType"
@@ -442,6 +454,7 @@ export default function App() {
 
   return (
     <Router>
+      <RouteTracker />
       <AppShell
         isLoggedIn={isLoggedIn}
         authReady={authReady}

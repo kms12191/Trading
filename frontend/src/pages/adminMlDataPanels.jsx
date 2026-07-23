@@ -3,4 +3,5 @@ export { JobHistoryPanel } from './adminMlDataHistoryPanels.jsx'
 export { ActiveSignalPanel, ExecutionChecklistPanel, ModelSwitchPanel, ReadinessPanel, RegistryPanel, ReportHistoryPanel, ReportPanel, ServingAuditPanel, VersionComparisonTable, UniverseManagementPanel } from './adminMlDataOperationalPanels.jsx'
 export { ModelResultCard } from './adminMlDataResultPanels.jsx'
 export { OperationalTrustPanel, V8OptunaPanel } from './adminMlDataTrustPanels.jsx'
-export { AdvancedDataToolsPanel, AdvancedTrainingToolsPanel, JobHistorySection, MlConsoleHeader, ModelResultsSection, OperationalAutomationPanel, RegistryStatusSection } from './adminMlDataWorkflowPanels.jsx'
+export { AdvancedDataToolsPanel, AdvancedTrainingToolsPanel, AdvancedToolsContainer, JobHistorySection, MlConsoleHeader, ModelResultsSection, OperationalAutomationPanel, RegistryStatusSection } from './adminMlDataWorkflowPanels.jsx'
+

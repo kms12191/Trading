@@ -123,20 +123,22 @@ def main() -> None:
         latest_df["risk_signal_score"] = (latest_df["risk_probability"] * 100).round(2)
         latest_df["risk_model_version"] = risk_payload["config"]["model"]["version"]
         if asset_type == "CRYPTO":
+            min_composite_spread = float(prediction_config.get("min_composite_spread", 0.0))
             positions = []
             scores = []
+            latest_df["composite_spread"] = latest_df["up_probability"] - latest_df["risk_probability"]
             for _, row in latest_df.iterrows():
                 risk_p = row["risk_probability"]
-                if risk_p < long_threshold:
+                spread = row["composite_spread"]
+                if risk_p < long_threshold and spread >= min_composite_spread:
                     positions.append("LONG")
-                    scores.append(row["up_probability"] * 100)
+                    scores.append(spread * 100)
                 elif risk_p > short_threshold:
                     positions.append("SHORT")
                     scores.append(risk_p * 100)
                 else:
                     positions.append("HOLD")
                     scores.append(0.0)
-            latest_df["composite_spread"] = latest_df["up_probability"] - latest_df["risk_probability"]
             latest_df["position"] = positions
             latest_df["signal_score"] = [round(score, 2) for score in scores]
             latest_df["scoring_strategy"] = "composite"

@@ -202,7 +202,6 @@ AUTOMATION_PRESETS = {
             "retry": 3,
             "retry_wait_seconds": 60.0,
             "append": True,
-            "include_macro": True,
             "chunk_size": 0,
             "chunk_index": 1,
         },
@@ -213,7 +212,64 @@ AUTOMATION_PRESETS = {
             "skip_build_features": False,
         },
     },
+    # v10: 248개 전종목 4시간봉 + BTC 추세 필터 + Stop-Loss + Optuna HPO 승격 모델
+    "crypto-v10-full": {
+        "label": "코인 v10 자동 수집+학습 (248종목 4h)",
+        "dataset": {
+            "asset_type": "CRYPTO",
+            "exchange": "BINANCE",
+            "preset": "crypto",
+            "symbols": [],
+            "interval": "4h",
+            "count": 1000,
+            "sleep_seconds": 0.3,
+            "retry": 2,
+            "retry_wait_seconds": 10.0,
+            "append": True,
+            "include_macro": False,
+            "chunk_size": 0,
+            "chunk_index": 1,
+            "raw_output": "crypto_candles_4h.csv",
+        },
+        "training": {
+            "config": "ml/configs/lgbm_crypto_v10.yaml",
+            "risk_config": "ml/configs/lgbm_crypto_risk_v10.yaml",
+            "short_config": "ml/configs/lgbm_crypto_short_v11.yaml",
+            "summary_output": "ml/data/processed/crypto_v10_summary.json",
+            "skip_build_features": False,
+        },
+    },
+    # v11: 4h 캔들 + BTC 추세 필터 + Stop-Loss 백테스트 엔진 탑재 (테스트 후 v10 대체 예정)
+    "crypto-v11-full": {
+        "label": "코인 v11 자동 수집+학습 (248종목 4h) [테스트]",
+        "dataset": {
+            "asset_type": "CRYPTO",
+            "exchange": "BINANCE",
+            "preset": "crypto",
+            "symbols": [],
+            "interval": "4h",
+            "count": 1000,  # 1000 × 4h ≈ 167일치 데이터
+            "sleep_seconds": 0.3,
+            "retry": 2,
+            "retry_wait_seconds": 10.0,
+            "append": True,
+            "include_macro": False,
+            "chunk_size": 0,
+            "chunk_index": 1,
+            # v10 30m 파일과 충돌 방지 — 별도 파일 사용
+            "raw_output": "crypto_candles_4h.csv",
+        },
+        "training": {
+            "config": "ml/configs/lgbm_crypto_v11.yaml",
+            "risk_config": "ml/configs/lgbm_crypto_risk_v11.yaml",
+            "short_config": "ml/configs/lgbm_crypto_short_v11.yaml",
+            "summary_output": "ml/data/processed/crypto_v11_summary.json",
+            "skip_build_features": False,
+        },
+    },
 }
+
+
 
 
 def list_automation_presets() -> list[dict]:

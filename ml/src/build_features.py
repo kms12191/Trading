@@ -390,9 +390,10 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
 
     candles["date_ymd"] = candles["date"].dt.strftime("%Y-%m-%d")
     asset_type = str(config["model"]["asset_type"]).upper()
-    # 30분 캔들 지원: CRYPTO는 30분 단위 내림으로 병합 키 생성 (1h 캔들도 호환)
+    # CRYPTO: 시간 단위 내림으로 병합 키 생성 (30m/4h/1d 캔들 모두 호환)
+    # optional_features(뉴스, 크립토 마켓) merge key도 동일하게 hour floor 사용
     candles["date_merge_key"] = (
-        candles["date"].dt.floor("30min").dt.strftime("%Y-%m-%d %H:%M:00")
+        candles["date"].dt.floor("h").dt.strftime("%Y-%m-%d %H:00:00")
         if asset_type == "CRYPTO"
         else candles["date"].dt.strftime("%Y-%m-%d")
     )
@@ -483,6 +484,17 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
         group["risk_label"] = (group["future_return"] <= risk_threshold).astype(int)
         group["neutral_label"] = (group["future_return"].abs() < neutral_zone_abs_return).astype(int)
         group["horizon_periods"] = horizon_periods
+
+        # stop-loss 시뮬레이션용: horizon 기간 내 최저 close 수익률 계산
+        # 백테스트에서 "보유 중 한 번이라도 -N% 터치" 여부를 판단하는 데 사용
+        if horizon_periods > 0:
+            future_closes = pd.concat(
+                [close.shift(-i) for i in range(1, horizon_periods + 1)], axis=1
+            )
+            min_future_close = future_closes.min(axis=1)
+            group["min_future_return"] = min_future_close / close.replace(0, np.nan) - 1
+        else:
+            group["min_future_return"] = np.nan
         group["symbol"] = symbol
         # 잔차 수익률 라벨은 market 수익률 차감 후 apply_residual_labels()에서 후처리 적용
         group["residual_up_label"] = group["up_label"]   # 임시: 나중에 잔차 기반으로 덮어씀
@@ -796,6 +808,29 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
             features[f"return_{horizon}"] - features[f"crypto_market_return_{horizon}"]
         )
 
+        # BTC 추세 파생 피처 (v11+): BTCUSDT 데이터를 전 종목에 broadcast
+        # btc_trend_filter: BTC가 현재 캔들에서 하락 중이면 1.0 (LONG 차단 소프트 시그널)
+        # btc_volatility_4: BTC 최근 4봉 수익률 변동성
+        # btc_ma_20_gap: BTC의 20봉 이동평균 대비 현재 위치
+        btc_leader = features[features["symbol"] == "BTCUSDT"][["date", "return_1", "volatility_20", "ma_20_gap"]].copy()
+        btc_leader = btc_leader.rename(columns={
+            "return_1": "_btc_return_1_raw",
+            "volatility_20": "_btc_volatility_20_raw",
+            "ma_20_gap": "_btc_ma_20_gap_raw",
+        })
+        features = pd.merge(features, btc_leader, on="date", how="left")
+        features["btc_trend_filter"] = (features["_btc_return_1_raw"].fillna(0.0) < 0).astype(float)
+        # btc_volatility_4: 최근 4봉 BTC 변동성 (btcusdt_return_1 rolling std로 근사)
+        if "btcusdt_return_1" in features.columns:
+            features["btc_volatility_4"] = (
+                features.groupby("symbol")["btcusdt_return_1"]
+                .transform(lambda x: x.rolling(4, min_periods=1).std())
+            ).fillna(0.0)
+        else:
+            features["btc_volatility_4"] = features["_btc_volatility_20_raw"].fillna(0.0)
+        features["btc_ma_20_gap"] = features["_btc_ma_20_gap_raw"].fillna(0.0)
+        features = features.drop(columns=["_btc_return_1_raw", "_btc_volatility_20_raw", "_btc_ma_20_gap_raw"], errors="ignore")
+
         # 잔차 수익률 라벨: BTC 시장 동조 노이즈 제거 후 개별 알파 예측 (v8+)
         # config에 use_residual_label: true 설정 시 활성화
         label_config = config.get("labels", {})
@@ -854,6 +889,8 @@ def build_features(candles: pd.DataFrame, config: dict, include_unlabeled: bool 
         "date",
         "horizon_periods",
         "future_return",
+        # stop-loss 시뮬레이션용: horizon 기간 내 최저 close 수익률 (v11+)
+        "min_future_return",
         "up_label",
         "risk_label",
         "neutral_label",

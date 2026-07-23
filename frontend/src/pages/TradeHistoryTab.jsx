@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import { buildApiErrorText } from '../lib/apiError.js'
 import AssetLogo from '../components/AssetLogo.jsx'
 import {
+  AI_FUND_ORDER_SELECT_FIELDS,
   BROKER_HISTORY_SELECT_FIELDS,
   TRADE_EXCHANGE_LABELS,
   TRADE_EXCHANGE_OPTIONS,
@@ -14,6 +15,7 @@ import {
   isCancelReplaceExchange,
   isDeletableTradeHistoryItem,
   isMissingBrokerHistoryTableError,
+  mapAiFundOrderToTrade,
   mapBrokerHistoryToTrade,
   mapProposalToTrade,
   mapTransferToTrades,
@@ -95,7 +97,7 @@ export default function TradeHistoryTab() {
     BINANCE_UM_FUTURES: 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300',
   }
 
-  const mergeTrades = async (proposals = [], brokerOrders = [], transferRows = []) => {
+  const mergeTrades = async (proposals = [], brokerOrders = [], transferRows = [], aiFundOrders = []) => {
     const hydratedRows = await hydrateTradeProposals(proposals)
     const brokerSymbolMap = await fetchSymbolDisplayNames(brokerOrders)
     const brokerOrderLookup = buildBrokerOrderLookup(hydratedRows, brokerOrders)
@@ -103,6 +105,7 @@ export default function TradeHistoryTab() {
     return sortTradeHistoryRows([
       ...hydratedRows.map((proposal) => mapProposalToTrade(proposal, brokerOrderLookup)),
       ...unlinkedBrokerOrders.map((order) => mapBrokerHistoryToTrade(order, brokerSymbolMap)),
+      ...aiFundOrders.map(mapAiFundOrderToTrade),
       ...transferRows.flatMap(mapTransferToTrades),
     ])
   }
@@ -174,6 +177,7 @@ export default function TradeHistoryTab() {
           { data: proposalRows, error: proposalError },
           { data: brokerRows, error: brokerError },
           { data: transferRows, error: transferError },
+          { data: aiFundOrderRows, error: aiFundOrderError },
         ] = await Promise.all([
           supabase
             .from('trade_proposals')
@@ -186,11 +190,15 @@ export default function TradeHistoryTab() {
           fetchTransferHistory(authHeader)
             .then((data) => ({ data, error: null }))
             .catch((error) => ({ data: [], error })),
+          supabase
+            .from('ai_fund_orders')
+            .select(AI_FUND_ORDER_SELECT_FIELDS)
+            .order('created_at', { ascending: false }),
         ])
 
         if (ignore) return
 
-        if (proposalError || (brokerError && !isMissingBrokerHistoryTableError(brokerError))) {
+        if (proposalError || (brokerError && !isMissingBrokerHistoryTableError(brokerError)) || aiFundOrderError) {
           setTradeHistory([])
           setTradeError('거래내역을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')
         } else {
@@ -198,6 +206,7 @@ export default function TradeHistoryTab() {
             proposalRows || [],
             brokerError ? [] : (brokerRows || []),
             transferError ? [] : (transferRows || []),
+            aiFundOrderRows || [],
           ))
         }
       } catch {
@@ -319,6 +328,7 @@ export default function TradeHistoryTab() {
       { data: proposalRows, error: proposalError },
       { data: brokerRows, error: brokerError },
       { data: transferRows, error: transferError },
+      { data: aiFundOrderRows, error: aiFundOrderError },
     ] = await Promise.all([
       supabase
         .from('trade_proposals')
@@ -331,15 +341,20 @@ export default function TradeHistoryTab() {
       fetchTransferHistory(authHeader)
         .then((data) => ({ data, error: null }))
         .catch((error) => ({ data: [], error })),
+      supabase
+        .from('ai_fund_orders')
+        .select(AI_FUND_ORDER_SELECT_FIELDS)
+        .order('created_at', { ascending: false }),
     ])
 
-    if (proposalError || (brokerError && !isMissingBrokerHistoryTableError(brokerError))) {
-      throw proposalError || brokerError
+    if (proposalError || (brokerError && !isMissingBrokerHistoryTableError(brokerError)) || aiFundOrderError) {
+      throw proposalError || brokerError || aiFundOrderError
     }
     const nextTrades = await mergeTrades(
       proposalRows || [],
       brokerError ? [] : (brokerRows || []),
       transferError ? [] : (transferRows || []),
+      aiFundOrderRows || [],
     )
     setTradeHistory(nextTrades)
     if (selectedTrade) {

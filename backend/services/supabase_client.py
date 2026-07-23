@@ -414,12 +414,19 @@ def safe_query_supabase_as_service_role(
     method: str = "GET",
     json_data: dict | list[dict] | None = None,
     params: dict | None = None,
+    extra_headers: dict | None = None,
 ) -> any:
     """
     safe_query_supabase의 service_role 버전. 예외를 무시하고 진행합니다.
     """
     try:
-        return query_supabase_as_service_role(endpoint, method=method, json_data=json_data, params=params)
+        return query_supabase_as_service_role(
+            endpoint,
+            method=method,
+            json_data=json_data,
+            params=params,
+            extra_headers=extra_headers,
+        )
     except Exception:
         logger.warning(
             "Supabase service_role 요청 실패: endpoint=%s method=%s",

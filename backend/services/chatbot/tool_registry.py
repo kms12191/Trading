@@ -3959,3 +3959,60 @@ def register_conditional_rule(
         },
     }
 
+
+def execute_chatbot_tool(tool_name: str, arguments: dict, user_id: str, user_role: str = "USER") -> dict:
+    """Executes chatbot tools with RBAC enforcement for admin-only capabilities."""
+    admin_tools = {
+        "admin_set_ai_fund_config",
+        "admin_control_ai_fund",
+        "admin_get_ai_fund_status",
+        "admin_emergency_kill_switch",
+    }
+
+    if tool_name in admin_tools and user_role != "ADMIN":
+        return {
+            "success": False,
+            "message": "권한이 없습니다. 해당 기능은 프로젝트 관리자(ADMIN)만 실행할 수 있습니다."
+        }
+
+    exchange_type = arguments.get("exchange_type", "coinone")
+
+    from backend.services.admin_ai_managed_trader import AdminAiManagedTrader
+
+    trader = AdminAiManagedTrader(user_id=user_id, exchange_type=exchange_type)
+
+    if tool_name == "admin_emergency_kill_switch":
+        killed = trader.emergency_kill_switch()
+        if killed:
+            return {
+                "success": True,
+                "message": "🚨 [긴급 셧다운 완료] 모든 AI 자동 매매가 즉시 정지되었습니다."
+            }
+        return {
+            "success": False,
+            "message": "긴급 셧다운 실행 중 처리 오류가 발생했습니다."
+        }
+
+    if tool_name == "admin_control_ai_fund":
+        action = arguments.get("action", "pause")
+        is_active = (action == "start")
+        try:
+            safe_query_supabase_as_service_role(
+                f"admin_ai_fund_configs?user_id=eq.{user_id}&exchange_type=eq.{exchange_type}",
+                method="PATCH",
+                json_data={"is_active": is_active}
+            )
+            state_label = "기동 시작" if is_active else "일시 정지"
+            return {
+                "success": True,
+                "message": f"✅ AI 위탁 운용 상태가 [{state_label}]로 전환되었습니다."
+            }
+        except Exception as err:
+            return {"success": False, "message": f"운용 상태 변경 실패: {str(err)}"}
+
+    return {
+        "success": False,
+        "message": f"알 수 없거나 미지원 툴입니다: {tool_name}"
+    }
+
+

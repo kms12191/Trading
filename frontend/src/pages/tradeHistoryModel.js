@@ -1,5 +1,6 @@
 export const TRADE_HISTORY_SELECT_FIELDS = 'id,exchange,asset_type,ticker,symbol,side,price,volume,order_amount,ord_type,market_country,currency,broker_env,client_order_id,external_order_id,external_order_org_no,status,failure_reason,created_at'
 export const BROKER_HISTORY_SELECT_FIELDS = 'id,exchange,broker_env,symbol,market_country,side,price,quantity,order_amount,status,raw_status,currency,client_order_id,external_order_id,filled_quantity,average_filled_price,filled_amount,commission,tax,ordered_at,filled_at,settlement_date'
+export const AI_FUND_ORDER_SELECT_FIELDS = 'id,exchange_type,symbol,side,status,requested_qty,requested_price,filled_qty,average_fill_price,fee_amount,client_order_id,exchange_order_id,created_at'
 export const TRADE_EXCHANGE_OPTIONS = ['ALL', 'TOSS', 'KIS', 'COINONE', 'BINANCE', 'BINANCE_UM_FUTURES']
 export const TRADE_EXCHANGE_LABELS = {
   ALL: '전체',
@@ -293,6 +294,49 @@ export const mapBrokerHistoryToTrade = (order, symbolNameMap = {}) => {
       ? formatCurrency((Number(order.commission || 0) + Number(order.tax || 0)), currency)
       : '-',
     orderNumber: order.external_order_id || order.client_order_id || order.id,
+  }
+}
+
+export const mapAiFundOrderToTrade = (order = {}) => {
+  const createdAt = order.created_at ? new Date(order.created_at) : null
+  const isValidDate = createdAt && !Number.isNaN(createdAt.getTime())
+  const date = isValidDate ? createdAt.toISOString().slice(0, 10) : '-'
+  const time = isValidDate
+    ? createdAt.toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : '-'
+  const rawStatus = String(order.status || '').toUpperCase()
+  const rawPrice = order.average_fill_price ?? order.requested_price ?? null
+  const rawQuantity = order.filled_qty > 0 ? order.filled_qty : order.requested_qty ?? null
+  const amount = rawPrice !== null && rawQuantity !== null ? Number(rawPrice) * Number(rawQuantity) : null
+  const ticker = String(order.symbol || '-').toUpperCase()
+
+  return {
+    id: `ai-fund-${order.id}`,
+    sourceType: 'AI_FUND',
+    sourceLabel: 'AI 위탁운용',
+    sourceDescription: 'AI 위탁운용 엔진이 거래소에 제출하고 대사한 주문',
+    rawStatus: rawStatus,
+    isActionable: false,
+    brokerEnv: 'REAL',
+    orderOrgNo: '',
+    marketCountry: '',
+    rawPrice,
+    rawQuantity,
+    date,
+    time,
+    exchange: String(order.exchange_type || '-').toUpperCase(),
+    symbolName: ticker,
+    ticker,
+    assetType: 'CRYPTO',
+    side: mapTradeSide(order.side),
+    currency: 'KRW',
+    price: rawPrice === null ? '-' : formatUnitCurrency(rawPrice, 'KRW'),
+    quantity: rawQuantity === null ? '-' : formatNumber(rawQuantity, { maximumFractionDigits: 8 }),
+    amount: amount === null ? '-' : formatCurrency(amount, 'KRW'),
+    status: rawStatus === 'FILLED' ? '체결완료' : mapTradeStatus(rawStatus),
+    exchangeRate: '-',
+    fees: Number(order.fee_amount || 0) > 0 ? formatCurrency(order.fee_amount, 'KRW') : '-',
+    orderNumber: order.exchange_order_id || order.client_order_id || order.id,
   }
 }
 
