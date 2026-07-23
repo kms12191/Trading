@@ -413,7 +413,54 @@ function SignalMetric({ label, value, tone }) {
 
 function NewsResults({ presentation }) {
   return (
-    <div className="space-y-3">
+    <>
+      <section className="hidden overflow-hidden rounded border border-cyan-500/25 bg-slate-900/60">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-700/70 px-3 py-2">
+          <p className="font-bold text-cyan-200">뉴스</p>
+          <span className="shrink-0 rounded border border-cyan-500/30 bg-cyan-950/30 px-2 py-0.5 text-[10px] font-bold text-cyan-100">
+            {presentation.items.length}건
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] border-collapse text-left text-[11px] text-slate-200">
+            <thead className="bg-slate-950/70 text-[10px] uppercase tracking-wide text-slate-400">
+              <tr>
+                <th className="w-10 px-3 py-2 font-semibold">No.</th>
+                <th className="w-24 px-3 py-2 font-semibold">날짜</th>
+                <th className="w-28 px-3 py-2 font-semibold">출처</th>
+                <th className="min-w-64 px-3 py-2 font-semibold">제목</th>
+                <th className="min-w-80 px-3 py-2 font-semibold">AI 요약</th>
+                <th className="w-20 px-3 py-2 font-semibold">링크</th>
+              </tr>
+            </thead>
+            <tbody>
+              {presentation.items.map((item, index) => (
+                <tr key={`${item.url || item.title}-${index}`} className="border-t border-slate-800/90 align-top hover:bg-cyan-950/15">
+                  <td className="px-3 py-3 font-mono text-slate-500">{index + 1}</td>
+                  <td className="px-3 py-3 whitespace-nowrap text-slate-400">{item.publishedAt || '-'}</td>
+                  <td className="px-3 py-3">
+                    <p className="font-semibold text-cyan-200">{item.source}</p>
+                    <p className="mt-0.5 text-slate-500">{item.market}</p>
+                  </td>
+                  <td className="px-3 py-3">
+                    <p className="font-semibold leading-5 text-slate-100">{item.title}</p>
+                    {item.companyName ? <p className="mt-1 text-slate-500">{item.companyName}</p> : null}
+                  </td>
+                  <td className="px-3 py-3 leading-5 text-slate-300">
+                    {item.summaryLines.length > 0 ? item.summaryLines.map((line, lineIndex) => (
+                      <p key={`${item.title}-${lineIndex}`}>{line}</p>
+                    )) : '-'}
+                  </td>
+                  <td className="px-3 py-3">
+                    {item.url ? <a href={item.url} target="_blank" rel="noopener noreferrer" className="inline-flex rounded border border-blue-500/50 bg-blue-600 px-2 py-1 font-bold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-cyan-300">원문</a> : '-' }
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 border-b border-slate-700/70 pb-2">
         <p className="font-bold text-cyan-200">뉴스 요약</p>
         <span className="shrink-0 rounded border border-cyan-500/30 bg-cyan-950/30 px-2 py-0.5 text-[10px] font-bold text-cyan-100">
@@ -473,7 +520,8 @@ function NewsResults({ presentation }) {
           ) : null}
         </article>
       ))}
-    </div>
+      </div>
+    </>
   )
 }
 
@@ -519,7 +567,47 @@ function DisclosureResults({ presentation }) {
   }
 
   return (
-    <div className="space-y-3">
+    <>
+      <section className="hidden overflow-hidden rounded border border-cyan-500/25 bg-slate-900/60">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-700/70 px-3 py-2">
+          <p className="font-bold text-cyan-200">DART 공시</p>
+          <span className="shrink-0 rounded border border-cyan-500/30 bg-cyan-950/30 px-2 py-0.5 text-[10px] font-bold text-cyan-100">
+            {presentation.items.length}건
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[800px] border-collapse text-left text-[11px] text-slate-200">
+            <thead className="bg-slate-950/70 text-[10px] uppercase tracking-wide text-slate-400">
+              <tr>
+                <th className="w-10 px-3 py-2 font-semibold">No.</th>
+                <th className="w-24 px-3 py-2 font-semibold">접수일</th>
+                <th className="w-28 px-3 py-2 font-semibold">법인명</th>
+                <th className="min-w-64 px-3 py-2 font-semibold">공시명</th>
+                <th className="min-w-80 px-3 py-2 font-semibold">핵심 요약</th>
+                <th className="w-20 px-3 py-2 font-semibold">링크</th>
+              </tr>
+            </thead>
+            <tbody>
+              {presentation.items.map((item, index) => (
+                <tr key={`${item.url || item.title}-${index}`} className="border-t border-slate-800/90 align-top hover:bg-cyan-950/15">
+                  <td className="px-3 py-3 font-mono text-slate-500">{index + 1}</td>
+                  <td className="px-3 py-3 whitespace-nowrap text-slate-400">{item.publishedAt || '-'}</td>
+                  <td className="px-3 py-3 font-semibold text-cyan-200">{item.corpName}</td>
+                  <td className="px-3 py-3 font-semibold leading-5 text-slate-100">{item.title}</td>
+                  <td className="px-3 py-3 leading-5 text-slate-300">
+                    <p>{item.summary || item.headline || '-'}</p>
+                    {item.risk ? <p className="mt-1 text-amber-200/90">확인 사항: {item.risk}</p> : null}
+                  </td>
+                  <td className="px-3 py-3">
+                    {item.url ? <a href={item.url} target="_blank" rel="noopener noreferrer" className="inline-flex rounded border border-blue-500/50 bg-blue-600 px-2 py-1 font-bold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-cyan-300">DART</a> : '-' }
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 border-b border-slate-700/70 pb-2">
         <p className="font-bold text-cyan-200">DART 공시 요약</p>
         <span className="shrink-0 rounded border border-cyan-500/30 bg-cyan-950/30 px-2 py-0.5 text-[10px] font-bold text-cyan-100">
@@ -592,7 +680,8 @@ function DisclosureResults({ presentation }) {
           </a>
         </div>
       ) : null}
-    </div>
+      </div>
+    </>
   )
 }
 

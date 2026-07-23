@@ -80,6 +80,56 @@ class AiFundCryptoSelectionService:
             },
         }
 
+    def get_short_snapshot(self, min_confidence_score: float, limit: int = 20) -> dict:
+        release_status = "READY"
+        predictions_path = self.predictions_path
+        if self.require_release:
+            is_fresh, release_status = self.release_service.is_asset_fresh("crypto")
+            predictions_path = self.release_service.get_current_predictions_path("crypto")
+            if not is_fresh or predictions_path is None:
+                return self._release_unavailable_snapshot(release_status)
+
+        rows = self._load_rows(predictions_path)
+        short_rows = [
+            row
+            for row in rows
+            if str(row.get("position") or "").upper() == "SHORT"
+            and str(row.get("short_model_version") or "").strip()
+            and str(row.get("short_probability") or "").strip()
+        ]
+        fresh_short_rows = short_rows if self.require_release else [
+            row for row in short_rows if self._is_fresh_prediction(row)
+        ]
+        qualified_rows = [
+            row for row in fresh_short_rows
+            if _as_float(row.get("short_probability")) >= min_confidence_score
+        ]
+        qualified_rows.sort(key=lambda row: _as_float(row.get("short_probability")), reverse=True)
+        candidates = [self._to_short_candidate(row) for row in qualified_rows[:limit]]
+
+        if not rows or not any(str(row.get("position") or "").upper() == "SHORT" for row in rows):
+            status, message = "NO_SHORT_SIGNAL", "현재 전용 숏 모델이 진입 신호를 내지 않아 선물 후보를 보류했습니다."
+        elif not short_rows:
+            status, message = "SHORT_MODEL_UNAVAILABLE", "전용 숏 모델 확률 또는 버전이 없어 선물 후보를 보류했습니다."
+        elif not fresh_short_rows:
+            status, message = "STALE_PREDICTIONS", "최신 예측 시간이 지나 선물 후보를 보류했습니다."
+        elif not qualified_rows:
+            status, message = "LOW_CONFIDENCE", f"숏 신호는 있으나 설정 확신도 {min_confidence_score * 100:.0f}%에 미달해 보류했습니다."
+        else:
+            status, message = "READY", "전용 숏 모델과 확신도 기준을 통과한 선물 후보가 있습니다."
+
+        return {
+            "candidates": candidates,
+            "availability": {
+                "status": status,
+                "message": message,
+                "total_count": len(rows),
+                "short_count": len(short_rows),
+                "fresh_short_count": len(fresh_short_rows),
+                "qualified_count": len(qualified_rows),
+            },
+        }
+
     @staticmethod
     def _release_unavailable_snapshot(status: str) -> dict:
         messages = {
@@ -133,4 +183,20 @@ class AiFundCryptoSelectionService:
             "model_version": model_version,
             "signal_id": f"crypto:{model_version}:{prediction_date}:{symbol}:{score}",
             "selection_reason": "상승 신호와 확신도 기준을 통과했습니다.",
+        }
+
+    @staticmethod
+    def _to_short_candidate(row: dict) -> dict:
+        probability = _as_float(row.get("short_probability"))
+        symbol = str(row.get("symbol") or "").upper()
+        model_version = str(row.get("short_model_version") or "")
+        prediction_date = str(row.get("date") or "")
+        return {
+            "symbol": symbol,
+            "action": "OPEN_SHORT",
+            "confidence_score": min(1.0, max(0.0, probability)),
+            "source_exchange": str(row.get("exchange") or "").upper(),
+            "short_model_version": model_version,
+            "signal_id": f"crypto-short:{model_version}:{prediction_date}:{symbol}:{probability}",
+            "selection_reason": "전용 숏 모델 확률과 확신도 기준을 통과했습니다.",
         }

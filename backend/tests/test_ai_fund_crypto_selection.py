@@ -119,3 +119,41 @@ def test_crypto_candidates_exclude_stale_prediction_rows_from_trade_candidates(t
 
     assert [candidate["symbol"] for candidate in snapshot["candidates"]] == ["ADAUSDT"]
     assert snapshot["availability"]["stale_count"] == 1
+
+
+def test_crypto_short_candidates_require_dedicated_short_model_probability(tmp_path):
+    predictions_path = tmp_path / "crypto_predictions.csv"
+    now = datetime.now(timezone.utc).isoformat()
+    predictions_path.write_text(
+        "exchange,symbol,position,signal_score,short_probability,short_model_version,model_version,date\n"
+        f"BINANCE,BTCUSDT,SHORT,92,0.76,lgbm_crypto_short_v11,lgbm_crypto_signal_v11,{now}\n"
+        f"BINANCE,ETHUSDT,SHORT,95,,lgbm_crypto_short_v11,lgbm_crypto_signal_v11,{now}\n",
+        encoding="utf-8",
+    )
+
+    snapshot = AiFundCryptoSelectionService(
+        predictions_path,
+        require_release=False,
+    ).get_short_snapshot(min_confidence_score=0.70)
+
+    assert [candidate["symbol"] for candidate in snapshot["candidates"]] == ["BTCUSDT"]
+    assert snapshot["candidates"][0]["action"] == "OPEN_SHORT"
+    assert snapshot["candidates"][0]["short_model_version"] == "lgbm_crypto_short_v11"
+
+
+def test_crypto_short_candidates_are_withheld_without_dedicated_short_model_columns(tmp_path):
+    predictions_path = tmp_path / "crypto_predictions.csv"
+    now = datetime.now(timezone.utc).isoformat()
+    predictions_path.write_text(
+        "exchange,symbol,position,signal_score,model_version,date\n"
+        f"BINANCE,BTCUSDT,SHORT,92,lgbm_crypto_signal_v11,{now}\n",
+        encoding="utf-8",
+    )
+
+    snapshot = AiFundCryptoSelectionService(
+        predictions_path,
+        require_release=False,
+    ).get_short_snapshot(min_confidence_score=0.70)
+
+    assert snapshot["candidates"] == []
+    assert snapshot["availability"]["status"] == "SHORT_MODEL_UNAVAILABLE"

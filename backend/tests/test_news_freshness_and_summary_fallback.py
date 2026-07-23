@@ -133,6 +133,37 @@ def test_market_news_reply_explains_search_criteria():
     assert "최신순" in result["reply"]
 
 
+def test_external_news_reply_uses_generated_summary_instead_of_source_description():
+    service = object.__new__(ChatbotWebFallbackSearchService)
+
+    class GeneratedSummaryService:
+        def summarize(self, article):
+            assert article["summary"] == "원문 제공 요약입니다."
+            return {
+                "ai_summary": "1. 발사 준비가 진전됐습니다.\n2. 다음 주요 일정을 확인했습니다.\n3. 세부 내용은 원문을 확인해 주세요.",
+                "ai_summary_model": "test-model",
+                "ai_summary_prompt_version": "test-v1",
+            }
+
+    service.news_summary_service = GeneratedSummaryService()
+    result = service._format_external_news(
+        "NAVER",
+        "이노스페이스 뉴스",
+        [
+            {
+                "title": "이노스페이스 발사체 관련 소식",
+                "summary": "원문 제공 요약입니다.",
+                "url": "https://example.com/innospace",
+            }
+        ],
+    )
+
+    item = result["data"]["items"][0]
+    assert item["ai_summary"].startswith("1. 발사 준비가 진전됐습니다.")
+    assert item["ai_summary"] != item["summary"]
+    assert item["ai_summary_model"] == "test-model"
+
+
 def test_stock_news_query_does_not_fallback_to_dart_disclosures(monkeypatch):
     service = object.__new__(ChatbotWebFallbackSearchService)
     calls: list[str] = []
@@ -554,7 +585,11 @@ def test_naver_news_filters_unrelated_latest_articles(monkeypatch):
             return {"ai_summary": "1. 삼성전자 반도체 투자 뉴스를 요약했습니다."}
 
     monkeypatch.setattr(requests, "get", lambda *args, **kwargs: FakeResponse())
-    service.news_repository = type("FakeNewsRepository", (), {"upsert_articles": lambda self, articles: None})()
+    service.news_repository = type(
+        "FailingNewsRepository",
+        (),
+        {"upsert_articles": lambda self, articles: (_ for _ in ()).throw(AssertionError("즉시 응답 경로에서 저장하면 안 됩니다."))},
+    )()
     service.news_summary_service = FakeSummaryService()
 
     result = service._search_naver_news("심상전자 최근 뉴스 보여줘", 2)

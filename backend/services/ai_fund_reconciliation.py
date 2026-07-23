@@ -90,7 +90,11 @@ class AiFundReconciliationService:
             },
         )
         if order.filled_qty > 0:
-            new_fill_quantity = self.ledger.apply_new_fill(order, order_id=str(row["id"]))
+            new_fill_quantity = self.ledger.apply_new_fill(
+                order,
+                order_id=str(row["id"]),
+                position_direction=str(row.get("position_direction") or "LONG"),
+            )
             if new_fill_quantity > 0:
                 self._record_trade_execution(config, row, order, new_fill_quantity)
         return "UPDATED"

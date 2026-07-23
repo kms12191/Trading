@@ -43,3 +43,24 @@ def test_disclosure_list_and_count_use_the_same_30_day_cutoff(
     assert repository.count_disclosures(symbol="041830") == 1
     assert calls[0]["rcept_dt"] == "gte.2026-06-20"
     assert calls[1]["rcept_dt"] == "gte.2026-06-20"
+
+
+def test_disclosure_list_separates_company_name_and_stock_code_in_alias_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    captured_params: list[dict[str, str]] = []
+
+    def fake_get(url: str, *, headers: dict[str, str], params: dict[str, str], timeout: int) -> FakeResponse:
+        captured_params.append(params)
+        return FakeResponse(payload=[{"rcept_no": "recent"}], headers={})
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    result = DartRepository().list_disclosures(query="이노스페이스 462350", limit=1)
+
+    assert result == [{"rcept_no": "recent"}]
+    assert captured_params[0]["stock_code"] == "eq.462350"
+    assert "이노스페이스" in captured_params[0]["or"]
+    assert "462350" not in captured_params[0]["or"]

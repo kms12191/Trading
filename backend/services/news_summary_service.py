@@ -9,7 +9,7 @@ GEMINI_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/inte
 
 
 class NewsSummaryService:
-    def __init__(self) -> None:
+    def __init__(self, timeout_seconds: int | None = None) -> None:
         self.api_key = os.getenv("OPENAI_API_KEY", "")
         self.model = os.getenv("NEWS_SUMMARY_MODEL", "gpt-4o-mini")
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
@@ -22,7 +22,11 @@ class NewsSummaryService:
             os.getenv("DART_GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite"),
         )
         self.prompt_version = os.getenv("NEWS_SUMMARY_PROMPT_VERSION", "v2")
-        self.timeout_seconds = int(os.getenv("NEWS_SUMMARY_TIMEOUT_SECONDS", "30"))
+        configured_timeout_seconds = int(os.getenv("NEWS_SUMMARY_TIMEOUT_SECONDS", "30"))
+        effective_timeout_seconds = (
+            timeout_seconds if timeout_seconds is not None else configured_timeout_seconds
+        )
+        self.timeout_seconds = max(1, effective_timeout_seconds)
 
     @property
     def enabled(self) -> bool:

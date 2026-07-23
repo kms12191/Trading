@@ -638,6 +638,19 @@ class ChatbotService:
             for keyword in ["보여줘", "조회", "알려줘", "요약", "찾아줘", "최신", "최근"]
         )
 
+    @staticmethod
+    def _is_direct_content_lookup(text: str) -> bool:
+        value = str(text or "").strip()
+        content_terms = ("뉴스", "공시", "사업보고서", "반기보고서", "분기보고서", "전자공시", "DART")
+        if not value or _is_asset_price_request(value) or not any(term in value for term in content_terms):
+            return False
+
+        action_terms = ("보여줘", "조회", "들려줘", "요약", "찾아줘", "최신", "최근")
+        if any(term in value for term in action_terms):
+            return True
+
+        return any(value.split(term, 1)[0].strip() for term in content_terms if term in value)
+
     def _tool_message_from_arguments(self, tool_name: str, arguments: dict, fallback_text: str) -> str:
         if tool_name in {"search_web", "add_watchlist_item", "get_asset_outlook", "remove_watchlist_item"}:
             return str(arguments.get("query") or fallback_text)
@@ -991,6 +1004,26 @@ class ChatbotService:
                             "pending_action": pending_action,
                             "source": "PROJECT_TOOL_PENDING",
                         },
+                }
+
+        if self._is_direct_content_lookup(text):
+            self._emit_trace(trace_callback, "tool_routing", "content_lookup")
+            tool_result = search_web(auth_header, text) if auth_header else None
+            if tool_result:
+                tool_data = tool_result.get("data")
+                trace_steps = self._emit_tool_trace_steps(trace_callback, tool_data)
+                self._record_exchange(auth_header, user_id, text, tool_result["reply"])
+                self._maybe_set_pending_from_tool_result(auth_header, user_id, text, tool_data)
+                return {
+                    "reply": tool_result["reply"],
+                    "actions": tool_result.get("actions") or [],
+                    "meta": {
+                        "user_id": user_id,
+                        "available_tools": list_available_tools(),
+                        "tool_result": tool_data,
+                        "trace_steps": trace_steps,
+                        "source": "PROJECT_TOOL_CONTENT_LOOKUP",
+                    },
                 }
 
         if self.agent is not None:

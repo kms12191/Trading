@@ -889,6 +889,7 @@ class BinanceFuturesClient:
         reduce_only: bool = False,
         leverage: int | None = None,
         margin_type: str | None = None,
+        client_order_id: str | None = None,
     ) -> dict:
         normalized_symbol = _normalize_spot_symbol(symbol)
         side_upper = _normalize_side(side)
@@ -924,6 +925,8 @@ class BinanceFuturesClient:
             params["positionSide"] = str(position_side).upper()
         if reduce_only:
             params["reduceOnly"] = "true"
+        if client_order_id:
+            params["newClientOrderId"] = str(client_order_id)
         if order_type == "LIMIT":
             if price is None or float(price) <= 0:
                 raise ValueError("바이낸스 선물 지정가 주문에는 0보다 큰 가격이 필요합니다.")
@@ -940,6 +943,8 @@ class BinanceFuturesClient:
             "symbol": normalized_symbol,
             "side": side_upper,
             "type": order_type,
+            "executed_qty": float(data.get("executedQty") or 0),
+            "average_fill_price": float(data.get("avgPrice") or 0),
             "futures_settings": settings_result,
             "raw": data,
         }
@@ -1046,6 +1051,7 @@ class BinanceFuturesClient:
             "status": data.get("status"),
             "executed_qty": executed_qty,
             "remaining_qty": max(orig_qty - executed_qty, 0),
+            "average_fill_price": float(data.get("avgPrice") or 0),
             "raw": data,
         }
 

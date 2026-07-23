@@ -26,6 +26,14 @@ export function normalizeDisclosureText(value) {
     .replace(/공시\s+공시(?=(?:로|를|가|는|의|에|입니다|$))/g, '공시')
 }
 
+function formatDisclosureDate(value) {
+  const text = normalizeDisclosureText(value)
+  if (/^\d{8}$/.test(text)) {
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`
+  }
+  return text
+}
+
 function normalizeMetric(metric) {
   return {
     label: normalizeDisclosureText(metric?.label),
@@ -103,6 +111,7 @@ export function buildDisclosurePresentation(toolResult) {
     return {
       corpName: normalizeDisclosureText(item?.corp_name) || 'DART',
       title: normalizeDisclosureText(item?.report_nm) || '공시 제목 없음',
+      publishedAt: formatDisclosureDate(item?.rcept_dt || item?.published_at),
       url: String(item?.url || ''),
       sentiment: normalizeDisclosureText(analysis.sentiment),
       sentimentLabel: normalizeDisclosureText(analysis.sentiment_label) || '정보',

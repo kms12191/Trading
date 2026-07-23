@@ -134,3 +134,19 @@ test('deduplicates disclosure metrics and checks with equivalent labels', () => 
   ])
   assert.deepEqual(result.items[0].checks, [])
 })
+
+
+test('formats a DART receipt date for the disclosure table', () => {
+  const result = buildDisclosurePresentation({
+    source: 'DISCLOSURE_DB',
+    items: [
+      {
+        corp_name: '이노스페이스',
+        report_nm: '주요사항보고서',
+        rcept_dt: '20260706',
+      },
+    ],
+  })
+
+  assert.equal(result.items[0].publishedAt, '2026-07-06')
+})
