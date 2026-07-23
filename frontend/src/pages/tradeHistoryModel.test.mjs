@@ -6,6 +6,7 @@ import {
   filterUnlinkedBrokerOrders,
   formatCurrency,
   formatCryptoAmount,
+  formatUnitCurrency,
   isActionableOrderStatus,
   isDeletableTradeHistoryItem,
   mapAiFundOrderToTrade,
@@ -23,6 +24,10 @@ test('거래 상태와 금액 표시를 화면용 문구로 변환한다', () =>
   assert.equal(isActionableOrderStatus('EXECUTED'), false)
   assert.equal(formatCurrency(1234.5, 'KRW'), '₩1,235')
   assert.equal(formatCurrency(12.3, 'USD'), '$12.30')
+  assert.equal(formatUnitCurrency(0.123456, 'USD'), '$0.1235')
+  assert.equal(formatUnitCurrency(1.23456, 'USDT'), '$1.2346')
+  assert.equal(formatUnitCurrency(0.123456, 'KRW'), '₩0.1235')
+  assert.equal(formatUnitCurrency(1.23456, 'KRW'), '₩1.2')
   assert.equal(formatCryptoAmount(1.234567891, 'xrp'), '1.23456789 XRP')
 })
 

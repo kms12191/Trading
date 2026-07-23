@@ -1,0 +1,139 @@
+﻿
+> frontend\src\features\chatbot\ChatbotWidget.jsx:8:import { buildDisclosurePresentation } from './chatbotDisclosurePre
+sentation'
+  frontend\src\features\chatbot\ChatbotWidget.jsx:9:import { shouldSubmitChatbotInput } from './chatbotInput'
+  frontend\src\features\chatbot\ChatbotWidget.jsx:10:import { buildMlRecommendationPresentation } from './chatbotMlReco
+mmendationPresentation'
+> frontend\src\features\chatbot\ChatbotWidget.jsx:11:import { buildNewsPresentation } from './chatbotNewsPresentation'
+  frontend\src\features\chatbot\ChatbotWidget.jsx:12:import { buildPricePresentation } from './chatbotPricePresentation
+'
+  frontend\src\features\chatbot\ChatbotWidget.jsx:13:import OrderEntryFlow from './OrderEntryFlow'
+> frontend\src\features\chatbot\ChatbotWidget.jsx:167:  const disclosurePresentation = buildDisclosurePresentation(mess
+age.toolResult)
+> frontend\src\features\chatbot\ChatbotWidget.jsx:168:  const newsPresentation = buildNewsPresentation(message.toolResu
+lt)
+  frontend\src\features\chatbot\ChatbotWidget.jsx:169:  const pricePresentation = buildPricePresentation(message.toolRe
+sult)
+  frontend\src\features\chatbot\ChatbotWidget.jsx:170:  const mlRecommendationPresentation = buildMlRecommendationPrese
+ntation(message.toolResult)
+> frontend\src\features\chatbot\ChatbotWidget.jsx:208:                {hasNewsCards && <NewsResults presentation={newsP
+resentation} />}
+> frontend\src\features\chatbot\ChatbotWidget.jsx:209:                {hasDisclosureCards && <DisclosureResults present
+ation={disclosurePresentation} />}
+  frontend\src\features\chatbot\ChatbotWidget.jsx:210:                {hasCombinedResultNotice && (
+  frontend\src\features\chatbot\ChatbotWidget.jsx:211:                  <CombinedResultNotices notices={combinedResultN
+otices} />
+> frontend\src\features\chatbot\ChatbotWidget.jsx:281:      <div className="overflow-x-auto rounded border border-slate
+-700/80">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:282:        <table className="w-full min-w-[520px] border-collapse te
+xt-left text-[11px]">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:283:          <thead className="bg-slate-900/80 text-[10px] uppercase
+ tracking-[0.08em] text-slate-400">
+  frontend\src\features\chatbot\ChatbotWidget.jsx:284:            <tr>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:285:              <th className="whitespace-nowrap px-2.5 py-2 font-b
+old">종목명</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:286:              <th className="whitespace-nowrap px-2.5 py-2 font-b
+old">종목코드</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:287:              <th className="whitespace-nowrap px-2.5 py-2 font-b
+old">분류</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:288:              <th className="whitespace-nowrap px-2.5 py-2 font-b
+old">거래소</th>
+  frontend\src\features\chatbot\ChatbotWidget.jsx:289:            </tr>
+  frontend\src\features\chatbot\ChatbotWidget.jsx:290:          </thead>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:291:          <tbody className="divide-y divide-slate-800/80">
+  frontend\src\features\chatbot\ChatbotWidget.jsx:292:            {presentation.items.map((item) => (
+  frontend\src\features\chatbot\ChatbotWidget.jsx:293:              <tr key={`${item.exchange}-${item.assetType}-${item
+.symbol}`} className="bg-slate-950/20">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:317:      <div className="overflow-x-auto rounded border border-slate
+-700/80">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:318:        <table className="w-full min-w-[760px] border-collapse te
+xt-left text-[11px]">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:319:          <thead className="bg-slate-950/70 text-[10px] uppercase
+ tracking-[0.08em] text-slate-400">
+  frontend\src\features\chatbot\ChatbotWidget.jsx:320:            <tr>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:321:              <th className="whitespace-nowrap px-2.5 py-2 font-b
+old">일시</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:322:              <th className="whitespace-nowrap px-2.5 py-2 font-b
+old">거래소</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:323:              <th className="px-2.5 py-2 font-bold">종목</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:324:              <th className="whitespace-nowrap px-2.5 py-2 font-b
+old">구분</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:325:              <th className="whitespace-nowrap px-2.5 py-2 text-r
+ight font-bold">체결가</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:326:              <th className="whitespace-nowrap px-2.5 py-2 text-r
+ight font-bold">수량</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:327:              <th className="whitespace-nowrap px-2.5 py-2 text-r
+ight font-bold">정산금액</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:328:              <th className="whitespace-nowrap px-2.5 py-2 font-b
+old">상태</th>
+  frontend\src\features\chatbot\ChatbotWidget.jsx:329:            </tr>
+  frontend\src\features\chatbot\ChatbotWidget.jsx:330:          </thead>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:331:          <tbody className="divide-y divide-slate-800/90">
+  frontend\src\features\chatbot\ChatbotWidget.jsx:332:            {presentation.items.map((item, index) => (
+  frontend\src\features\chatbot\ChatbotWidget.jsx:333:              <tr key={`${item.date}-${item.exchange}-${item.asse
+tName}-${index}`} className="bg-slate-950/25">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:414:function NewsResults({ presentation }) {
+  frontend\src\features\chatbot\ChatbotWidget.jsx:415:  return (
+  frontend\src\features\chatbot\ChatbotWidget.jsx:416:    <>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:424:        <div className="overflow-x-auto">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:425:          <table className="w-full min-w-[760px] border-collapse 
+text-left text-[11px] text-slate-200">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:426:            <thead className="bg-slate-950/70 text-[10px] upperca
+se tracking-wide text-slate-400">
+  frontend\src\features\chatbot\ChatbotWidget.jsx:427:              <tr>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:428:                <th className="w-10 px-3 py-2 font-semibold">No.<
+/th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:429:                <th className="w-24 px-3 py-2 font-semibold">날짜</
+th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:430:                <th className="w-28 px-3 py-2 font-semibold">출처</
+th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:431:                <th className="min-w-64 px-3 py-2 font-semibold">
+제목</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:432:                <th className="min-w-80 px-3 py-2 font-semibold">
+AI 요약</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:433:                <th className="w-20 px-3 py-2 font-semibold">링크</
+th>
+  frontend\src\features\chatbot\ChatbotWidget.jsx:434:              </tr>
+  frontend\src\features\chatbot\ChatbotWidget.jsx:435:            </thead>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:436:            <tbody>
+  frontend\src\features\chatbot\ChatbotWidget.jsx:437:              {presentation.items.map((item, index) => (
+  frontend\src\features\chatbot\ChatbotWidget.jsx:438:                <tr key={`${item.url || item.title}-${index}`} cl
+assName="border-t border-slate-800/90 align-top hover:bg-cyan-950/15">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:463:      <div className="hidden space-y-3">
+  frontend\src\features\chatbot\ChatbotWidget.jsx:464:      <div className="flex items-center justify-between gap-2 bor
+der-b border-slate-700/70 pb-2">
+  frontend\src\features\chatbot\ChatbotWidget.jsx:465:        <p className="font-bold text-cyan-200">뉴스 요약</p>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:561:function DisclosureResults({ presentation }) {
+  frontend\src\features\chatbot\ChatbotWidget.jsx:562:  const disclosureToneClass = (sentiment) => {
+  frontend\src\features\chatbot\ChatbotWidget.jsx:563:    if (sentiment === 'positive') return 'border-emerald-500/40 b
+g-emerald-950/30 text-emerald-200'
+> frontend\src\features\chatbot\ChatbotWidget.jsx:578:        <div className="overflow-x-auto">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:579:          <table className="w-full min-w-[800px] border-collapse 
+text-left text-[11px] text-slate-200">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:580:            <thead className="bg-slate-950/70 text-[10px] upperca
+se tracking-wide text-slate-400">
+  frontend\src\features\chatbot\ChatbotWidget.jsx:581:              <tr>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:582:                <th className="w-10 px-3 py-2 font-semibold">No.<
+/th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:583:                <th className="w-24 px-3 py-2 font-semibold">접수일<
+/th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:584:                <th className="w-28 px-3 py-2 font-semibold">법인명<
+/th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:585:                <th className="min-w-64 px-3 py-2 font-semibold">
+공시명</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:586:                <th className="min-w-80 px-3 py-2 font-semibold">
+핵심 요약</th>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:587:                <th className="w-20 px-3 py-2 font-semibold">링크</
+th>
+  frontend\src\features\chatbot\ChatbotWidget.jsx:588:              </tr>
+  frontend\src\features\chatbot\ChatbotWidget.jsx:589:            </thead>
+> frontend\src\features\chatbot\ChatbotWidget.jsx:590:            <tbody>
+  frontend\src\features\chatbot\ChatbotWidget.jsx:591:              {presentation.items.map((item, index) => (
+  frontend\src\features\chatbot\ChatbotWidget.jsx:592:                <tr key={`${item.url || item.title}-${index}`} cl
+assName="border-t border-slate-800/90 align-top hover:bg-cyan-950/15">
+> frontend\src\features\chatbot\ChatbotWidget.jsx:610:      <div className="hidden space-y-3">
+  frontend\src\features\chatbot\ChatbotWidget.jsx:611:      <div className="flex items-center justify-between gap-2 bor
+der-b border-slate-700/70 pb-2">
+  frontend\src\features\chatbot\ChatbotWidget.jsx:612:        <p className="font-bold text-cyan-200">DART 공시 요약</p>
+
+

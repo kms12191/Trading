@@ -855,3 +855,45 @@ def test_reply_sanitizes_obsidian_style_instruction_sections(monkeypatch):
     assert "삼성전자 45만원" in result["reply"]
     assert "AI에게 바라는 답변 방식" not in result["reply"]
     assert "노예" not in result["reply"]
+
+
+@pytest.mark.parametrize(
+    "message, expected_source",
+    [
+        ("이노스페이스 뉴스", "NEWS_DB"),
+        ("이노스페이스 뉴스 보여줘", "NEWS_DB"),
+        ("이노스페이스 공시", "DISCLOSURE_DB"),
+        ("이노스페이스 공시 보여줘", "DISCLOSURE_DB"),
+        ("이노스페이스 뉴스, 공시 보여줘", "NEWS_DISCLOSURE_COMBINED"),
+    ],
+)
+def test_reply_routes_company_news_and_disclosure_lookups_before_agent(
+    monkeypatch,
+    message,
+    expected_source,
+):
+    calls: list[str] = []
+
+    def fake_search_web(auth_header, search_message):
+        calls.append(search_message)
+        return {
+            "reply": "검색 결과",
+            "data": {"source": expected_source, "items": []},
+        }
+
+    service = object.__new__(ChatbotService)
+    service.agent = object()
+    service._peek_pending_action = lambda *_args, **_kwargs: None
+    service._run_agent = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("뉴스·공시 조회는 agent 이전에 처리되어야 합니다.")
+    )
+    monkeypatch.setattr(
+        "backend.services.chatbot.chat_service.search_web",
+        fake_search_web,
+    )
+
+    result = service.reply(message, user_id="user-1", auth_header="Bearer test")
+
+    assert result["meta"]["source"] == "PROJECT_TOOL_CONTENT_LOOKUP"
+    assert result["meta"]["tool_result"]["source"] == expected_source
+    assert calls == [message]

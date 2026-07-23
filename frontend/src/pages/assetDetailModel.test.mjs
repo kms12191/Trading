@@ -146,11 +146,13 @@ describe('assetDetailModel', () => {
     assert.equal(getAssetCurrencySign({ exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), '$')
     assert.equal(getAssetCurrencySign({ exchange: 'TOSS', assetType: 'STOCK', isUsStock: true }), '$')
     assert.equal(getAssetCurrencyDigits({ exchange: 'COINONE', assetType: 'CRYPTO', isUsStock: false }), 0)
+    assert.equal(getAssetPriceDigits(0.1234, { exchange: 'COINONE', assetType: 'CRYPTO', isUsStock: false }), 4)
+    assert.equal(getAssetPriceDigits(1.2345, { exchange: 'COINONE', assetType: 'CRYPTO', isUsStock: false }), 0)
     assert.equal(getAssetCurrencyDigits({ exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), 6)
     assert.equal(getAssetPriceDigits(0.0004, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), 8)
     assert.equal(getAssetPriceDigits(0.5, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), 6)
     assert.equal(getAssetPriceDigits(50, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), 4)
-    assert.equal(getAssetPriceDigits(500, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), 2)
+    assert.equal(getAssetPriceDigits(500, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false }), 4)
     assert.deepEqual(
       getAssetChartPriceFormat(0.0004, { exchange: 'BINANCE', assetType: 'CRYPTO', isUsStock: false, currentPrice: 1 }),
       { type: 'price', precision: 8, minMove: 0.00000001 },

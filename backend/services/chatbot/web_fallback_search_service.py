@@ -70,7 +70,9 @@ class ChatbotWebFallbackSearchService:
             KnowledgeChunkService(),
             EmbeddingService(),
         )
-        self.news_summary_service = NewsSummaryService()
+        self.news_summary_service = NewsSummaryService(
+            timeout_seconds=self._read_int_env("CHATBOT_NEWS_SUMMARY_TIMEOUT_SECONDS", 5),
+        )
         self.tavily_client = TavilyClient()
         self.naver_client_id = os.getenv("NAVER_CLIENT_ID", "")
         self.naver_client_secret = os.getenv("NAVER_CLIENT_SECRET", "")
@@ -656,7 +658,6 @@ class ChatbotWebFallbackSearchService:
 
         if not articles:
             return None
-        self._try_upsert_news(articles)
         return self._format_external_news("NAVER", search_query, articles[:limit])
 
     def _search_finnhub_news(self, query: str, limit: int) -> dict[str, Any] | None:
@@ -705,7 +706,6 @@ class ChatbotWebFallbackSearchService:
 
         if not articles:
             return None
-        self._try_upsert_news(articles)
         return self._format_external_news("FINNHUB", query, articles[:limit])
 
     def _search_tavily(self, query: str, limit: int) -> dict[str, Any] | None:
@@ -740,7 +740,7 @@ class ChatbotWebFallbackSearchService:
                 "market": "WEB",
                 "raw_payload": {"query_category": "tavily_fallback"},
             }
-            summary_payload = self.news_summary_service.summarize(article)
+            summary_payload = self._summarize_external_news(article)
             summarized.append({**article, **summary_payload})
 
         lines = ["최신 웹 검색 결과를 요약했습니다."]
@@ -770,10 +770,39 @@ class ChatbotWebFallbackSearchService:
             },
         }
 
+    def _summarize_external_news(self, article: dict[str, Any]) -> dict[str, str]:
+        existing_summary = str(article.get("ai_summary") or "").strip()
+        existing_model = str(article.get("ai_summary_model") or "").strip()
+        if existing_summary and existing_model not in {"fallback", "source_fallback"}:
+            return {
+                "ai_summary": existing_summary,
+                "ai_summary_model": existing_model or "cached",
+                "ai_summary_prompt_version": str(article.get("ai_summary_prompt_version") or "cached"),
+            }
+
+        summary_payload = self.news_summary_service.summarize(article)
+        if summary_payload.get("ai_summary_model") != "fallback":
+            return summary_payload
+
+        title = str(article.get("title") or "").strip()
+        company_name = str(article.get("company_name") or "").strip()
+        subject = company_name or "관련 기업"
+        return {
+            "ai_summary": "\n".join(
+                [
+                    f"1. {title or '새 뉴스가 등록됐습니다.'}",
+                    f"2. {subject} 관련 보도가 확인됐습니다.",
+                    "3. 요약 생성이 지연되어 세부 내용은 원문에서 확인해 주세요.",
+                ]
+            ),
+            "ai_summary_model": "metadata_fallback",
+            "ai_summary_prompt_version": str(summary_payload.get("ai_summary_prompt_version") or "fallback"),
+        }
+
     def _format_external_news(self, source: str, query: str, articles: list[dict[str, Any]]) -> dict[str, Any]:
         lines = [f"{source} API로 새로 조회한 뉴스 {len(articles)}건을 요약했습니다."]
         for index, article in enumerate(articles, start=1):
-            summary_payload = self.news_summary_service.summarize(article)
+            summary_payload = self._summarize_external_news(article)
             article.update(summary_payload)
             if index > 1:
                 lines.append("")

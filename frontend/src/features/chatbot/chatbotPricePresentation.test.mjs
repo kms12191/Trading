@@ -28,3 +28,15 @@ test('does not render a price card when the quote is unavailable', () => {
     { shouldRender: false },
   )
 })
+
+test('keeps USD price precision up to 4 decimal places', () => {
+  const result = buildPricePresentation({
+    source: 'ASSET_PRICE',
+    symbol: 'DOGE',
+    display_name: 'DOGE',
+    current_price: 0.123456,
+    currency: 'USD',
+  })
+
+  assert.equal(result.priceText, '0.1235')
+})

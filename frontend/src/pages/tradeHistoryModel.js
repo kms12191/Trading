@@ -25,6 +25,13 @@ export const formatNumber = (value, options = {}) => {
 export const formatCurrency = (value, currency = 'KRW') => {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) return '-'
+  const normalizedCurrency = String(currency || '').toUpperCase()
+  if (normalizedCurrency === 'USDT') {
+    return `$${formatNumber(numericValue, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`
+  }
   const prefix = currency === 'USD' ? '$' : '₩'
   return `${prefix}${formatNumber(numericValue, {
     minimumFractionDigits: currency === 'USD' ? 2 : 0,
@@ -35,10 +42,18 @@ export const formatCurrency = (value, currency = 'KRW') => {
 export const formatUnitCurrency = (value, currency = 'KRW') => {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue)) return '-'
+  const normalizedCurrency = String(currency || '').toUpperCase()
+  if (normalizedCurrency === 'USDT') {
+    return `$${formatNumber(numericValue, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 4,
+    })}`
+  }
   const prefix = currency === 'USD' ? '$' : '₩'
+  const absoluteValue = Math.abs(numericValue)
   return `${prefix}${formatNumber(numericValue, {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 1,
+    maximumFractionDigits: currency === 'USD' || (absoluteValue > 0 && absoluteValue < 1) ? 4 : 1,
   })}`
 }
 

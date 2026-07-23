@@ -8,6 +8,7 @@ import {
   getDashboardWatchlistCurrency,
   getHoldingEvaluationKrw,
   getHoldingEvaluationNative,
+  formatUnitCurrency,
   mergeAccountBalances,
   mergeBalanceWithCompletedTransfers,
   mergeBalanceWithTradeEstimates,
@@ -29,6 +30,17 @@ describe('dashboardModel', () => {
     assert.equal(toKrwAmount(2, 'USDT', 1400), 2800)
     assert.equal(toKrwAmount(3000, 'KRW', 1500), 3000)
     assert.equal(toKrwAmount('bad-value', 'USD', 1500), 0)
+  })
+
+  it('formats USD and USDT unit prices up to 4 decimal places', () => {
+    assert.equal(formatUnitCurrency(0.123456, 'USD', 'USD'), '$0.1235')
+    assert.equal(formatUnitCurrency(1.23456, 'USDT', 'USD'), '$1.2346')
+    assert.equal(formatUnitCurrency(325.64, 'USD', 'USD'), '$325.64')
+  })
+
+  it('formats KRW crypto unit prices under 1 won up to 4 decimal places', () => {
+    assert.equal(formatUnitCurrency(0.123456, 'KRW', 'KRW'), '₩0.1235')
+    assert.equal(formatUnitCurrency(1.23456, 'KRW', 'KRW'), '₩1.2')
   })
 
   it('calculates holding evaluation in native and KRW values', () => {

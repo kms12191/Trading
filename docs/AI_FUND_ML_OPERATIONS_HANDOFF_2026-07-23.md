@@ -50,6 +50,17 @@
 4. 수수료·펀딩비·레버리지·청산가·최대 손실·포지션 모드 검증을 모두 통과한 경우에만 선물 주문을 허용한다.
 5. PAPER/CANARY에서 숏 주문 원장·체결·포지션 대사·강제 청산·비상정지를 검증한 뒤에만 `LIVE`를 고려한다.
 
+## 애플리케이션 연동 상태 (2026-07-23)
+
+- ML 산출물은 이 저장소에 포함하지 않는다. 모델 생성·패키징 담당자는 활성 코인 릴리스의 예측 CSV에 `short_probability`와 `short_model_version`을 함께 제공한다.
+- AI 펀드 후보 API `GET /api/admin/ai-fund/crypto-candidates?user_id=<id>&exchange_type=binance_um_futures`는 위 두 열이 모두 있는 `SHORT` 행만 `OPEN_SHORT` 후보로 반환한다.
+- Coinone과 Binance Spot은 기존 `LONG` 후보 조회만 사용한다. 전용 숏 확률이 있어도 현물 후보나 현물 주문 흐름에 전달하지 않는다.
+- 전용 모델 열이 없거나, 릴리스·예측 데이터가 신선하지 않거나, 확신도 미달이면 후보는 비어 있고 보류 사유를 반환한다. 위험 모델의 `SHORT` 표기만으로는 선물 후보를 만들지 않는다.
+- `binance_um_futures` AI 펀드는 `LIVE` 모드를 지원한다. `futures_live_enabled=true`, `AI_FUND_FUTURES_LIVE_ENABLED=true`, `ISOLATED` 마진, 음수 `stop_loss_pct`가 모두 충족될 때만 실제 주문을 제출한다.
+- AI 펀드 선물 숏은 `ml_short_signal` 전략과 `SHORT` 방향 원장을 사용한다. PAPER는 체결과 포지션 기록만 시뮬레이션하고, CANARY는 `canary_max_order_amount` 한도 내에서 바이낸스 USD-M 선물 주문을 제출한다.
+- PAPER는 영구 운용 모드가 아니다. CANARY에서 주문·체결·포지션 대사·강제청산 검증을 통과해 LIVE 전환이 완료되면 PAPER 실행 경로와 설정을 제거한다.
+- LIVE 주문은 `ml_short_signal` 전용 숏 예측의 `short_probability`, `short_model_version`이 모두 있을 때만 생성한다. 모델 릴리스가 없는 경우에는 주문 없이 후보 없음으로 처리한다.
+
 ## 운영 명령
 
 ```bash

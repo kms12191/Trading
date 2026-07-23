@@ -55,25 +55,27 @@ export const formatCurrency = (value, currency, displayCurrency = 'KRW', exchang
 export const formatUnitCurrency = (value, currency, displayCurrency = 'KRW', exchangeRate = 1500) => {
   const numeric = toNumber(value)
   const rate = toNumber(exchangeRate) || 1500
-  const getMaximumFractionDigits = (displayValue) => {
+  const getMaximumFractionDigits = (displayValue, unitCurrency = '') => {
+    if (unitCurrency === 'USD' || unitCurrency === 'USDT') return 4
     const absoluteValue = Math.abs(toNumber(displayValue))
+    if (unitCurrency === 'KRW' && absoluteValue > 0 && absoluteValue < 1) return 4
     return absoluteValue > 0 && absoluteValue < 0.1 ? 3 : 1
   }
 
   if (displayCurrency === 'KRW') {
     const displayValue = (currency === 'USD' || currency === 'USDT') ? numeric * rate : numeric
-    return `₩${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(displayValue) })}`
+    return `₩${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(displayValue, 'KRW') })}`
   }
 
   if (displayCurrency === 'USD') {
     const displayValue = currency === 'KRW' ? numeric / rate : numeric
-    return `$${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(displayValue) })}`
+    return `$${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(displayValue, 'USD') })}`
   }
 
   if (currency === 'USD' || currency === 'USDT') {
-    return `$${numeric.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(numeric) })}`
+    return `$${numeric.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(numeric, currency) })}`
   }
-  return `₩${numeric.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(numeric) })}`
+  return `₩${numeric.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumFractionDigits(numeric, 'KRW') })}`
 }
 
 export const formatNullableCurrency = (value, currency, displayCurrency = 'KRW', exchangeRate = 1500) => {

@@ -222,9 +222,11 @@ export const formatCurrency = (value, currency, targetDisplayCurrency = 'KRW', e
   return `₩${Math.round(val).toLocaleString()}`
 }
 
-const getMaximumUnitFractionDigits = (displayValue) => {
+const getMaximumUnitFractionDigits = (displayValue, unitCurrency = '') => {
+  if (unitCurrency === 'USD' || unitCurrency === 'USDT') return 4
   const numericValue = Number(displayValue)
   const absoluteValue = Number.isFinite(numericValue) ? Math.abs(numericValue) : 0
+  if (unitCurrency === 'KRW' && absoluteValue > 0 && absoluteValue < 1) return 4
   return absoluteValue > 0 && absoluteValue < 0.1 ? 3 : 1
 }
 
@@ -235,18 +237,18 @@ export const formatUnitCurrency = (value, currency, targetDisplayCurrency = 'KRW
 
   if (targetDisplayCurrency === 'KRW') {
     const displayValue = (currency === 'USD' || currency === 'USDT') ? val * rate : val
-    return `₩${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumUnitFractionDigits(displayValue) })}`
+    return `₩${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumUnitFractionDigits(displayValue, 'KRW') })}`
   }
 
   if (targetDisplayCurrency === 'USD') {
     const displayValue = currency === 'KRW' ? val / rate : val
-    return `$${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumUnitFractionDigits(displayValue) })}`
+    return `$${displayValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumUnitFractionDigits(displayValue, 'USD') })}`
   }
 
   if (currency === 'USD' || currency === 'USDT') {
-    return `$${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumUnitFractionDigits(val) })}`
+    return `$${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumUnitFractionDigits(val, currency) })}`
   }
-  return `₩${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumUnitFractionDigits(val) })}`
+  return `₩${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: getMaximumUnitFractionDigits(val, 'KRW') })}`
 }
 
 export const buildHoldingRows = ({

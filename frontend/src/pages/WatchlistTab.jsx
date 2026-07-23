@@ -311,14 +311,15 @@ export default function WatchlistTab({ displayCurrency = 'KRW', exchangeRate = 1
     const rate = Number(exchangeRate) || 1380
     const getDollarFractionDigits = (displayValue) => {
       const absoluteValue = Math.abs(Number(displayValue))
-      return absoluteValue > 0 && absoluteValue < 0.1 ? 3 : 1
+      return Number.isFinite(absoluteValue) ? 4 : 0
     }
 
     if (targetDisplayCurrency === 'KRW') {
+      const krwFractionDigits = val > 0 && val < 1 ? 4 : 1
       if (currency === 'USD' || currency === 'USDT') {
         return `₩${(val * rate).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}`
       }
-      return `₩${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}`
+      return `₩${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: krwFractionDigits })}`
     }
 
     if (targetDisplayCurrency === 'USD') {

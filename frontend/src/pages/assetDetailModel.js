@@ -73,12 +73,14 @@ export const getAssetPriceDigits = (value, context = {}) => {
   if (!Number.isFinite(numeric)) return getAssetCurrencyDigits(context)
 
   const normalizedExchange = String(context.exchange || '').toUpperCase()
-  if (normalizedExchange === 'COINONE') return 0
+  if (normalizedExchange === 'COINONE') {
+    return numeric > 0 && numeric < 1 ? 4 : 0
+  }
   if (normalizedExchange === 'BINANCE' || normalizedExchange === 'BINANCE_UM_FUTURES') {
     if (numeric > 0 && numeric < 0.01) return 8
     if (numeric > 0 && numeric < 1) return 6
     if (numeric < 100) return 4
-    return 2
+    return 4
   }
   if (context.isUsStock) {
     if (numeric > 0 && numeric < 1) return 6

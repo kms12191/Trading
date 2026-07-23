@@ -23,7 +23,11 @@ test('자산 숫자와 통화 표시를 안정적으로 변환한다', () => {
   assert.equal(formatNativeCurrency(12.3, 'USD'), '$12.30')
   assert.equal(formatCurrency(10, 'USD', 'KRW', 1500), '₩15,000')
   assert.equal(formatCurrency(1500, 'KRW', 'USD', 1500), '$1.00')
-  assert.equal(formatUnitCurrency(0.05, 'USD', 'USD', 1500), '$0.05')
+  assert.equal(formatUnitCurrency(0.123456, 'USD', 'USD', 1500), '$0.1235')
+  assert.equal(formatUnitCurrency(1.23456, 'USDT', 'USD', 1500), '$1.2346')
+  assert.equal(formatUnitCurrency(325.64, 'USD', 'USD', 1500), '$325.64')
+  assert.equal(formatUnitCurrency(0.123456, 'KRW', 'KRW', 1500), '₩0.1235')
+  assert.equal(formatUnitCurrency(1.23456, 'KRW', 'KRW', 1500), '₩1.2')
 })
 
 test('거래소 코드를 정규화하고 출금 경로를 계산한다', () => {

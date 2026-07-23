@@ -241,6 +241,34 @@ def upsert_ai_fund_config():
                 ValueError("operation_mode는 PAPER, CANARY, LIVE 중 하나여야 합니다."),
                 "입력값 에러",
             )), 400
+        if exchange_type == "binance_um_futures" and operation_mode == "LIVE" and not data.get("futures_live_enabled"):
+            return jsonify(format_error_payload(
+                ValueError("LIVE 바이낸스 USD-M 숏에는 futures_live_enabled=true가 필요합니다."),
+                "입력값 에러",
+            )), 400
+        if exchange_type == "binance_um_futures":
+            margin_type = str(data.get("futures_margin_type") or "ISOLATED").upper()
+            if margin_type not in {"ISOLATED", "CROSSED"}:
+                return jsonify(format_error_payload(
+                    ValueError("futures_margin_type must be ISOLATED or CROSSED."),
+                    "Invalid input",
+                )), 400
+            data["futures_margin_type"] = margin_type
+            if operation_mode == "LIVE":
+                if not data.get("futures_live_enabled") or margin_type != "ISOLATED":
+                    return jsonify(format_error_payload(
+                        ValueError("LIVE futures requires futures_live_enabled=true and ISOLATED margin."),
+                        "Invalid input",
+                    )), 400
+                try:
+                    stop_loss_pct = float(data.get("stop_loss_pct"))
+                except (TypeError, ValueError):
+                    stop_loss_pct = 0.0
+                if stop_loss_pct >= 0:
+                    return jsonify(format_error_payload(
+                        ValueError("LIVE futures requires a negative stop_loss_pct."),
+                        "Invalid input",
+                    )), 400
         data["exchange_type"] = exchange_type
         data["operation_mode"] = operation_mode
         if "target_allocations" in data:
@@ -327,14 +355,19 @@ def get_ai_fund_crypto_candidates():
         _extract_bearer_token(request.headers.get("Authorization"))
         user_id = str(request.args.get("user_id") or "").strip()
         exchange_type = str(request.args.get("exchange_type") or "").lower().strip()
-        if not user_id or exchange_type not in {"coinone", "binance"}:
+        if not user_id or exchange_type not in {"coinone", "binance", "binance_um_futures"}:
             return jsonify(format_error_payload(ValueError("user_id와 코인 거래소가 필요합니다."), "입력값 에러")), 400
         configs = safe_query_supabase_as_service_role(
             "admin_ai_fund_configs",
             params={"user_id": f"eq.{user_id}", "exchange_type": f"eq.{exchange_type}", "limit": "1"},
         ) or []
         min_confidence = float((configs[0] if configs else {}).get("min_signal_confidence") or 0.75)
-        snapshot = AiFundCryptoSelectionService(CRYPTO_PREDICTIONS_PATH).get_snapshot(min_confidence)
+        selection_service = AiFundCryptoSelectionService(CRYPTO_PREDICTIONS_PATH)
+        match exchange_type:
+            case "binance_um_futures":
+                snapshot = selection_service.get_short_snapshot(min_confidence)
+            case "coinone" | "binance":
+                snapshot = selection_service.get_snapshot(min_confidence)
         return jsonify({"success": True, "exchange_type": exchange_type, **snapshot}), 200
     except ValueError as error:
         return jsonify(format_error_payload(error, "입력값 에러")), 400

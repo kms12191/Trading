@@ -87,7 +87,12 @@ class AiFundLedger:
         )
         return position_value + pending_value
 
-    def apply_new_fill(self, order: ExchangeOrder, order_id: str | None = None) -> float:
+    def apply_new_fill(
+        self,
+        order: ExchangeOrder,
+        order_id: str | None = None,
+        position_direction: str = "LONG",
+    ) -> float:
         """누적 체결 수량에서 아직 반영하지 않은 체결분만 포지션에 적용합니다."""
         if order.filled_qty <= 0 or order.average_fill_price is None:
             return 0.0
@@ -115,16 +120,26 @@ class AiFundLedger:
         )
         if not fill_rows:
             return 0.0
-        self._apply_position(order, new_quantity)
+        self._apply_position(order, new_quantity, position_direction)
         return new_quantity
 
-    def _apply_position(self, order: ExchangeOrder, new_quantity: float) -> None:
-        position = self._get_position(order.symbol)
+    def _apply_position(self, order: ExchangeOrder, new_quantity: float, position_direction: str) -> None:
+        normalized_direction = str(position_direction or "LONG").upper()
+        position = self._get_position(order.symbol, normalized_direction)
         current_qty = _to_float((position or {}).get("quantity"))
         current_average = _to_float((position or {}).get("average_entry_price"))
         realized_pnl = _to_float((position or {}).get("realized_pnl"))
 
-        if order.side == "BUY":
+        if normalized_direction == "SHORT" and order.side == "SELL":
+            total_cost = (current_qty * current_average) + (new_quantity * order.average_fill_price)
+            next_qty = current_qty + new_quantity
+            next_average = total_cost / next_qty if next_qty > 0 else 0.0
+        elif normalized_direction == "SHORT":
+            buy_quantity = min(new_quantity, current_qty)
+            next_qty = max(current_qty - buy_quantity, 0.0)
+            next_average = current_average if next_qty > 0 else 0.0
+            realized_pnl += ((current_average - order.average_fill_price) * buy_quantity) - order.fee
+        elif order.side == "BUY":
             total_cost = (current_qty * current_average) + (new_quantity * order.average_fill_price)
             next_qty = current_qty + new_quantity
             next_average = total_cost / next_qty if next_qty > 0 else 0.0
@@ -139,6 +154,7 @@ class AiFundLedger:
             "exchange_type": self.exchange_type,
             "strategy_id": self.strategy_id,
             "symbol": order.symbol,
+            "position_direction": normalized_direction,
             "quantity": next_qty,
             "average_entry_price": next_average,
             "realized_pnl": realized_pnl,
@@ -152,7 +168,7 @@ class AiFundLedger:
         else:
             self._query("ai_fund_positions", method="POST", json_data=payload)
 
-    def _get_position(self, symbol: str) -> dict[str, Any] | None:
+    def _get_position(self, symbol: str, position_direction: str = "LONG") -> dict[str, Any] | None:
         rows = self._query(
             "ai_fund_positions",
             params={
@@ -160,6 +176,7 @@ class AiFundLedger:
                 "exchange_type": f"eq.{self.exchange_type}",
                 "strategy_id": f"eq.{self.strategy_id}",
                 "symbol": f"eq.{symbol.upper()}",
+                "position_direction": f"eq.{str(position_direction or 'LONG').upper()}",
                 "limit": "1",
             },
         )

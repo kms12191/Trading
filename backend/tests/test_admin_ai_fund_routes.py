@@ -36,6 +36,21 @@ def test_upsert_ai_fund_config_rejects_canary_without_positive_limit(client):
     assert res.get_json()["success"] is False
 
 
+def test_upsert_ai_fund_config_rejects_live_futures_short_until_lifecycle_is_ready(client):
+    res = client.post(
+        "/api/admin/ai-fund/configs",
+        headers={"Authorization": "Bearer test-token"},
+        json={
+            "user_id": "00000000-0000-0000-0000-000000000001",
+            "exchange_type": "binance_um_futures",
+            "operation_mode": "LIVE",
+        },
+    )
+
+    assert res.status_code == 400
+    assert res.get_json()["success"] is False
+
+
 def test_upsert_ai_fund_config_rejects_invalid_target_allocations(client):
     res = client.post(
         "/api/admin/ai-fund/configs",
@@ -140,6 +155,32 @@ def test_crypto_candidates_returns_korean_availability_reason(client, monkeypatc
 
     assert response.status_code == 200
     assert response.get_json()["availability"]["message"] == "현재 모델이 매수 신호를 내지 않아 코인 후보를 보류했습니다."
+
+
+def test_futures_crypto_candidates_use_dedicated_short_snapshot(client, monkeypatch):
+    monkeypatch.setattr(
+        admin_ai_fund_route,
+        "safe_query_supabase_as_service_role",
+        lambda *_args, **_kwargs: [{"user_id": "user-1", "exchange_type": "binance_um_futures", "min_signal_confidence": 0.70}],
+    )
+    monkeypatch.setattr(
+        admin_ai_fund_route,
+        "AiFundCryptoSelectionService",
+        lambda *_args, **_kwargs: type("Service", (), {
+            "get_short_snapshot": lambda *_args, **_kwargs: {
+                "candidates": [{"symbol": "BTCUSDT", "action": "OPEN_SHORT", "confidence_score": 0.76}],
+                "availability": {"status": "READY", "message": "전용 숏 모델과 확신도 기준을 통과한 선물 후보가 있습니다."},
+            }
+        })(),
+    )
+
+    response = client.get(
+        "/api/admin/ai-fund/crypto-candidates?user_id=user-1&exchange_type=binance_um_futures",
+        headers={"Authorization": "Bearer test-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["candidates"][0]["action"] == "OPEN_SHORT"
 
 
 def test_crypto_short_performance_returns_research_only_status(client, monkeypatch):

@@ -7,8 +7,10 @@ function normalizePriceText(value) {
 function formatPrice(value, currency) {
   const number = Number(value)
   if (!Number.isFinite(number) || number <= 0) return '-'
+  const normalizedCurrency = String(currency || '').toUpperCase()
+  const isDollarCurrency = normalizedCurrency === 'USD' || normalizedCurrency === 'USDT'
   return new Intl.NumberFormat('ko-KR', {
-    maximumFractionDigits: currency === 'USD' ? 2 : 0,
+    maximumFractionDigits: isDollarCurrency ? 4 : 0,
   }).format(number)
 }
 

@@ -55,6 +55,19 @@ def _read_crypto_signals(min_confidence_score: float) -> list[dict]:
         return []
 
 
+def _read_crypto_short_signals(min_confidence_score: float) -> list[dict]:
+    try:
+        from backend.services.ai_fund_crypto_selection import AiFundCryptoSelectionService
+
+        return AiFundCryptoSelectionService(CRYPTO_PREDICTIONS_PATH).get_short_snapshot(
+            min_confidence_score=min_confidence_score,
+            limit=1,
+        )["candidates"]
+    except (OSError, ValueError, KeyError) as error:
+        logger.warning("[AiFundScheduler] 숏 예측 파일 읽기 실패: %s", error)
+        return []
+
+
 def _normalize_crypto_symbol_for_exchange(exchange_type: str, symbol: str) -> str:
     """공통 예측 심볼을 거래소 주문 심볼로 변환한다."""
     normalized_symbol = str(symbol or "").strip().upper()
@@ -117,6 +130,18 @@ def _build_exchange_client(exchange_type: str, config: dict):
             logger.warning("[AiFundScheduler] 바이낸스 사용자 API 키 없음 (user=%s)", user_id[:8])
             return None
         return BinanceClient(
+            api_key=credentials["access_key"],
+            secret_key=credentials["secret_key"],
+            env=broker_env,
+        )
+    if exchange == "binance_um_futures":
+        from backend.services.binance_client import BinanceFuturesClient
+
+        credentials = _load_user_exchange_credentials(user_id, "BINANCE", broker_env)
+        if not credentials:
+            logger.warning("[AiFundScheduler] 바이낸스 선물 사용자 API 키 없음 (user=%s)", user_id[:8])
+            return None
+        return BinanceFuturesClient(
             api_key=credentials["access_key"],
             secret_key=credentials["secret_key"],
             env=broker_env,
@@ -240,6 +265,35 @@ def _requested_quantity_for_stock_candidate(
     return order_notional / current_price if order_notional > 0 else None
 
 
+def _run_futures_short_cycle(config: dict, client: object, signal_cache: dict[float, list[dict]]) -> None:
+    from backend.services.ai_fund_futures_short_trader import AiFundFuturesShortTrader
+
+    user_id = str(config.get("user_id") or "")
+    if not user_id or float(config.get("max_position_size") or 0.0) <= 0:
+        return
+    trader = AiFundFuturesShortTrader(user_id)
+    for position in trader.list_short_positions():
+        symbol = str(position.get("symbol") or "")
+        current_price = _resolve_current_price("binance_um_futures", symbol, client)
+        if current_price and trader.should_stop_short(position, float(current_price), config):
+            result = trader.close_short(
+                config, client, symbol, float(position.get("quantity") or 0.0), float(current_price), "STOP_LOSS",
+            )
+            logger.warning("[AiFundScheduler] futures short stop-loss %s (%s)", symbol, (result or {}).get("status"))
+    min_confidence = float(config.get("min_signal_confidence", 0.75))
+    if min_confidence not in signal_cache:
+        signal_cache[min_confidence] = _read_crypto_short_signals(min_confidence)
+    signals = signal_cache[min_confidence]
+    for signal in signals:
+        symbol = str(signal.get("symbol") or "")
+        current_price = _resolve_current_price("binance_um_futures", symbol, client)
+        if not current_price:
+            continue
+        result = trader.open_short(config, client, signal, float(current_price))
+        if result:
+            logger.info("[AiFundScheduler] OPEN_SHORT %s (%s)", symbol, result.get("status"))
+
+
 def _run_ai_fund_cycle() -> None:
     """
     1. 활성 AI 펀드 설정 목록 조회
@@ -267,7 +321,7 @@ def _run_ai_fund_cycle() -> None:
             continue
 
         # 현재 코인 ML 신호만 지원 (코인원/바이낸스 공통 coinone 예측 CSV 사용)
-        if exchange_type not in {"coinone", "binance", "toss"}:
+        if exchange_type not in {"coinone", "binance", "binance_um_futures", "toss"}:
             continue
 
         operations = AiFundOperationsService()
@@ -284,7 +338,11 @@ def _run_ai_fund_cycle() -> None:
 
         try:
             reconciliation = AiFundReconciliationService(
-                AiFundLedger(user_id=user_id, exchange_type=exchange_type)
+            AiFundLedger(
+                user_id=user_id,
+                exchange_type=exchange_type,
+                strategy_id="ml_short_signal" if exchange_type == "binance_um_futures" else "ml_signal",
+            )
             ).reconcile_config(cfg, client)
             needs_review_count = int(getattr(reconciliation, "needs_review_count", 0) or 0)
             if needs_review_count:
@@ -303,6 +361,10 @@ def _run_ai_fund_cycle() -> None:
                 exchange_type,
                 reconciliation_error,
             )
+            continue
+
+        if exchange_type == "binance_um_futures":
+            _run_futures_short_cycle(cfg, client, signal_cache)
             continue
 
         try:
@@ -395,6 +457,10 @@ def _run_ai_fund_cycle() -> None:
 
         if exchange_type == "toss":
             signals = _read_toss_stock_signals(cfg, trader)
+        elif exchange_type == "binance_um_futures":
+            if min_confidence not in signal_cache:
+                signal_cache[min_confidence] = _read_crypto_short_signals(min_confidence)
+            signals = signal_cache[min_confidence]
         else:
             if min_confidence not in signal_cache:
                 signal_cache[min_confidence] = _read_crypto_signals(min_confidence)
@@ -407,6 +473,16 @@ def _run_ai_fund_cycle() -> None:
             continue
 
         for signal in signals:
+            if exchange_type == "binance_um_futures":
+                from backend.services.ai_fund_futures_short_trader import AiFundFuturesShortTrader
+
+                price = _resolve_current_price(exchange_type, signal["symbol"], client)
+                if not price or price <= 0:
+                    continue
+                result = AiFundFuturesShortTrader(user_id).open_short(cfg, client, signal, float(price))
+                if result:
+                    logger.info("[AiFundScheduler] OPEN_SHORT 처리 — %s (%s)", signal["symbol"], result.get("status"))
+                continue
             symbol = _normalize_crypto_symbol_for_exchange(exchange_type, signal["symbol"])
             confidence = signal["confidence_score"]
             is_symbol_tradable = getattr(trader, "is_symbol_tradable_on_exchange", None)

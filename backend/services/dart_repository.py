@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -36,12 +37,13 @@ class DartRepository:
             "is_active": "eq.true",
             "rcept_dt": f"gte.{self._retention_cutoff_date()}",
         }
-        normalized_symbol = str(symbol or "").strip()
+        query_text, query_symbol = self._split_company_query_and_symbol(query)
+        normalized_symbol = str(symbol or "").strip() or query_symbol
         if normalized_symbol:
             params["stock_code"] = f"eq.{normalized_symbol}"
 
-        if query:
-            q = query.strip()
+        if query_text:
+            q = query_text
             params["or"] = f"(report_nm.ilike.*{q}*,corp_name.ilike.*{q}*,stock_code.ilike.*{q}*)"
 
         response = requests.get(
@@ -62,11 +64,12 @@ class DartRepository:
             "is_active": "eq.true",
             "rcept_dt": f"gte.{self._retention_cutoff_date()}",
         }
-        normalized_symbol = str(symbol or "").strip()
+        query_text, query_symbol = self._split_company_query_and_symbol(query)
+        normalized_symbol = str(symbol or "").strip() or query_symbol
         if normalized_symbol:
             params["stock_code"] = f"eq.{normalized_symbol}"
-        if query:
-            q = query.strip()
+        if query_text:
+            q = query_text
             params["or"] = f"(report_nm.ilike.*{q}*,corp_name.ilike.*{q}*,stock_code.ilike.*{q}*)"
 
         response = requests.get(
@@ -100,6 +103,15 @@ class DartRepository:
         response.raise_for_status()
         rows = response.json()
         return rows[0] if rows else None
+
+    @staticmethod
+    def _split_company_query_and_symbol(query: str) -> tuple[str, str]:
+        query_text = str(query or "").strip()
+        symbol_match = re.search(r"(?<!\d)(\d{6})(?!\d)", query_text)
+        if not symbol_match:
+            return query_text, ""
+        company_query = (query_text[:symbol_match.start()] + query_text[symbol_match.end():]).strip()
+        return company_query, symbol_match.group(1)
 
     def get_disclosure_analysis(self, rcept_no: str) -> dict[str, Any] | None:
         if not self.supabase_url or not self.supabase_anon_key:
