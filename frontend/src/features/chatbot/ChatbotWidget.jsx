@@ -36,6 +36,50 @@ const INITIAL_MESSAGES = [
   },
 ]
 
+const MOBILE_CHATBOT_STORAGE_KEY = 'antry:mobile-chatbot:messages'
+
+function cloneInitialMessages() {
+  return INITIAL_MESSAGES.map((message) => ({
+    ...message,
+    createdAt: new Date().toISOString(),
+  }))
+}
+
+function loadMobileChatbotMessages() {
+  if (typeof window === 'undefined') return cloneInitialMessages()
+
+  try {
+    const rawValue = window.sessionStorage.getItem(MOBILE_CHATBOT_STORAGE_KEY)
+    const parsed = rawValue ? JSON.parse(rawValue) : null
+    if (!Array.isArray(parsed) || parsed.length === 0) return cloneInitialMessages()
+
+    return parsed
+      .filter((message) => message && typeof message === 'object' && typeof message.id === 'string' && typeof message.role === 'string')
+      .map((message, index) => ({
+        ...message,
+        actions: Array.isArray(message.actions) ? message.actions : [],
+        traceSteps: Array.isArray(message.traceSteps) ? message.traceSteps : [],
+        isStreaming: false,
+        timelineOrder: Number.isFinite(Number(message.timelineOrder)) ? Number(message.timelineOrder) : index,
+      }))
+  } catch {
+    return cloneInitialMessages()
+  }
+}
+
+function saveMobileChatbotMessages(messages) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.sessionStorage.setItem(
+      MOBILE_CHATBOT_STORAGE_KEY,
+      JSON.stringify(messages.map((message) => ({ ...message, isStreaming: false }))),
+    )
+  } catch {
+    // Storage can be unavailable in private or restricted browser contexts.
+  }
+}
+
 function getUserTimeZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined
 }
@@ -721,7 +765,7 @@ export default function ChatbotWidget({
   const isMobilePage = presentation === 'mobile-page'
   const [isOpen, setIsOpen] = useState(isMobilePage)
   const [panelSize, setPanelSize] = useState(getDefaultChatbotSize)
-  const [messages, setMessages] = useState(INITIAL_MESSAGES)
+  const [messages, setMessages] = useState(() => (isMobilePage ? loadMobileChatbotMessages() : cloneInitialMessages()))
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [showOrderForm, setShowOrderForm] = useState(false)
@@ -736,6 +780,21 @@ export default function ChatbotWidget({
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
   const resizeStateRef = useRef(null)
+
+  useEffect(() => {
+    messageIdSequenceRef.current = messages.reduce((maxValue, message) => {
+      const match = String(message.id || '').match(/-(?:user|assistant)-(\d+)$/)
+      return match ? Math.max(maxValue, Number(match[1])) : maxValue
+    }, messageIdSequenceRef.current)
+    timelineOrderSequenceRef.current = messages.reduce((maxValue, message) => (
+      Math.max(maxValue, Number(message.timelineOrder) || 0)
+    ), timelineOrderSequenceRef.current)
+  }, [messages])
+
+  useEffect(() => {
+    if (!isMobilePage) return
+    saveMobileChatbotMessages(messages)
+  }, [isMobilePage, messages])
 
   useEffect(() => {
     const handleOpenChatbot = () => {
@@ -855,10 +914,7 @@ export default function ChatbotWidget({
   const resetConversation = () => {
     setInput('')
     setIsSending(false)
-    setMessages(INITIAL_MESSAGES.map((message) => ({
-      ...message,
-      createdAt: new Date().toISOString(),
-    })))
+    setMessages(cloneInitialMessages())
     setPendingProposals([])
     messageIdSequenceRef.current = 0
     timelineOrderSequenceRef.current = 0

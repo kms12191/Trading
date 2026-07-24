@@ -259,10 +259,9 @@ export default function News({ isLoggedIn, userEmail, handleLogout, hideHeader =
                 <button
                   type="button"
                   onClick={() => setIsCategoryGuideOpen((prev) => !prev)}
-                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full border border-ai-cyan/35 bg-ai-cyan/10 px-3 text-[11px] font-black text-ai-cyan transition hover:border-ai-cyan hover:bg-ai-cyan/15 hover:text-cyan-200"
+                  className="inline-flex h-9 shrink-0 items-center justify-center rounded border border-ai-cyan/35 bg-[#07111f] px-3 text-[11px] font-black text-ai-cyan shadow-[0_0_10px_rgba(0,224,255,0.06)] transition hover:border-ai-cyan hover:bg-ai-cyan/10 hover:text-cyan-100 active:bg-ai-cyan/15"
                 >
                   <span>{isCategoryGuideOpen ? '접기' : '펼치기'}</span>
-                  <span className="text-[10px] leading-none">{isCategoryGuideOpen ? '▲' : '▼'}</span>
                 </button>
               </div>
             </div>

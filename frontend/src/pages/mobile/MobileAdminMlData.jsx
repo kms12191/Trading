@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useMemo, useState } from 'react'
 import Header from '../../components/Header.jsx'
 import { supabase } from '../../supabaseClient'
 import MobileAdminInquiries from './MobileAdminInquiries.jsx'
+import MobileAdminAiFundDashboard from './MobileAdminAiFundDashboard.jsx'
 import AdminSymbolReconciliation from '../AdminSymbolReconciliation.jsx'
 import AdminUsers from '../AdminUsers.jsx'
 import {
@@ -992,7 +993,7 @@ export default function AdminMlData({ isLoggedIn, userEmail, handleLogout, userP
         )}
 
         {adminTab === 'ai-fund' && (
-          <AdminAiFundDashboard userId={userProfile?.id} />
+          <MobileAdminAiFundDashboard userId={userProfile?.id} />
         )}
       </main>
 

@@ -8,7 +8,7 @@ import MobileLogin from '../pages/mobile/MobileLogin.jsx'
 import MobileInquiry from '../pages/mobile/MobileInquiry.jsx'
 import MobileMarketRankings from '../pages/mobile/MobileMarketRankings.jsx'
 import MobileAdminMlData from '../pages/mobile/MobileAdminMlData.jsx'
-import AdminAiFundDashboard from '../pages/AdminAiFundDashboard.jsx'
+import MobileAdminAiFundDashboard from '../pages/mobile/MobileAdminAiFundDashboard.jsx'
 import MobileAssetDetail from '../pages/mobile/MobileAssetDetail.jsx'
 import MobileSearchNotFound from '../pages/mobile/MobileSearchNotFound.jsx'
 import MobileChatbot from '../pages/mobile/MobileChatbot.jsx'
@@ -175,7 +175,7 @@ export default function MobileRoutes({
               <AdminProtectedRoute isLoggedIn={isLoggedIn} userProfile={userProfile}>
                 <div className="min-h-screen bg-obsidian-bg px-3 py-4 font-inter text-[#e2e2ec]">
                   <MobileHeader isLoggedIn={isLoggedIn} handleLogout={handleLogout} />
-                  <AdminAiFundDashboard userId={userProfile?.id} />
+                  <MobileAdminAiFundDashboard userId={userProfile?.id} />
                 </div>
               </AdminProtectedRoute>
             )}

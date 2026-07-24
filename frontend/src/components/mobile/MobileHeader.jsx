@@ -16,7 +16,24 @@ export default function MobileHeader({ isLoggedIn, handleLogout }) {
       className="grid h-8 w-8 place-items-center rounded-full border border-ai-cyan/40 bg-ai-cyan/10 text-ai-cyan transition active:bg-ai-cyan/20"
       aria-label="Open chatbot"
     >
-      <span className="material-symbols-outlined text-[18px] leading-none">chat_bubble</span>
+      <svg
+        className="h-[19px] w-[19px]"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M6.25 6.5h9.5a3.25 3.25 0 0 1 3.25 3.25v3.5a3.25 3.25 0 0 1-3.25 3.25h-4.2l-3.15 2.75v-2.75H6.25A3.25 3.25 0 0 1 3 13.25v-3.5A3.25 3.25 0 0 1 6.25 6.5Z"
+        />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 11.2H1.75v2.6H3" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 11.2h1.25v2.6H19" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M17.4 16.1v1.15c0 1.05-.75 1.95-1.78 2.14l-2.22.41" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 11.7h.01M11 11.7h.01M14.5 11.7h.01" />
+      </svg>
     </button>
   )
 
